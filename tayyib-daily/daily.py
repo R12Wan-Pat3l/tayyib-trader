@@ -71,6 +71,7 @@ def main(argv=None):
     p.add_argument("--no-news", action="store_true", help="skip the news step (faster)")
     p.add_argument("--picks", type=int, default=3, help="how many top PASS stocks to highlight")
     p.add_argument("--no-rebuild", action="store_true", help="never rebuild the halal list automatically")
+    p.add_argument("--no-track", action="store_true", help="do not record the list in the Excel tracker")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
@@ -169,6 +170,7 @@ def main(argv=None):
                 "entry": pl.get("entry"), "stop": pl.get("stop"),
                 "stop_pct": round((pl["entry"] - pl["stop"]) / pl["entry"] * 100, 1) if pl else None,
                 "target": pl.get("target"), "valid_until": pl.get("valid_until"),
+                "max_hold_days": pl.get("max_hold_days"),
                 "qty": o.get("qty"), "position_rs": o.get("position_value_rs"),
                 "loss_at_stop_rs": o.get("loss_at_stop_rs"), "gain_at_target_rs": o.get("gain_at_target_rs"),
                 "rr_net": o.get("reward_risk_net"),
@@ -188,6 +190,19 @@ def main(argv=None):
            "universe_updated": uni.get("updated"), "scanned": scan["scanned"], "rows": rows, "notes": notes,
            "top_picks": [r["symbol"] for r in rows if r["risk"] == "PASS"][: max(a.picks, 0)]}
     tc.write_json(os.path.join("daily", today + ".json"), out)
+    # Paper tracker: record today's list, follow every earlier one on the latest prices, write Excel.
+    out["tracker"] = None
+    if not a.no_track and os.path.exists(os.path.join(ROOT, "tayyib-tracker", "tracker.py")):
+        try:
+            run("tayyib-tracker", "tracker.py", "add", "--from-daily", today)
+            run("tayyib-tracker", "tracker.py", "update")
+            ex = run("tayyib-tracker", "tracker.py", "export")
+            rep = run("tayyib-tracker", "tracker.py", "report")
+            earlier = [r for r in rep["recent"] if r["date"] < today][:10]
+            out["tracker"] = {"xlsx": ex["xlsx"], "all": rep["summary"]["all"], "earlier": earlier}
+            tc.write_json(os.path.join("daily", today + ".json"), out)
+        except RuntimeError as e:
+            notes.append("tracker update failed: %s" % str(e)[:120])
     md = render_md(out)
     with open(tc.path("daily", today + ".md"), "w", encoding="utf-8") as f:
         f.write(md)
@@ -240,6 +255,26 @@ def render_md(out):
         L += ["Entry is a buy-stop: it only buys if price trades up to it, valid until the date in the plan.",
               "Next: `tayyib-broker/ticket.py show SYMBOL` for the exact Kite / Groww steps. Place it yourself "
               "only after you say yes, then record the fill with `ticket.py placed`.", ""]
+    t = out.get("tracker")
+    if t:
+        L.append("## How earlier lists did (paper, nothing bought)")
+        if t["earlier"]:
+            L += ["| list date | stock | setup | check | status | bought | exit | result |", "|---|---|---|---|---|---|---|---|"]
+            for r in t["earlier"]:
+                L.append("| %s | %s | %s %s | %s | %s | %s | %s | %s |" % (
+                    r["date"], r["symbol"], r["mode"], r["setup"], r.get("check") or "-", r["status"],
+                    r.get("filled") or "-", r.get("exited") or "-",
+                    "-" if r.get("r") is None else "%+.2fR" % r["r"]))
+        else:
+            L.append("Nothing tracked from earlier days yet: results appear from the next trading day.")
+        s = t["all"]
+        L.append("")
+        L.append("All tracked so far: %d listed, %d bought, %d closed (%d target, %d stop), win rate %s, "
+                 "average %s. Full record: `%s`." % (
+                     s["listed"], s["triggered"], s["closed"], s["target"], s["stop"],
+                     "-" if s["win_rate_pct"] is None else "%s%%" % s["win_rate_pct"],
+                     "-" if s["avg_r"] is None else "%+.2fR" % s["avg_r"], "trader/tracker.xlsx"))
+        L.append("")
     for n in out["notes"]:
         L.append("Note: " + n)
     L += ["", tc.DISCLAIMER]

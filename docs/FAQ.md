@@ -17,6 +17,7 @@
 - [What do PASS, WARN and BLOCK mean?](#what-do-pass-warn-and-block-mean)
 - [What is "R"?](#what-is-r)
 - [Can I trust the time machine?](#can-i-trust-the-time-machine)
+- [How do I know if the daily list actually works?](#how-do-i-know-if-the-daily-list-actually-works)
 - [Does it place orders? Can it connect to Zerodha or Groww?](#does-it-place-orders-can-it-connect-to-zerodha-or-groww)
 - [How accurate are the charges?](#how-accurate-are-the-charges)
 - [When should I run it?](#when-should-i-run-it)
@@ -173,6 +174,13 @@ Treat it as a reality check, not a forecast. It replays the plan 10,000 times us
 two years of daily moves, plus every past time the same setup appeared on that stock. If there are fewer
 than 8 past trades, it says "too few". Results days, news and market crashes can do things the last two
 years never did.
+
+### How do I know if the daily list actually works?
+Open `trader/tracker.xlsx`. Every stock each list showed is followed on the real prices afterwards,
+using the same rules as the plan (buy only if the price reaches "buy above", stop first if both are
+touched on one day, charges included). The Summary sheet gives the win rate and average R, split by
+PASS / WARN / BLOCK, so you can also see whether the risk check helped. It is a paper record: nothing
+is bought. A few weeks are noise, so judge it after 30 or more closed trades.
 
 ### Does it place orders? Can it connect to Zerodha or Groww?
 No. There is no broker connection, and no code that places orders. You get a ticket with the exact steps,

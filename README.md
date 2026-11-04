@@ -14,6 +14,8 @@ market closes. You decide, and you place the order yourself.
 - **Sizes it for you:** how many shares, so one bad trade loses at most 1% of your money, after all
   Indian charges (STT, stamp duty, GST, DP).
 - **Tests it on the past** before you risk anything, and tells you honestly if the odds are poor.
+- **Keeps score in Excel.** Every pick is followed afterwards: did it reach the buy price, then the target
+  or the stop? So you can check the list honestly before using real money.
 - **Never places an order.** You get the steps for Zerodha or Groww and do it yourself.
 
 ## Is it safe to use?
@@ -43,14 +45,16 @@ market closes. You decide, and you place the order yourself.
    ```
 3. Every trading day after 3:30 PM, ask: **"Give me today's halal list"**.
 4. Pick a stock you like, ask **"show me the ticket for SYMBOL"**, and place it yourself in Kite or Groww.
+5. Open `tayyib-live\trader\tracker.xlsx` any time to see how every earlier pick did.
 
 The first run builds the halal list (about 5 minutes). After that it refreshes itself every month.
 
-## The 14 skills
+## The 15 skills
 
 | skill | in one line |
 |---|---|
 | `tayyib-daily` | **The one you use:** today's halal list with entry, stop, target, quantity and PASS/WARN/BLOCK |
+| `tayyib-tracker` | **Excel record:** did each earlier pick hit its target or its stop? Win rate and average result |
 | `tayyib-halal` | Builds and checks the halal (Shariah-screened) stock list |
 | `tayyib-scanner` | Finds trade setups on halal stocks |
 | `tayyib-news` | Indian market news per stock, with HALAL-WATCH flags |

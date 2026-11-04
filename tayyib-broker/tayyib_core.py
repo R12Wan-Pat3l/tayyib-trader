@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 # ---------------------------------------------------------------------------
@@ -644,6 +644,82 @@ def plan_trade(sig, cfg, entry=None):
                          "exit on a weekly close below the 200-day average",
                          "re-check halal status every quarter (results can change the ratios)"]
     return plan
+
+
+# ---------------------------------------------------------------------------
+# Paper tracking: what actually happened to a planned trade
+# ---------------------------------------------------------------------------
+
+FINAL_OUTCOMES = ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT", "NOT TRIGGERED")
+
+
+def trade_outcome(bars, plan, cfg, today=None):
+    """Follow a plan on the real daily bars after its signal date, with the plan's own rules:
+    buy-stop fills at max(open, entry) within valid_until; a fill day that touches the stop and
+    closes under the entry is a stop; gaps through the stop fill at the open; a day touching both
+    stop and target counts as the stop; swing trades move the stop to breakeven at +1R; time stop
+    after max_hold_days. -> dict with status, dates, prices, R and rupee P&L after charges."""
+    today = today or today_ist().isoformat()
+    sig, entry, stop, target = plan["date"], float(plan["entry"]), float(plan["stop"]), float(plan["target"])
+    valid_until, max_days = plan.get("valid_until") or sig, int(plan.get("max_hold_days") or 20)
+    qty = int(plan.get("qty") or 0)
+    after = [b for b in bars if b["date"] > sig]
+    out = {"status": "WAITING", "filled": None, "fill": None, "exited": None, "exit": None,
+           "days": None, "r": None, "pnl_rs": None, "last": after[-1]["close"] if after else None,
+           "checked": today}
+    k_fill = None
+    for k, b in enumerate(after):
+        if b["date"] > valid_until:
+            break
+        if b["high"] >= entry:
+            k_fill = k
+            break
+    if k_fill is None:
+        last_date = after[-1]["date"] if after else sig
+        if last_date >= valid_until or today > valid_until:
+            out["status"] = "NOT TRIGGERED"
+        return out
+    b = after[k_fill]
+    fill = max(b["open"], entry)
+    risk = fill - stop
+    out.update(filled=b["date"], fill=round(fill, 2))
+    if risk <= 0:
+        out.update(status="STOP", exited=b["date"], exit=round(b["open"], 2), days=1)
+    else:
+        cur_stop, res, n = stop, None, 0
+        if b["low"] <= stop and b["close"] < fill:
+            res = ("STOP", stop, b["date"], 1)
+        else:
+            for x in after[k_fill + 1:]:
+                n += 1
+                o, h, l, c = x["open"], x["high"], x["low"], x["close"]
+                hit = "BREAKEVEN" if cur_stop >= fill else "STOP"
+                if o <= cur_stop:
+                    res = (hit, o, x["date"], n + 1)
+                elif o >= target:
+                    res = ("TARGET", o, x["date"], n + 1)
+                elif l <= cur_stop:
+                    res = (hit, cur_stop, x["date"], n + 1)
+                elif h >= target:
+                    res = ("TARGET", target, x["date"], n + 1)
+                elif plan.get("mode") == "swing" and h >= fill + risk and cur_stop < fill:
+                    cur_stop = fill
+                if not res and n + 1 >= max_days:
+                    res = ("TIME EXIT", c, x["date"], n + 1)
+                if res:
+                    break
+        if res:
+            out.update(status=res[0], exit=round(res[1], 2), exited=res[2], days=res[3])
+            px = res[1]
+        else:
+            out.update(status="OPEN", days=len(after) - k_fill)
+            px = after[-1]["close"]
+        q = qty or 100
+        pnl = q * (px - fill) - round_trip(fill, px, q, cfg)
+        out["r"] = round(pnl / (q * risk), 2)
+        if qty:
+            out["pnl_rs"] = round(pnl, 2)
+    return out
 
 
 # ---------------------------------------------------------------------------

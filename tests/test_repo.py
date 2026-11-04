@@ -11,8 +11,8 @@ SKILLS = sorted(d for d in os.listdir(ROOT) if d.startswith("tayyib-"))
 
 
 class Repo(unittest.TestCase):
-    def test_fourteen_skills(self):
-        self.assertEqual(len(SKILLS), 14)
+    def test_fifteen_skills(self):
+        self.assertEqual(len(SKILLS), 15)
 
     def test_skill_md_frontmatter(self):
         for d in SKILLS:

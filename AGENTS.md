@@ -51,7 +51,7 @@ Every script accepts `--json` (after the subcommand, where there is one) for mac
 
 ## MCP
 
-`python3 mcp/server.py` is a stdio MCP server exposing 17 read/analyse/plan tools with no order
+`python3 mcp/server.py` is a stdio MCP server exposing 18 read/analyse/plan tools with no order
 placement. See the README for client configuration.
 
 ## Developing

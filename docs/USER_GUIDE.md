@@ -65,6 +65,18 @@ After this, the daily list refreshes it automatically every 30 days.
    - When it fills, add the **stop-loss and target** (in Kite: GTT, OCO).
 5. Tell Claude your fill: **"I bought SYMBOL at 1004.50"**. It records it in your journal.
 
+### Check how the earlier picks did (the Excel tracker)
+Every daily list is recorded automatically and followed on the real prices after that. Open
+**`tayyib-live\trader\tracker.xlsx`** in Excel:
+- **Tracker** sheet: one row per pick, showing buy above, stop, target, then what happened. The Status
+  column is WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN or TIME EXIT, followed by the bought
+  date, exit date and Result R.
+- **Summary** sheet: win rate and average result, split by PASS / WARN / BLOCK, by swing / delivery and by setup.
+- The bottom of each daily list also shows "How earlier lists did".
+
+Or ask Claude: **"How did yesterday's picks do?"**. This is paper only: nothing is bought. Judge it after
+30 or more closed trades, not after a few days.
+
 ### While you hold a trade
 - **"Check my alerts"**: tells you if a stop, target or time limit was hit.
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.
@@ -104,8 +116,9 @@ On an NSE holiday there is no new price data, so it repeats the previous day's l
 
 ## Before real money
 
-Paper trade for 4 to 6 weeks: follow the list, record every trade with "I bought" / "I sold", but
-don't put money in. Then ask **"show my positions"** and look at your real win rate and average R.
+Let the Excel tracker run for 4 to 6 weeks: it follows every pick for you, without any money. Check the
+Summary sheet, especially the PASS rows. If you also want to practise yourself, record your own trades
+with "I bought" / "I sold", without putting money in. Then ask **"show my positions"** and look at your real win rate and average R.
 The time machine shows past odds; your own journal shows whether *you* can follow the plan.
 
 ## Something not working?

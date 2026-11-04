@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.4 (2026-11-04)
+
+- New skill `tayyib-tracker`: a paper record in **Excel**. Every stock each daily list shows (PASS,
+  WARN and BLOCK) is followed on the real prices with the plan's own rules: did it reach the buy
+  price, then the target or the stop first? Result in R and rupees after charges. Writes
+  `trader/tracker.xlsx` (Tracker, Summary and Read me sheets; standard library only) and `tracker.csv`.
+- The daily list records itself in the tracker, follows earlier rows and shows "How earlier lists
+  did" at the bottom (`--no-track` to skip).
+- MCP tool `tracker_report` (18 tools, none place orders). Docs updated.
+
 ## v0.1.3 (2026-11-04)
 
 - Daily list builds the halal list on the first run and rebuilds it automatically when it is 30 days

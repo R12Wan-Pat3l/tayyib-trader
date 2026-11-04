@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 PROTOCOL = "2025-06-18"
 
 
@@ -38,6 +38,9 @@ TOOLS = {
                  "no_news": {"type": "boolean"}}), "tayyib-daily/daily.py",
               lambda a: (["--mode", a["mode"]] if a.get("mode") else []) + (["--top", str(a["top"])] if a.get("top") else [])
               + (["--no-news"] if a.get("no_news") else [])),
+    "tracker_report": ("Paper record of every earlier daily list: did each stock reach its buy price, then the "
+                       "target or the stop? Win rate, average R and P&L by check, mode and setup.",
+                       S(), "tayyib-tracker/tracker.py", lambda a: ["report"]),
     "halal_check": ("Halal (Shariah) status of NSE stocks from the screened universe, with reasons and "
                     "TASIS-style ratios. live=true screens symbols not in the universe.",
                     S({"symbols": SYM, "live": {"type": "boolean"}}, ["symbols"]), "tayyib-halal/halal.py",

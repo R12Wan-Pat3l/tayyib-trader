@@ -13,9 +13,11 @@ Think of it as a careful assistant who does your homework every evening:
 6. Size              How many shares, so you lose at most 1% if it goes wrong?
 7. Safety check      Does it break any of your limits or rules?  PASS / WARN / BLOCK
 8. Ticket            The exact steps to place it in Zerodha or Groww. YOU decide and place it.
+9. Tracker           Every later day: did each earlier pick reach its buy price, then target or stop?
+                     Saved in Excel (trader/tracker.xlsx).
 ```
 
-Steps 1 to 7 run automatically when you ask for **today's halal list**. Step 8 is always yours.
+Steps 1 to 7 and 9 run automatically when you ask for **today's halal list**. Step 8 is always yours.
 
 **What a row in the list means**
 
@@ -54,6 +56,7 @@ tayyib-timemachine-> trader/sim.json
 tayyib-budget     -> trader/orders.json
 tayyib-risk       -> statuses in trader/orders.json, trader/risk.json
 tayyib-broker     -> trader/positions.json (your journal)
+tayyib-tracker    -> trader/tracker.json, trader/tracker.xlsx, trader/tracker.csv
 tayyib-daily      -> runs all of the above, writes trader/daily/DATE.md and .json
 ```
 

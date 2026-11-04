@@ -15,7 +15,7 @@ For developers and anyone who wants to run the scripts directly. For the plain-w
 |---|---|
 | Claude Code plugin | `/plugin marketplace add R12Wan-Pat3l/tayyib-trader`, then `/plugin install tayyib-trader@tayyib-trader`. Update: `claude plugin update tayyib-trader@tayyib-trader` |
 | Plain skills | `git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git`, then copy the `tayyib-*` folders to `~/.claude/skills/`. Each folder is self-contained, but `tayyib-daily` needs the others next to it |
-| Any MCP client | `python3 mcp/server.py` over stdio. 17 tools, none of which place orders. Config below |
+| Any MCP client | `python3 mcp/server.py` over stdio. 18 tools, none of which place orders. Config below |
 | Other AI agents (Codex, Gemini CLI, Aider...) | Point them at [AGENTS.md](../AGENTS.md) |
 | No AI | Run the scripts. Each one has `--help` and `--json` |
 
@@ -59,6 +59,7 @@ All state lives in `./trader/` (override with `TAYYIB_DIR`):
 | results | `tayyib-results/results.py SYM` | Yahoo quarterly + annual | `results/SYM.json` |
 | insider | `tayyib-insider/insider.py SYM` | NSE PIT, bulk/block deals | `insider.json` |
 | purify | `tayyib-purify/purify.py add-dividend \| report` | universe ratios, positions | `purification.json` |
+| tracker | `tayyib-tracker/tracker.py add --from-daily DATE \| update \| report \| export` | daily lists, bars | `tracker.json`, `tracker.xlsx`, `tracker.csv` |
 | **daily** | `tayyib-daily/daily.py [--mode] [--top 10] [--picks 3] [--no-news] [--no-rebuild]` | all of the above | `daily/DATE.md`, `daily/DATE.json` |
 
 What `daily` does:
@@ -68,6 +69,9 @@ What `daily` does:
 - Orders are sized best expectancy first.
 - It then risk-checks the whole orders file, so its statuses always match a plain `check.py`.
 - Earlier unplaced tickets are removed, and it reports which ones. Placed orders are never touched.
+- Finally it records the list in the tracker, follows every unfinished earlier row (`tc.trade_outcome`)
+  and writes the Excel file. Use `--no-track` to skip this. The `.xlsx` file is written with the standard
+  library (zipfile plus SpreadsheetML), with 3 sheets: Tracker, Summary and Read me.
 
 ## Rules in code (not configurable)
 

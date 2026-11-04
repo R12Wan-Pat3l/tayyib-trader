@@ -105,6 +105,10 @@ A 2R target nets about 1.7R once charges are counted, so the default minimum net
 
 ## Install
 
+**New here, or sharing this with someone who doesn't code?** Start with
+[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): three simple ways to use it, step by step.
+
+
 **Claude Code (plugin):**
 
 ```
@@ -218,6 +222,12 @@ the fixtures, run `tests/make_fixtures.py`. For live checks against real data, s
 - Automatic import of the official Nifty Shariah constituent lists
 - BSE-only stocks, weekly-bar setups for delivery, NSE holiday calendar
 - Zakat on holdings (a calculator, alongside purification)
+
+## Contributing
+
+Only the maintainer can change this repository. Suggestions come as pull requests from a fork and
+are merged only after review. See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules every change must keep,
+and [SECURITY.md](SECURITY.md) to report a problem privately.
 
 ## Credits
 

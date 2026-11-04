@@ -46,6 +46,12 @@ python3 "${CLAUDE_SKILL_DIR}/halal.py" override ABC --status excluded --note "sc
 
 Statuses: `compliant`, `review`, `excluded`, `unknown` (data missing). Only `compliant` trades by default.
 
+The income test shows two figures: **reported interest** (what the company declared) and **+ assumed
+8%** on its short-term investments (the TASIS-style estimate of returns on interest-bearing funds). When
+reported interest passes and only the assumption tips a stock over, it goes to `review` with that
+reason. The real figure is in the annual report's "Other income" note (gains on mutual funds and
+treasury investments). In the first live check, 9 of 9 such stocks were under 3% on their actual reports.
+
 ## Comparing with a trusted list
 
 `compare` sorts disagreements into: (1) we say compliant, they do not (fix these first, usually with

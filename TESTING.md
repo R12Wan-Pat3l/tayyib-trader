@@ -14,7 +14,7 @@ git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git
 cd tayyib-trader
 python3 --version                                 # 3.8 or newer
 # Windows: if python3/python open the Microsoft Store, use `py` instead everywhere below
-python3 -m unittest discover -s tests             # expect: Ran 88 tests ... OK
+python3 -m unittest discover -s tests             # expect: Ran 89 tests ... OK
 mkdir -p ~/tayyib-live && cd ~/tayyib-live        # your data folder; trader/ is created here
 export T=~/tayyib-trader                          # wherever you cloned it (Windows: set T=...)
 ```

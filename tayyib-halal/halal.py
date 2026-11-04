@@ -83,13 +83,22 @@ def cmd_build(a, cfg):
     print("Only 'compliant' stocks reach the scanner. " + tc.DISCLAIMER)
 
 
-def show(rec):
-    line = "%-12s %-10s %s" % (rec["symbol"], rec["status"].upper(), rec.get("name", ""))
-    print(line)
+LABELS = (("debt_to_assets_pct", "debt / total assets", "max_debt_to_assets_pct"),
+          ("interest_income_pct", "reported interest / total income", "max_noncompliant_income_pct"),
+          ("noncompliant_income_pct", "  + assumed 8% on short-term investments", "max_noncompliant_income_pct"),
+          ("cash_receivables_to_assets_pct", "cash + receivables / total assets", "max_cash_receivables_to_assets_pct"))
+
+
+def show(rec, cfg=None):
+    cfg = cfg or tc.load_config()
+    print("%-12s %-10s %s" % (rec["symbol"], rec["status"].upper(), rec.get("name", "")))
     for r in rec.get("reasons", []):
         print("    - %s" % r)
-    for k, v in (rec.get("ratios") or {}).items():
-        print("    %s: %s%%" % (k, v))
+    ratios = rec.get("ratios") or {}
+    for key, label, lim in LABELS:
+        if key in ratios:
+            v, L = ratios[key], cfg["halal"][lim]
+            print("    %-44s %6.2f%%  (limit %.0f%%) %s" % (label, v, L, "ok" if v < L else "OVER"))
 
 
 def cmd_check(a, cfg):
@@ -115,7 +124,7 @@ def cmd_check(a, cfg):
     if a.json:
         return tc.print_json(out)
     for rec in out:
-        show(rec)
+        show(rec, cfg)
     age = tc.universe_age_days(uni)
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
         print("warning: the halal universe is %d days old; rebuild it" % age)
@@ -184,13 +193,21 @@ def cmd_compare(a, cfg):
     for r in we_looser:
         print("   %-12s %-30s ours %-9s %s" % (r["symbol"], r["name"][:30], r["ours"], r["ratios"]))
     print("\n2. THEY SAY COMPLIANT, WE BLOCK (%d): the safe side; often missing data or the income test" % len(we_stricter))
+    if we_stricter:
+        print("   %-12s %-9s %8s %9s %9s %8s  %s" % ("symbol", "ours", "debt%", "reported%", "+assumed%", "cash%", "why"))
     for r in we_stricter:
-        print("   %-12s %-30s ours %-9s %s" % (r["symbol"], r["name"][:30], r["ours"], "; ".join(r["reasons"])[:90]))
+        q = r["ratios"] or {}
+        f = lambda k: "-" if q.get(k) is None else "%.2f" % q[k]
+        why = "assumed 8% return only" if any("only the assumed 8%" in x for x in r["reasons"]) else \
+              "; ".join(r["reasons"])[:60]
+        print("   %-12s %-9s %8s %9s %9s %8s  %s" % (r["symbol"], r["ours"], f("debt_to_assets_pct"),
+              f("interest_income_pct"), f("noncompliant_income_pct"), f("cash_receivables_to_assets_pct"), why))
     if not_in_ours:
         print("\n3. ON THEIR LIST, NOT IN OUR UNIVERSE (%d): outside the Nifty 500 or not built yet: %s"
               % (len(not_in_ours), ", ".join(x["symbol"] for x in not_in_ours[:30])))
     income_only = [r for r in we_stricter if r["ours"] == "review"
-                   and any("only the income test failed" in x for x in r["reasons"])]
+                   and any(("only the assumed 8%" in x) or ("reported interest is over the limit by under 2x" in x)
+                           or ("only the income test failed" in x) for x in r["reasons"])]
     if a.accept_income_reviews and income_only:
         ov = tc.read_json("halal_overrides.json", {}) or {}
         for r in income_only:

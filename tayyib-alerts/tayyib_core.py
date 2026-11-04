@@ -790,9 +790,15 @@ def financial_screen(f, cfg):
     else:
         missing.append("debt/total assets")
     if rev:
-        nci = (interest or 0.0) + sti * h["noncompliant_investment_return_pct"] / 100.0
+        assumed = sti * h["noncompliant_investment_return_pct"] / 100.0
+        nci = (interest or 0.0) + assumed
         total_income = rev + (interest or 0.0)
+        # Two figures, shown side by side:
+        #   interest_income_pct      interest the company actually reported
+        #   noncompliant_income_pct  that plus an ASSUMED 8% return on short-term investments (TASIS-style)
+        ratios["interest_income_pct"] = round((interest or 0.0) / total_income * 100, 2)
         ratios["noncompliant_income_pct"] = round(nci / total_income * 100, 2)
+        ratios["assumed_return_pct"] = round(assumed / total_income * 100, 2)
         if interest is None:
             reasons.append("interest income not reported: non-compliant income ratio is a lower bound")
     else:
@@ -805,19 +811,30 @@ def financial_screen(f, cfg):
     if ratios.get("debt_to_assets_pct", 0) >= h["max_debt_to_assets_pct"]:
         fail.append("debt is %.1f%% of total assets (limit %.0f%%)"
                     % (ratios["debt_to_assets_pct"], h["max_debt_to_assets_pct"]))
-    if ratios.get("noncompliant_income_pct", 0) >= h["max_noncompliant_income_pct"]:
-        fail.append("non-compliant income is %.2f%% of total income (limit %.0f%%)"
-                    % (ratios["noncompliant_income_pct"], h["max_noncompliant_income_pct"]))
+    lim = h["max_noncompliant_income_pct"]
+    income_fail = ratios.get("noncompliant_income_pct", 0) >= lim
+    assumption_only = income_fail and ratios.get("interest_income_pct", 0) < lim
+    if income_fail:
+        fail.append("non-compliant income is %.2f%% of total income (limit %.0f%%): reported interest "
+                    "%.2f%% + assumed 8%% return on short-term investments %.2f%%"
+                    % (ratios["noncompliant_income_pct"], lim, ratios["interest_income_pct"],
+                       ratios["assumed_return_pct"]))
     if ratios.get("cash_receivables_to_assets_pct", 0) >= h["max_cash_receivables_to_assets_pct"]:
         fail.append("cash + receivables are %.1f%% of total assets (limit %.0f%%)"
                     % (ratios["cash_receivables_to_assets_pct"], h["max_cash_receivables_to_assets_pct"]))
-    income_only = (len(fail) == 1 and fail[0].startswith("non-compliant income")
-                   and ratios["noncompliant_income_pct"] < 2 * h["max_noncompliant_income_pct"])
-    if income_only:
-        # Free data often lumps treasury/other income into "interest income", so a near miss on
-        # this test alone goes to review (still blocked by default), not straight to excluded.
+    only_income = len(fail) == 1 and income_fail
+    if only_income and assumption_only:
+        # Reported interest passes; only the assumed return on investments tips it over. The real
+        # return on those investments is in the annual report's "Other income" note.
         status = "review"
-        reasons = fail + ["only the income test failed, by under 2x the limit: verify with an "
+        reasons = fail + ["reported interest %.2f%% passes; only the assumed 8%% return pushes it over. "
+                          "Check the annual report's Other income note (treasury / mutual fund gains)"
+                          % ratios["interest_income_pct"]] + reasons
+    elif only_income and ratios["noncompliant_income_pct"] < 2 * lim:
+        # Reported interest itself is over the limit, but by under 2x: free data may lump other
+        # income into "interest". Review (still blocked by default), not straight to excluded.
+        status = "review"
+        reasons = fail + ["reported interest is over the limit by under 2x: verify with an "
                           "official Shariah list or the annual report"] + reasons
     elif fail:
         status = "excluded"

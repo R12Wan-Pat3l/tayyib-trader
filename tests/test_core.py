@@ -98,10 +98,29 @@ class Halal(unittest.TestCase):
         # 'Capital Goods' is an industry, not a word in the name: no false positive
         self.assertEqual(tc.business_screen("ALFA", "Alfa Industries Ltd", "Capital Goods")[0], "pass")
 
-    def _f(self, debt, assets, cash, recv, interest, rev):
+    def _f(self, debt, assets, cash, recv, interest, rev, sti=None):
         d = "2026-03-31"
-        return {"TotalDebt": [(d, debt)], "TotalAssets": [(d, assets)], "CashAndCashEquivalents": [(d, cash)],
-                "AccountsReceivable": [(d, recv)], "InterestIncome": [(d, interest)], "TotalRevenue": [(d, rev)]}
+        f = {"TotalDebt": [(d, debt)], "TotalAssets": [(d, assets)], "CashAndCashEquivalents": [(d, cash)],
+             "AccountsReceivable": [(d, recv)], "InterestIncome": [(d, interest)], "TotalRevenue": [(d, rev)]}
+        if sti is not None:
+            f["OtherShortTermInvestments"] = [(d, sti)]
+        return f
+
+    def test_assumed_return_shown_separately(self):
+        cfg = tc.DEFAULT_CONFIG
+        # Sun-Pharma-like: reported interest 1.5%, assumed 8% on investments adds 3.3 points
+        r = tc.financial_screen(self._f(10, 100, 10, 10, 1.5, 98.5, sti=41.25), cfg)
+        self.assertEqual(r["ratios"]["interest_income_pct"], 1.5)
+        self.assertEqual(r["ratios"]["noncompliant_income_pct"], 4.8)
+        self.assertEqual(r["ratios"]["assumed_return_pct"], 3.3)
+        self.assertEqual(r["status"], "review")
+        self.assertTrue(any("only the assumed 8%" in x for x in r["reasons"]))
+        # assumption-only stays review (blocked) even when far over: never compliant automatically
+        self.assertEqual(tc.financial_screen(self._f(10, 100, 10, 10, 1, 99, sti=200), cfg)["status"], "review")
+        # reported interest itself far over the limit -> excluded
+        self.assertEqual(tc.financial_screen(self._f(10, 100, 10, 10, 8, 92, sti=50), cfg)["status"], "excluded")
+        # a debt failure is never softened by the income logic
+        self.assertEqual(tc.financial_screen(self._f(30, 100, 10, 10, 1, 99, sti=50), cfg)["status"], "excluded")
 
     def test_financial_limits(self):
         cfg = tc.DEFAULT_CONFIG

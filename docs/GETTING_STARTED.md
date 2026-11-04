@@ -10,7 +10,8 @@ Before you start you need:
 - for Way A or B: a Claude account (https://claude.ai)
 
 Check Python works: open **Terminal** (Mac/Linux) or **Command Prompt** (Windows) and type
-`python3 --version` (Windows: `python --version`). You should see `Python 3.x.x`.
+`python3 --version`. On Windows, if that opens the Microsoft Store, type `py --version` instead and
+use `py` wherever this guide says `python3`. You should see `Python 3.x.x`.
 
 ---
 
@@ -45,7 +46,7 @@ Claude will stop at the ticket and ask you. You place the order in Kite or Groww
    button, then **Download ZIP**, and unzip it somewhere you'll remember (for example `Documents`).
 2. Make a folder for your data, for example `Documents/my-trading`.
 3. In Claude Desktop open **Settings, Developer, Edit Config** and paste this (change the two paths
-   to your real folders; on Windows use `python` and paths like `C:\\Users\\you\\Documents\\...`):
+   to your real folders; on Windows use `py` and paths like `C:\\Users\\you\\Documents\\...`):
    ```json
    {
      "mcpServers": {
@@ -63,7 +64,7 @@ Claude will stop at the ticket and ask you. You place the order in Kite or Groww
 
 1. Download and unzip as in Way B, step 1.
 2. Open a terminal in your data folder and run the steps one by one (replace `T` with the path to
-   the unzipped folder; on Windows use `python` instead of `python3`):
+   the unzipped folder; on Windows use `py` instead of `python3`):
    ```
    python3 T/tayyib-halal/halal.py build
    python3 T/tayyib-scanner/scan.py --mode swing

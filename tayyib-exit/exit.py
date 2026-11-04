@@ -19,9 +19,12 @@ def signal_for(sym, setup, cfg):
     ent = (tc.read_json("entries.json", {}) or {}).get(sym)
     if ent and ent.get("signal") and (not setup or ent["setup"] == setup):
         return ent["signal"], ent
-    for c in (tc.read_json("scan.json", {}) or {}).get("candidates", []):
-        if c["symbol"] == sym and (not setup or c["setup"] == setup):
-            return c, None
+    hits = [c for c in (tc.read_json("scan.json", {}) or {}).get("candidates", [])
+            if c["symbol"] == sym and (not setup or c["setup"] == setup)]
+    if hits:
+        best = dict(max(hits, key=lambda c: c["score"]))
+        best["other_setups"] = sorted({c["setup"] for c in hits} - {best["setup"]})
+        return best, None
     bars, _ = tc.get_daily_bars(sym, use_cache=False)
     sigs = tc.detect_all(bars, "all", setups=[setup] if setup else None, tick=cfg["tick_size"])
     if sigs:
@@ -98,6 +101,8 @@ def main(argv=None):
         if ent and ent.get("status") in ("TRIGGERED",):
             pln["entry_type"] = "already triggered (filled %s)" % ent.get("date")
         pln["created"] = tc.now_ist().isoformat(timespec="minutes")
+        if sig.get("other_setups") and not a.setup:
+            pln["other_setups"] = sig["other_setups"]
         out.append(pln)
         if a.write:
             store["plans"][sym] = pln
@@ -110,6 +115,9 @@ def main(argv=None):
             print("%-12s %s" % (pln["symbol"], pln["error"]))
             continue
         print("%s  %s (%s)" % (pln["symbol"], pln["setup"], pln["mode"]))
+        if pln.get("other_setups"):
+            print("  note: also armed as %s; this plan uses %s (choose with --setup)"
+                  % (", ".join(pln["other_setups"]), pln["setup"]))
         print("  entry   %9.2f  %s, valid until %s" % (pln["entry"], pln["entry_type"], pln["valid_until"]))
         print("  stop    %9.2f  %s  (risk %.2f a share)" % (pln["stop"], pln["stop_method"], pln["risk_per_share"]))
         print("  target  %9.2f  %.1fR" % (pln["target"], pln["reward_risk"]))

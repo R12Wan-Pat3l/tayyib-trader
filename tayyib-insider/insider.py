@@ -75,20 +75,25 @@ def main(argv=None):
     sess = tc.NSESession()
     result = {}
     for s in tc.parse_symbols(a.symbols):
-        rec, errors = {"pit": [], "deals": []}, []
+        rec, errors = {"pit": None, "deals": None}, []
         try:
             rec["pit"] = pit(sess, s, frm, to)
         except (tc.FetchError, ValueError) as e:
             errors.append("pit: %s" % e)
+        got_deals = []
         for kind in ("bulk", "block"):
             try:
-                rec["deals"] += deals(sess, s, frm, to, kind)
+                got_deals.append(deals(sess, s, frm, to, kind))
             except (tc.FetchError, ValueError) as e:
                 errors.append("%s deals: %s" % (kind, e))
-        promo = [x for x in rec["pit"] if "promoter" in (x["category"] or "").lower()]
-        rec["promoter_net_rs"] = round(sum((x["value_rs"] or 0) * (1 if x["side"] == "BUY" else -1 if x["side"] == "SELL" else 0)
-                                           for x in promo), 2)
-        rec["pledges"] = [x for x in rec["pit"] if "pledge" in (x["mode"] or "").lower()]
+        rec["deals"] = sum(got_deals, []) if got_deals else None
+        if rec["pit"] is None:            # source failed: unknown, never "zero"
+            rec["promoter_net_rs"], rec["pledges"] = None, None
+        else:
+            promo = [x for x in rec["pit"] if "promoter" in (x["category"] or "").lower()]
+            rec["promoter_net_rs"] = round(sum((x["value_rs"] or 0) * (1 if x["side"] == "BUY" else -1 if x["side"] == "SELL" else 0)
+                                               for x in promo), 2)
+            rec["pledges"] = [x for x in rec["pit"] if "pledge" in (x["mode"] or "").lower()]
         rec["errors"] = errors
         result[s] = rec
     out = {"asof": tc.now_ist().isoformat(timespec="minutes"), "days": a.days, "symbols": result}
@@ -97,18 +102,23 @@ def main(argv=None):
         return tc.print_json(out)
     for s, rec in result.items():
         print("%s, last %d days" % (s, a.days))
-        print("  insider filings: %d; promoter net %s; pledge events %d"
-              % (len(rec["pit"]), tc.fmt_rs(rec["promoter_net_rs"], 0), len(rec["pledges"])))
-        for x in rec["pit"][:10]:
+        if rec["pit"] is None:
+            print("  insider filings: UNKNOWN (NSE did not answer; this is not the same as none)")
+        else:
+            print("  insider filings: %d; promoter net %s; pledge events %d"
+                  % (len(rec["pit"]), tc.fmt_rs(rec["promoter_net_rs"], 0), len(rec["pledges"])))
+        for x in (rec["pit"] or [])[:10]:
             print("    %-10s %-4s %-28s %-22s %10s sh %14s  %s" % (
                 (x["filed"] or "")[:11], x["side"], (x["person"] or "")[:28], (x["category"] or "")[:22],
                 "-" if x["shares"] is None else "%.0f" % x["shares"], tc.fmt_rs(x["value_rs"], 0), x["mode"] or ""))
-        print("  bulk/block deals: %d" % len(rec["deals"]))
-        for x in rec["deals"][:10]:
+        print("  bulk/block deals: %s" % ("UNKNOWN (NSE did not answer)" if rec["deals"] is None else len(rec["deals"])))
+        for x in (rec["deals"] or [])[:10]:
             print("    %-11s %-5s %-4s %-30s %10s @ %s" % (x["date"], x["kind"], x["side"], (x["client"] or "")[:30],
                                                          "-" if x["qty"] is None else "%.0f" % x["qty"], x["price"]))
         for e in rec["errors"]:
             print("  (%s)" % e)
+        if any("403" in e for e in rec["errors"]):
+            print("  NSE blocks some networks and scripts (HTTP 403). Try later, another network, or check nseindia.com in a browser.")
 
 
 if __name__ == "__main__":

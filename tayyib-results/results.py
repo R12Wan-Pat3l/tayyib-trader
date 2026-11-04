@@ -2,7 +2,8 @@
 """tayyib-results: what changed in the quarterly results, and in the halal ratios.
 
 Quarterly revenue, operating profit, net profit and EPS with QoQ and YoY
-growth, from Yahoo's fundamentals feed (free, unofficial: Indian coverage
+growth (matched by date; '-' when the comparison quarter is missing), from
+Yahoo's fundamentals feed (usually consolidated figures, not labelled by Yahoo) (free, unofficial: Indian coverage
 can have gaps; check the filing on NSE/BSE for anything that matters).
 Then the TASIS-style halal ratios for the latest year against the year
 before, so you see a stock drifting toward the limits before it is dropped.
@@ -24,17 +25,27 @@ def growth(cur, prev):
     return round((cur - prev) / abs(prev) * 100, 1)
 
 
+def months_back(d, m):
+    """'2026-09-30', 3 -> '2026-06' (year-month of the quarter m months earlier)."""
+    y, mo = int(d[:4]), int(d[5:7]) - m
+    while mo <= 0:
+        y, mo = y - 1, mo + 12
+    return "%04d-%02d" % (y, mo)
+
+
 def quarter_table(q, n):
+    """Growth is matched by date, so a quarter missing from the feed gives '-' rather
+    than a growth figure measured against the wrong quarter."""
     dates = sorted({d for rows in q.values() for d, _ in rows})
-    vals = {k: dict(rows) for k, rows in q.items()}
+    vals = {k: {d[:7]: v for d, v in rows} for k, rows in q.items()}
     table = []
-    for k, d in enumerate(dates):
+    for d in dates:
         row = {"quarter": d}
         for t in Q_TYPES:
-            v = vals.get(t, {}).get(d)
+            v = vals.get(t, {}).get(d[:7])
             row[t] = v
-            row[t + "_qoq"] = growth(v, vals.get(t, {}).get(dates[k - 1])) if k >= 1 else None
-            row[t + "_yoy"] = growth(v, vals.get(t, {}).get(dates[k - 4])) if k >= 4 else None
+            row[t + "_qoq"] = growth(v, vals.get(t, {}).get(months_back(d, 3)))
+            row[t + "_yoy"] = growth(v, vals.get(t, {}).get(months_back(d, 12)))
         rev, op = row.get("TotalRevenue"), row.get("OperatingIncome")
         row["op_margin_pct"] = round(op / rev * 100, 1) if rev and op is not None else None
         table.append(row)
@@ -95,7 +106,8 @@ def main(argv=None):
     tc.write_json(os.path.join("results", "%s.json" % sym), out)
     if a.json:
         return tc.print_json(out)
-    print("%s quarterly results (Rs crore; growth %%)" % sym)
+    print("%s quarterly results (Rs crore; growth %%; Yahoo does not say consolidated or standalone,"
+          " usually consolidated)" % sym)
     if table:
         print("  %-10s %10s %7s %7s %10s %7s %10s %7s %7s %8s" % ("quarter", "revenue", "qoq", "yoy", "op.profit",
                                                                  "margin", "net", "qoq", "yoy", "eps"))

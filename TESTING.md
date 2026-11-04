@@ -13,7 +13,8 @@ Budget about 30 minutes. Write down anything that fails in the report template a
 git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git
 cd tayyib-trader
 python3 --version                                 # 3.8 or newer
-python3 -m unittest discover -s tests             # expect: Ran 54 tests ... OK
+# Windows: if python3/python open the Microsoft Store, use `py` instead everywhere below
+python3 -m unittest discover -s tests             # expect: Ran 64 tests ... OK
 mkdir -p ~/tayyib-live && cd ~/tayyib-live        # your data folder; trader/ is created here
 export T=~/tayyib-trader                          # wherever you cloned it (Windows: set T=...)
 ```
@@ -84,7 +85,9 @@ python3 $T/tayyib-results/results.py TCS
 python3 $T/tayyib-insider/insider.py TCS --days 180
 ```
 
-Compare one quarter's revenue and net profit with the result on NSE or BSE. Note whether the figures are consolidated or standalone. If NSE blocks the insider request, note the error. It may work later, or from a different network.
+Compare one quarter's revenue and net profit with the result on NSE or BSE. Yahoo usually gives consolidated figures but does not label them. Growth is matched by date, so a quarter missing from the feed shows `-` rather than a wrong number.
+
+NSE often answers scripts with HTTP 403, depending on the network and time of day. The insider tool then says UNKNOWN (not zero), and news falls back to Google News and the RSS feeds. Try again later or from another network (a phone hotspot often works).
 
 ## 6. Skills in Claude Code
 

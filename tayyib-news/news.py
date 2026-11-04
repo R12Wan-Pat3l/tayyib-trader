@@ -10,6 +10,7 @@ Writes trader/news.json.
 import argparse
 import datetime as dt
 import os
+import re
 import sys
 import urllib.parse
 
@@ -17,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 TAGS = {
-    "results": ("result", "q1", "q2", "q3", "q4", "quarter", "profit", "revenue", "earnings", "ebitda"),
+    "results": ("results", "q1 ", "q2 ", "q3 ", "q4 ", "quarterly", "net profit", "earnings", "ebitda"),
     "dividend": ("dividend", "record date", "bonus", "split", "buyback"),
     "order-win": ("order", "contract", "bags", "wins", "secures"),
     "deal": ("acqui", "merger", "stake", "demerger", "takeover", "joint venture"),
@@ -34,8 +35,14 @@ HALAL_WATCH = {
 }
 
 
+PICK_LISTS = ("stocks to buy", "stock picks", "top picks", "stocks to watch", "buzzing stocks",
+              "stocks in news", "shares to buy", "stock recommendations", "stocks that")
+
+
 def tag(text):
-    t = (text or "").lower()
+    t = (text or "").lower() + " "
+    if any(w in t for w in PICK_LISTS):
+        return ["pick-list"], []            # a list of many stocks says little about this one
     tags = [k for k, words in TAGS.items() if any(w in t for w in words)]
     watch = [k for k, words in HALAL_WATCH.items() if any(w in t for w in words)]
     return tags, watch
@@ -69,10 +76,19 @@ def google_news(name, sym):
     return tc.parse_feed(tc.fetch(url, fixture="rss/google_%s.xml" % sym), "Google News")
 
 
+def short_name(name):
+    n = re.sub(r"[.,]", " ", (name or "").lower())
+    n = re.sub(r"\b(limited|ltd|the|india|co|company|corporation|corp|inc|plc)\b", " ", n)
+    return re.sub(r"\s+", " ", n).strip()
+
+
 def mentions(item, sym, name):
-    t = (item["title"] + " " + item["summary"]).lower()
-    short = (name or "").lower().replace(" limited", "").replace(" ltd", "").strip()
-    return sym.lower() in t.split() or (short and short in t)
+    """The headline itself must name the company (or its NSE symbol) as a whole phrase."""
+    t = " " + re.sub(r"[^a-z0-9&]+", " ", (item["title"] or "").lower()) + " "
+    short = short_name(name)
+    if (" %s " % sym.lower()) in t:
+        return True
+    return bool(short) and len(short) >= 3 and (" %s " % short) in t
 
 
 def main(argv=None):
@@ -110,7 +126,7 @@ def main(argv=None):
         items = []
         if cfg["news"]["google_news"]:
             try:
-                items += google_news(name, s)
+                items += [g for g in google_news(name, s) if mentions(g, s, name)]
             except tc.FetchError as e:
                 errors.append("google %s: %s" % (s, e))
         if cfg["news"]["nse_announcements"]:

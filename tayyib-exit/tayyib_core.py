@@ -59,7 +59,7 @@ def read_json(name, default=None):
     p = name if os.path.isabs(name) else os.path.join(data_dir(), name)
     if not os.path.exists(p):
         return default
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, "r", encoding="utf-8-sig") as f:   # -sig: Notepad / PowerShell write a BOM
         return json.load(f)
 
 
@@ -551,7 +551,7 @@ def detect(setup, bars, ind, i, tick=0.05):
             ret6 = c / ind["close"][i - 126] - 1
             if c >= 0.85 * h52 and ret6 > 0:
                 score = 50 + (c / h52 - 0.85) * 200 + min(20, ret6 * 50)
-                sig = {"trigger": bars[i]["high"] * 1.002, "invalidation": s200 * 0.97,
+                sig = {"trigger": bars[i]["high"] * 1.002, "invalidation": max(lo(i - 19, i), s200 * 0.97),
                        "score": score, "notes": "%.1f%% below the 52-week high, 6-month return %.1f%%"
                        % ((1 - c / h52) * 100, ret6 * 100)}
     if not sig:
@@ -691,9 +691,9 @@ KNOWN_EXCLUDED = {
 EXCLUDED_INDUSTRIES = ("financial services",)   # banks, NBFCs, insurers, lenders
 REVIEW_INDUSTRIES = ("media, entertainment & publication", "media & entertainment")
 EXCLUDE_WORDS = ("bank", "insurance", "assurance", "breweries", "brewery", "distiller",
-                 "spirits", "liquor", "tobacco", "cigarette", "casino")
+                 "spirit", "liquor", "tobacco", "cigarette", "casino", "blender", "wine")
 REVIEW_WORDS = ("finance", "financial", "fincorp", "finserv", "capital", "credit",
-                "invest", "hotel", "resort", "entertainment", "media", "films", "gaming",
+                "invest", "hotel", "resort", "entertainment", "media", "film", "gaming",
                 "leisure")
 
 STATUSES = ("compliant", "review", "excluded", "unknown")
@@ -708,14 +708,15 @@ def business_screen(sym, name="", industry=""):
     if any(ind.startswith(x) for x in EXCLUDED_INDUSTRIES):
         return "excluded", ["industry '%s': interest-based finance" % industry]
     words = re.findall(r"[a-z]+", n)
+    has = lambda w: any(x.startswith(w) for x in words)    # "distillers" matches "distiller"
     for w in EXCLUDE_WORDS:
-        if w in words:
+        if has(w):
             return "excluded", ["company name contains '%s'" % w]
     reasons = []
     if any(ind.startswith(x) for x in REVIEW_INDUSTRIES):
         reasons.append("industry '%s' needs a manual look" % industry)
     for w in REVIEW_WORDS:
-        if w in words:
+        if has(w):
             reasons.append("company name contains '%s': check what it actually does" % w)
     return ("review", reasons) if reasons else ("pass", ["business screen passed"])
 
@@ -805,7 +806,15 @@ def financial_screen(f, cfg):
     if ratios.get("cash_receivables_to_assets_pct", 0) >= h["max_cash_receivables_to_assets_pct"]:
         fail.append("cash + receivables are %.1f%% of total assets (limit %.0f%%)"
                     % (ratios["cash_receivables_to_assets_pct"], h["max_cash_receivables_to_assets_pct"]))
-    if fail:
+    income_only = (len(fail) == 1 and fail[0].startswith("non-compliant income")
+                   and ratios["noncompliant_income_pct"] < 2 * h["max_noncompliant_income_pct"])
+    if income_only:
+        # Free data often lumps treasury/other income into "interest income", so a near miss on
+        # this test alone goes to review (still blocked by default), not straight to excluded.
+        status = "review"
+        reasons = fail + ["only the income test failed, by under 2x the limit: verify with an "
+                          "official Shariah list or the annual report"] + reasons
+    elif fail:
         status = "excluded"
         reasons = fail + reasons
     elif missing:
@@ -856,7 +865,7 @@ def read_index_csv(text):
     for r in rdr:
         r = {(k or "").strip().lower(): (v or "").strip() for k, v in r.items()}
         sym = r.get("symbol") or r.get("nse symbol") or r.get("ticker") or r.get("nse code")
-        if not sym:
+        if not sym or sym.upper().startswith("DUMMY"):    # NSE placeholder rows
             continue
         rows.append({"symbol": normalize_symbol(sym),
                      "name": r.get("company name") or r.get("name") or r.get("company") or "",

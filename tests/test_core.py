@@ -107,7 +107,10 @@ class Halal(unittest.TestCase):
         cfg = tc.DEFAULT_CONFIG
         self.assertEqual(tc.financial_screen(self._f(10, 100, 10, 10, 1, 100), cfg)["status"], "compliant")
         self.assertEqual(tc.financial_screen(self._f(25, 100, 10, 10, 1, 100), cfg)["status"], "excluded")
-        self.assertEqual(tc.financial_screen(self._f(10, 100, 10, 10, 4, 100), cfg)["status"], "excluded")
+        # income test alone, under 2x the limit -> review (still blocked by default); far over -> excluded
+        self.assertEqual(tc.financial_screen(self._f(10, 100, 10, 10, 4, 100), cfg)["status"], "review")
+        self.assertEqual(tc.financial_screen(self._f(10, 100, 10, 10, 8, 100), cfg)["status"], "excluded")
+        self.assertEqual(tc.financial_screen(self._f(30, 100, 10, 10, 4, 100), cfg)["status"], "excluded")
         self.assertEqual(tc.financial_screen(self._f(10, 100, 50, 41, 1, 100), cfg)["status"], "excluded")
         f = self._f(10, 100, 10, 10, 1, 100)
         del f["TotalDebt"]

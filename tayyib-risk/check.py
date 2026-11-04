@@ -16,8 +16,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 
+REQUIRED = ("id", "symbol", "side", "product", "qty", "trigger_price", "stop", "target")
+
+
 def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, extra_ind=None, extra_value=0.0):
     block, warn, ok = [], [], []
+    missing = [k for k in REQUIRED if o.get(k) in (None, "")]
+    if missing:
+        return {"id": o.get("id", "?"), "symbol": o.get("symbol", "?"), "status": "BLOCK",
+                "block": ["order is missing %s: re-run tayyib-budget --write" % ", ".join(missing)],
+                "warn": [], "ok": []}
     holdings = {}
     for p in positions:
         if p.get("status") == "open":
@@ -98,7 +106,7 @@ def main(argv=None):
     for o in store["orders"]:
         if o.get("status") == "PLACED":
             continue
-        if want and o["symbol"] not in want and o["id"].upper() not in want:
+        if want and o.get("symbol") not in want and str(o.get("id", "")).upper() not in want:
             continue
         r = check_order(o, cfg, positions, uni, news, heat, count, inds, value)
         o["status"] = r["status"]

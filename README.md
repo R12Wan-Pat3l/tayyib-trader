@@ -166,11 +166,13 @@ Charges are approximate 2026 rates for equity delivery. Check your broker's char
 
 1. **Business screen.** These are excluded: interest-based finance (NSE's "Financial Services" industry: banks,
    NBFCs, insurers), alcohol, tobacco and gambling businesses, and company names that clearly say so.
-   Media and entertainment, and names with words such as finance, capital or hotel, go to **review**,
+   Media and entertainment, and names with words such as finance, capital or hotel(s), go to **review**,
    which stays blocked unless you allow it.
 2. **Financial screen**, using the TASIS methodology that NSE's Nifty Shariah indices are screened with:
    borrowings < 25% of total assets; interest income plus an assumed 8% return on interest-bearing
-   investments < 3% of total income; cash + receivables < 90% of total assets.
+   investments < 3% of total income; cash + receivables < 90% of total assets. A stock that fails
+   only the income test, by less than twice the limit, goes to **review** rather than excluded:
+   free data often counts treasury or other income as interest, so that case needs a human check.
 3. **Overrides**: your ruling (or your scholar's) on any stock, which wins over everything else.
 
 Self-screening uses Yahoo's fundamentals, which have gaps for Indian companies. If you have an official
@@ -201,7 +203,7 @@ flags ratios drifting toward a limit, and `tayyib-news` flags new borrowing.
 | daily prices | Yahoo Finance chart API (`.NS`) | free and unofficial; cached per day |
 | fundamentals | Yahoo fundamentals-timeseries | gaps for Indian companies |
 | Nifty 500 list | niftyindices.com constituent CSV | the default universe to self-screen |
-| announcements, insider (PIT), bulk/block deals | nseindia.com JSON | needs a cookie (handled); may block bots |
+| announcements, insider (PIT), bulk/block deals | nseindia.com JSON | needs a cookie (handled); often HTTP 403 for scripts, reported as UNKNOWN, never as zero |
 | news | Google News India RSS, Moneycontrol, ET Markets, Livemint RSS | feeds are editable in config |
 
 ## Tests
@@ -210,7 +212,7 @@ flags ratios drifting toward a limit, and `tayyib-news` flags new borrowing.
 python3 -m unittest discover -s tests -v
 ```
 
-The 54 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
+The 64 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
 data formats (Yahoo, NSE CSV and JSON, RSS). They cover the indicators, the charges arithmetic, the halal
 screens, every hard rule, a full trade from screen to purification, and the MCP server. To regenerate
 the fixtures, run `tests/make_fixtures.py`. For live checks against real data, see [TESTING.md](TESTING.md).

@@ -19,9 +19,11 @@ import tayyib_core as tc  # noqa: E402
 
 def find_signal(sym, bars, setup, cfg, lookback=6):
     scan = tc.read_json("scan.json", {}) or {}
-    for c in scan.get("candidates", []):
-        if c["symbol"] == sym and (not setup or c["setup"] == setup):
-            return c
+    hits = [c for c in scan.get("candidates", []) if c["symbol"] == sym and (not setup or c["setup"] == setup)]
+    if hits:
+        best = dict(max(hits, key=lambda c: c["score"]))
+        best["other_setups"] = sorted({c["setup"] for c in hits} - {best["setup"]})
+        return best
     ind = tc.indicators(bars)
     names = [setup] if setup else list(tc.SWING_SETUPS + tc.DELIVERY_SETUPS)
     for i in range(len(bars) - 1, max(len(bars) - 1 - lookback, 200), -1):
@@ -29,6 +31,7 @@ def find_signal(sym, bars, setup, cfg, lookback=6):
         if sigs:
             s = max(sigs, key=lambda x: x["score"])
             s["symbol"] = sym
+            s["other_setups"] = sorted({x["setup"] for x in sigs} - {s["setup"]})
             return s
     return None
 
@@ -81,7 +84,8 @@ def check(sym, setup, cfg, live_ok=True):
             live = None
     ev = evaluate(sig, bars, live)
     ev.update(symbol=sym, setup=sig["setup"], mode=sig["mode"], signal_date=sig["date"],
-              trigger=sig["trigger"], invalidation=sig["invalidation"], signal=sig)
+              trigger=sig["trigger"], invalidation=sig["invalidation"], signal=sig,
+              other_setups=sig.get("other_setups", []))
     return ev
 
 
@@ -122,6 +126,8 @@ def main(argv=None):
             if ev.get("trigger"):
                 print("             %s (%s), trigger %.2f, invalidation %.2f, armed %s"
                       % (ev["setup"], ev["mode"], ev["trigger"], ev["invalidation"], ev["signal_date"]))
+                if ev.get("other_setups"):
+                    print("             also armed: %s (pick one with --setup)" % ", ".join(ev["other_setups"]))
         print("Next: tayyib-exit plan SYMBOL to set the stop and target before you buy.")
         return
     sym = tc.normalize_symbol(a.symbol)

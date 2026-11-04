@@ -49,3 +49,14 @@ class Repo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Versions(unittest.TestCase):
+    def test_versions_agree(self):
+        pl = json.load(open(os.path.join(ROOT, ".claude-plugin", "plugin.json")))["version"]
+        core = re.search(r'VERSION = "([^"]+)"', open(os.path.join(ROOT, "core", "tayyib_core.py")).read()).group(1)
+        mcp = re.search(r'VERSION = "([^"]+)"', open(os.path.join(ROOT, "mcp", "server.py")).read()).group(1)
+        top = re.search(r"^## v(\S+)", open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8").read(), re.M).group(1)
+        self.assertEqual(len({pl, core, mcp, top}), 1,
+                         "bump every version together: plugin.json %s, core %s, mcp %s, CHANGELOG %s"
+                         % (pl, core, mcp, top))

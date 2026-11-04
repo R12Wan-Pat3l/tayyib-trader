@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.2 (2026-11-04)
+
+- Packaging only: the plugin version is bumped so `claude plugin update` delivers the v0.1.1 risk and
+  daily-list fixes to anyone who installed 0.1.1 before they landed (`check.py`, `daily.py`,
+  `size.py` and the daily SKILL.md). No behaviour change from the v0.1.1 tag.
+- A test now fails if `plugin.json`, the core VERSION, the MCP server version and the top CHANGELOG
+  entry disagree, so a release can't ship without a version bump.
+
 ## v0.1.1 (2026-11-04)
 
 - New skill `tayyib-daily`: one command for today's halal trade list. It runs scan, news, plan, time

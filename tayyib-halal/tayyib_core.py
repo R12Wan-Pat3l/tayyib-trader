@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 # ---------------------------------------------------------------------------

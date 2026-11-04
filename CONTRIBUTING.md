@@ -31,7 +31,9 @@ Your `trader/` folder, broker keys, tokens, passwords or account numbers.
 
 ## Releasing (maintainer)
 
-1. Bump `"version"` in `.claude-plugin/plugin.json` (e.g. 0.1.0 -> 0.1.1). Without this,
-   `claude plugin update` tells existing users they are already up to date.
+1. Bump the version **for every change users should receive**, not only for tagged releases:
+   `.claude-plugin/plugin.json`, `VERSION` in `core/tayyib_core.py` (then sync) and in `mcp/server.py`,
+   plus a new top entry in `CHANGELOG.md`. `claude plugin update` only compares this number, so
+   without a bump existing users keep stale files. `tests/test_repo.py` fails if these disagree.
 2. Add the changes to `CHANGELOG.md`.
 3. Tests green, `python3 tools/sync_core.py --check` clean, then tag `vX.Y.Z` and publish the release.

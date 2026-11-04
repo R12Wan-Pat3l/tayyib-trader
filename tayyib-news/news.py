@@ -86,10 +86,23 @@ def title_key(title):
     return re.sub(r"[^a-z0-9]+", " ", re.sub(r"\s+-\s+[^-]+$", "", (title or "").lower())).strip()
 
 
-def near_same(a, b):
-    """Same story reworded slightly ('Amid' vs 'Amidst'): 90%+ similar text."""
+def near_same(a, b, ta=None, tb=None):
+    """Same story reworded slightly ('Amid' vs 'Amidst'). Never merges headlines whose
+    numbers differ (a new high of Rs 2,086 vs Rs 2,125 is a new event) or that were
+    published more than 24 hours apart."""
     import difflib
-    return a == b or (len(a) > 25 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.9)
+    if a == b:
+        return True
+    if re.findall(r"\d+", a) != re.findall(r"\d+", b):
+        return False
+    if ta and tb:
+        try:
+            gap = abs((dt.datetime.fromisoformat(ta) - dt.datetime.fromisoformat(tb)).total_seconds())
+        except ValueError:
+            gap = 0
+        if gap > 24 * 3600:
+            return False
+    return len(a) > 25 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.9
 
 
 def short_name(name):
@@ -156,9 +169,9 @@ def main(argv=None):
             if it["published"] and dt.datetime.fromisoformat(it["published"]) < cutoff:
                 continue
             key = title_key(it["title"])
-            if any(near_same(key, k) for k in seen):
+            if any(near_same(key, k, it["published"], t) for k, t in seen):
                 continue
-            seen.append(key)
+            seen.append((key, it["published"]))
             it["tags"], it["halal_watch"] = tag(it["title"])
             kept.append(it)
         kept.sort(key=lambda x: x["published"] or "", reverse=True)

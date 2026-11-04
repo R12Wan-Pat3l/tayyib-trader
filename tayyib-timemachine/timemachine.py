@@ -159,6 +159,11 @@ def verdict(mc, hist):
         v = "negative after charges: the past says skip or rethink the plan"
     else:
         v = "close to a coin flip after charges"
+    pr = mc["probabilities_pct"]
+    if pr.get("stop", 0) > pr.get("target", 0) or mc["r_percentiles"]["p50"] < 0:
+        v += ("; but the most likely single outcome is a loss (stop first %.0f%% vs target first %.0f%%, "
+              "median %+.2fR): the average is carried by fewer, bigger wins"
+              % (pr.get("stop", 0), pr.get("target", 0), mc["r_percentiles"]["p50"]))
     return "%s (%s)" % (v, h_txt)
 
 

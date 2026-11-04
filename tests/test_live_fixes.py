@@ -210,3 +210,28 @@ class FourthRun(unittest.TestCase):
         self.assertTrue(news.near_same(a, b))
         self.assertFalse(news.near_same(news.title_key("Coforge Q2 results: profit up 12%"),
                                         news.title_key("Coforge wins $200 million deal")))
+
+
+class FifthRun(unittest.TestCase):
+    def test_different_numbers_are_different_stories(self):
+        a = news.title_key("Coforge Ltd Hits All-Time High of Rs 2,086.05 Amid Strong Momentum")
+        b = news.title_key("Coforge Ltd Hits All-Time High of Rs 2,125.9 Amid Strong Momentum")
+        self.assertFalse(news.near_same(a, b))
+
+    def test_far_apart_in_time_not_merged(self):
+        a = news.title_key("Coforge Ltd Sees Significant Open Interest Surge Amid Strong Market Momentum")
+        b = news.title_key("Coforge Ltd Sees Significant Open Interest Surge Amidst Strong Market Momentum")
+        self.assertTrue(news.near_same(a, b, "2026-11-03T07:23:00+05:30", "2026-11-03T13:24:00+05:30"))
+        self.assertFalse(news.near_same(a, b, "2026-11-01T07:23:00+05:30", "2026-11-03T13:24:00+05:30"))
+
+    def test_verdict_warns_when_loss_most_likely(self):
+        sys.path.insert(0, os.path.join(ROOT, "tayyib-timemachine"))
+        import timemachine
+        mc = {"expectancy_r": 0.82, "probabilities_pct": {"target": 44.0, "stop": 53.0, "breakeven": 0, "time": 3.0},
+              "r_percentiles": {"p10": -1.1, "p50": -1.02, "p90": 2.9}}
+        v = timemachine.verdict(mc, {"trades": 2})
+        self.assertIn("leans positive", v)
+        self.assertIn("most likely single outcome is a loss", v)
+        mc2 = dict(mc, probabilities_pct={"target": 60.0, "stop": 35.0, "breakeven": 0, "time": 5.0},
+                   r_percentiles={"p10": -1, "p50": 0.5, "p90": 2})
+        self.assertNotIn("most likely", timemachine.verdict(mc2, {"trades": 2}))

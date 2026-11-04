@@ -614,11 +614,11 @@ def plan_trade(sig, cfg, entry=None):
         if cap and stop < entry * (1 - cap / 100.0):
             stop, method = entry * (1 - cap / 100.0), "%.0f%% max swing stop (structure/ATR wider)" % cap
     else:
-        floor_ = entry * (1 - m["max_stop_pct"] / 100.0)
-        if stop < floor_:
-            stop, method = floor_, "%.0f%% max stop" % m["max_stop_pct"]
         if entry - stop < m["min_stop_atr"] * a:
             stop, method = entry - m["min_stop_atr"] * a, "%.1f x ATR minimum" % m["min_stop_atr"]
+        floor_ = entry * (1 - m["max_stop_pct"] / 100.0)   # the cap is applied last: it always wins
+        if stop < floor_:
+            stop, method = floor_, "%.0f%% max stop" % m["max_stop_pct"]
     stop = round_tick(stop, tick, "down")
     risk = round(entry - stop, 2)
     if risk <= 0:

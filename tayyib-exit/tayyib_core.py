@@ -613,6 +613,7 @@ def plan_trade(sig, cfg, entry=None):
         cap = m.get("max_stop_pct")
         if cap and stop < entry * (1 - cap / 100.0):
             stop, method = entry * (1 - cap / 100.0), "%.0f%% max swing stop (structure/ATR wider)" % cap
+    else:
         floor_ = entry * (1 - m["max_stop_pct"] / 100.0)
         if stop < floor_:
             stop, method = floor_, "%.0f%% max stop" % m["max_stop_pct"]

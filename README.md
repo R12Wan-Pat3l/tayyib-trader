@@ -213,7 +213,7 @@ flags ratios drifting toward a limit, and `tayyib-news` flags new borrowing.
 python3 -m unittest discover -s tests -v
 ```
 
-The 73 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
+The 77 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
 data formats (Yahoo, NSE CSV and JSON, RSS). They cover the indicators, the charges arithmetic, the halal
 screens, every hard rule, a full trade from screen to purification, and the MCP server. To regenerate
 the fixtures, run `tests/make_fixtures.py`. For live checks against real data, see [TESTING.md](TESTING.md).

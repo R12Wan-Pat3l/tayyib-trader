@@ -81,6 +81,17 @@ def google_news(name, sym):
     return tc.parse_feed(tc.fetch(url, fixture="rss/google_%s.xml" % sym), "Google News")
 
 
+def title_key(title):
+    """Headline without the ' - Source' suffix, punctuation or case."""
+    return re.sub(r"[^a-z0-9]+", " ", re.sub(r"\s+-\s+[^-]+$", "", (title or "").lower())).strip()
+
+
+def near_same(a, b):
+    """Same story reworded slightly ('Amid' vs 'Amidst'): 90%+ similar text."""
+    import difflib
+    return a == b or (len(a) > 25 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.9)
+
+
 def short_name(name):
     n = re.sub(r"[.,]", " ", (name or "").lower())
     n = re.sub(r"\b(limited|ltd|the|india|co|company|corporation|corp|inc|plc)\b", " ", n)
@@ -140,14 +151,14 @@ def main(argv=None):
             except (tc.FetchError, ValueError) as e:
                 errors.append("nse %s: %s" % (s, e))
         items += [g for g in general if mentions(g, s, name)]
-        seen, kept = set(), []
+        seen, kept = [], []
         for it in items:
             if it["published"] and dt.datetime.fromisoformat(it["published"]) < cutoff:
                 continue
-            key = re.sub(r"[^a-z0-9]+", " ", re.sub(r"\s+-\s+[^-]+$", "", it["title"].lower()))[:70].strip()
-            if key in seen:
+            key = title_key(it["title"])
+            if any(near_same(key, k) for k in seen):
                 continue
-            seen.add(key)
+            seen.append(key)
             it["tags"], it["halal_watch"] = tag(it["title"])
             kept.append(it)
         kept.sort(key=lambda x: x["published"] or "", reverse=True)

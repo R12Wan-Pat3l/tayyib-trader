@@ -182,3 +182,31 @@ class ThirdRun(unittest.TestCase):
         self.assertIn("10% max swing stop", p["stop_method"])
         cfg = tc.deep_merge(tc.DEFAULT_CONFIG, {"modes": {"swing": {"max_stop_pct": 20.0}}})
         self.assertEqual(tc.plan_trade(sig, cfg)["stop"], 85.0)            # user can widen it
+
+
+class FourthRun(unittest.TestCase):
+    def test_delivery_stop_capped_at_15pct(self):
+        sig = {"setup": "trend", "mode": "delivery", "date": "2026-10-30", "trigger": 100.0,
+               "invalidation": 76.0, "atr": 3.0, "valid_days": 5}          # 24% structure
+        p = tc.plan_trade(sig, tc.DEFAULT_CONFIG)
+        self.assertEqual(p["stop"], 85.0)
+        self.assertIn("15% max stop", p["stop_method"])
+
+    def test_delivery_min_atr_still_applies(self):
+        sig = {"setup": "trend", "mode": "delivery", "date": "2026-10-30", "trigger": 100.0,
+               "invalidation": 99.0, "atr": 4.0, "valid_days": 5}
+        self.assertEqual(tc.plan_trade(sig, tc.DEFAULT_CONFIG)["stop"], 94.0)     # 1.5 x ATR
+
+    def test_every_mode_respects_its_cap(self):
+        for mode, cap in (("swing", 10.0), ("delivery", 15.0)):
+            sig = {"setup": "breakout" if mode == "swing" else "trend", "mode": mode, "date": "2026-10-30",
+                   "trigger": 200.0, "invalidation": 100.0, "atr": 40.0, "valid_days": 3}
+            p = tc.plan_trade(sig, tc.DEFAULT_CONFIG)
+            self.assertLessEqual((p["entry"] - p["stop"]) / p["entry"] * 100, cap + 0.05, mode)
+
+    def test_near_repeat_headlines(self):
+        a = news.title_key("Coforge Ltd Sees Significant Open Interest Surge Amid Strong Market Momentum - MarketsMojo")
+        b = news.title_key("Coforge Ltd Sees Significant Open Interest Surge Amidst Strong Market Momentum")
+        self.assertTrue(news.near_same(a, b))
+        self.assertFalse(news.near_same(news.title_key("Coforge Q2 results: profit up 12%"),
+                                        news.title_key("Coforge wins $200 million deal")))

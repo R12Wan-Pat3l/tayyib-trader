@@ -89,7 +89,16 @@ def main(argv=None):
 
     # 2. scan
     scan = run("tayyib-scanner", "scan.py", "--mode", a.mode, "--top", max(a.top * 2, 25))
-    picks = choose(scan["candidates"], a.mode, a.top)
+    store0 = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
+    held = {p_["symbol"] for p_ in (tc.read_json("positions.json", {}) or {}).get("positions", [])
+            if p_.get("status") == "open"}
+    held |= {o["symbol"] for o in store0["orders"] if o.get("status") == "PLACED"}
+    cands = [c for c in scan["candidates"] if c["symbol"] not in held]
+    skipped_held = sorted({c["symbol"] for c in scan["candidates"] if c["symbol"] in held})
+    if skipped_held:
+        notes.append("skipped %s: already held or placed (manage it with tayyib-broker / tayyib-alerts)"
+                     % ", ".join(skipped_held))
+    picks = choose(cands, a.mode, a.top)
     syms = [c["symbol"] for c in picks]
     if scan.get("errors"):
         notes.append("%d price downloads failed (first: %s)" % (len(scan["errors"]), scan["errors"][0]["error"][:80]))
@@ -118,8 +127,13 @@ def main(argv=None):
         if stale:
             store["orders"] = [o for o in store["orders"] if o not in stale]
             tc.write_json("orders.json", store)
-            notes.append("replaced %d earlier unplaced ticket(s): %s" % (len(stale), ", ".join(o["id"] for o in stale)))
+            notes.append("removed %d earlier unplaced ticket(s) not on today's list: %s"
+                         % (len(stale), ", ".join(o["id"] for o in stale)))
         sized = {o["symbol"]: o for o in run("tayyib-budget", "size.py", ",".join(syms), "--write")}
+        swaps = ["%s with %s" % (o["replaced"], o["id"]) for o in sized.values()
+                 if o.get("replaced") and o["replaced"] != o.get("id")]
+        if swaps:
+            notes.append("replaced " + "; ".join(swaps))
         # Risk-check the WHOLE file, exactly like a plain check.py, so the statuses here match it.
         by_id = {r["id"]: r for r in run("tayyib-risk", "check.py")}
         risk = {s: by_id.get(o.get("id")) for s, o in sized.items() if o.get("id")}
@@ -129,9 +143,10 @@ def main(argv=None):
             pl, o, r = plans.get(s, {}), sized.get(s, {}), (risk.get(s) or {})
             sim = tm["results"].get(s, {})
             if r:
-                reasons = list(r.get("block") or []) + sorted(r.get("warn") or [], key=lambda w: "HALAL-WATCH" not in w)
+                reasons = ["BLOCK: " + x for x in (r.get("block") or [])] + \
+                          ["WARN: " + x for x in sorted(r.get("warn") or [], key=lambda w: "HALAL-WATCH" not in w)]
             else:
-                reasons = [o.get("error") or "not sized"]
+                reasons = ["NOT SIZED: " + (o.get("error") or "no plan")]
             reason = reasons[0] if reasons else ""
             row = {
                 "symbol": s, "name": c.get("name", ""), "mode": c["mode"], "setup": c["setup"], "score": c["score"],
@@ -193,7 +208,7 @@ def render_md(out):
             L.append("Why not PASS:")
             for r in flagged:
                 for why in r["reasons"]:
-                    L.append("- %s %s: %s" % (r["symbol"], r["risk"], why))
+                    L.append("- %s %s" % (r["symbol"], why))
             L.append("")
         L += ["Entry is a buy-stop: it only buys if price trades up to it, valid until the date in the plan.",
               "Next: `tayyib-broker/ticket.py show SYMBOL` for the exact Kite / Groww steps. Place it yourself "

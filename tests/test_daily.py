@@ -19,7 +19,7 @@ class Daily(OfflineCase):
             self.assertIsNotNone(r["expectancy_r"])
         alfa = [r for r in out["rows"] if r["symbol"] == "ALFA"][0]
         self.assertEqual(alfa["risk"], "WARN")
-        self.assertIn("HALAL-WATCH", alfa["reasons"][0])                # halal warnings listed first
+        self.assertTrue(alfa["reasons"][0].startswith("WARN: HALAL-WATCH"))   # labelled, halal first
         self.assertEqual(out["rows"][0]["risk"], "PASS")                 # PASS sorted before WARN
         self.assertTrue(os.path.exists(os.path.join(self.dir, "daily", "2026-10-30.md")))
         md = open(os.path.join(self.dir, "daily", "2026-10-30.md"), encoding="utf-8").read()
@@ -78,7 +78,7 @@ class DailyFixes(OfflineCase):
             {"id": "OLD-%d" % k, "symbol": "OLD%d" % k, "side": "BUY", "product": "CNC", "qty": 1,
              "trigger_price": 100, "stop": 95, "target": 110, "status": "PASS"} for k in range(3)]})
         out = self.run_script("tayyib-daily/daily.py", "--no-news")
-        self.assertTrue(any("replaced 3 earlier unplaced" in n for n in out["notes"]))
+        self.assertTrue(any("removed 3 earlier unplaced" in n for n in out["notes"]))
         plain = {r["id"]: r["status"] for r in self.run_script("tayyib-risk/check.py")}
         for r in out["rows"]:
             self.assertEqual(r["risk"], plain[r["order_id"]], r["symbol"])
@@ -107,3 +107,49 @@ class DailyFixes(OfflineCase):
         self.build_universe()
         r = check.check_order(o, tc.load_config(), [], tc.load_universe(), {}, sim=sim)
         self.assertTrue(any("expectancy is negative" in w for w in r["warn"]))
+
+
+class DailyFixes2(OfflineCase):
+    def test_check_symbol_counts_other_tickets(self):
+        self.build_universe()
+        self.write("config.json", {"max_open_positions": 1})
+        self.run_script("tayyib-daily/daily.py", "--no-news")
+        full = {r["symbol"]: r["status"] for r in self.run_script("tayyib-risk/check.py")}
+        self.assertEqual(sorted(full.values()).count("BLOCK"), 1)
+        blocked = [s for s, st in full.items() if st == "BLOCK"][0]
+        one = self.run_script("tayyib-risk/check.py", blocked)
+        self.assertEqual([r["symbol"] for r in one], [blocked])          # only the requested one reported
+        self.assertEqual(one[0]["status"], "BLOCK")                       # still counts the other ticket
+        saved = {o["symbol"]: o["status"] for o in self.read("orders.json")["orders"]}
+        self.assertEqual(saved, full)
+
+    def test_held_stock_skipped_and_second_ticket_blocked(self):
+        self.build_universe()
+        self.run_script("tayyib-daily/daily.py", "--mode", "swing", "--no-news")
+        o = self.read("orders.json")
+        alfa = [x for x in o["orders"] if x["symbol"] == "ALFA"][0]
+        alfa["status"] = "PLACED"
+        self.write("orders.json", o)
+        out = self.run_script("tayyib-daily/daily.py", "--mode", "swing", "--no-news")
+        self.assertNotIn("ALFA", [r["symbol"] for r in out["rows"]])
+        self.assertTrue(any("skipped ALFA" in n for n in out["notes"]))
+        # a manual second ticket for the same signal is BLOCKed by the risk check
+        o = self.read("orders.json")
+        dup = dict(alfa, id=alfa["id"] + "-2", status="SIZED")
+        o["orders"].append(dup)
+        self.write("orders.json", o)
+        r = [x for x in self.run_script("tayyib-risk/check.py") if x["id"] == dup["id"]][0]
+        self.assertEqual(r["status"], "BLOCK")
+        self.assertTrue(any("already placed" in b for b in r["block"]))
+
+    def test_removed_vs_replaced_notes(self):
+        self.build_universe()
+        self.run_script("tayyib-daily/daily.py", "--no-news")                   # all modes: ALFA swing, CHRL delivery
+        self.write("orders.json", {"orders": self.read("orders.json")["orders"] + [
+            {"id": "GONE-1", "symbol": "GONE", "side": "BUY", "product": "CNC", "qty": 1, "trigger_price": 10,
+             "stop": 9, "target": 12, "status": "PASS"}]})
+        out = self.run_script("tayyib-daily/daily.py", "--mode", "delivery", "--no-news")
+        n = " | ".join(out["notes"])
+        self.assertIn("removed", n)
+        self.assertIn("GONE-1", n)
+        self.assertIn("replaced ALFA-", n)                                  # swing ticket swapped for delivery

@@ -97,6 +97,12 @@ def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, ext
     return {"id": o["id"], "symbol": o["symbol"], "status": status, "block": block, "warn": warn, "ok": ok}
 
 
+def base_id(oid):
+    """SANSERA-2026-11-04-breakout-2 -> SANSERA-2026-11-04-breakout (the signal)."""
+    import re as _re
+    return _re.sub(r"-\d+$", "", oid or "")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("ids", nargs="?", help="order ids or symbols (default: all SIZED orders)")
@@ -110,15 +116,22 @@ def main(argv=None):
     sim = tc.read_json("sim.json", {}) or {}
     want = set(tc.parse_symbols(a.ids)) if a.ids else None
     results, heat, count, inds, value = [], 0.0, 0, {}, 0.0
+    placed_signals = {base_id(o["id"]) for o in store["orders"] if o.get("status") == "PLACED"}
     for o in store["orders"]:
         if o.get("status") == "PLACED":
             continue
-        if want and o.get("symbol") not in want and str(o.get("id", "")).upper() not in want:
-            continue
+        # Every unplaced order is evaluated in file order, so limits always count all of them;
+        # only the requested ones are reported and saved.
         r = check_order(o, cfg, positions, uni, news, heat, count, inds, value, sim)
-        o["status"] = r["status"]
-        o["risk_checked"] = tc.now_ist().isoformat(timespec="minutes")
-        results.append(r)
+        if base_id(o.get("id", "")) in placed_signals and o.get("id") not in placed_signals:
+            r["block"].append("this signal (%s) is already placed: a second ticket would double the risk "
+                              "on one trade" % base_id(o["id"]))
+            r["status"] = "BLOCK"
+        requested = not want or o.get("symbol") in want or str(o.get("id", "")).upper() in want
+        if requested:
+            o["status"] = r["status"]
+            o["risk_checked"] = tc.now_ist().isoformat(timespec="minutes")
+            results.append(r)
         if r["status"] != "BLOCK":   # later orders count earlier approved ones
             heat += o.get("loss_at_stop_rs", 0)
             value += o["qty"] * o["trigger_price"] + o.get("buy_charges_rs", 0)

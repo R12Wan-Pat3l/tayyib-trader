@@ -13,7 +13,11 @@
 - `--mode all` alternates the best swing and delivery ideas instead of showing only delivery.
 - Budget: a new ticket never reuses a placed order's id (adds -2, -3); it says when it replaces an
   earlier unplaced ticket for the same stock.
-- Risk: a negative time-machine expectancy is a WARN.
+- Risk: a negative time-machine expectancy is a WARN. A second ticket for a signal that is already
+  placed is a BLOCK. `check.py SYMBOL` now counts every other ticket toward the limits and only
+  reports and saves the ones asked for.
+- Daily list skips stocks you already hold or have placed (it says so); its notes say which tickets
+  were removed and which were replaced; each reason is labelled BLOCK or WARN.
 - MCP tool `daily` (17 tools, still none that place orders).
 - Plugin version 0.1.1, so `claude plugin update` picks this up.
 

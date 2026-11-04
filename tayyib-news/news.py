@@ -35,10 +35,13 @@ HALAL_WATCH = {
 }
 
 
+# Phrases that only describe a LIST of stocks (plural). Words that can describe one company
+# ("multibagger", "dhamaka") are not here: a pick-list tag drops every flag from the headline.
 PICK_LISTS = ("stocks to buy", "stock picks", "top picks", "stocks to watch", "buzzing stocks",
-              "stocks in news", "shares to buy", "stock recommendations", "stocks that", "dhamaka",
-              "promising stocks", "multibagger", "top stocks", "stocks for", "best stocks",
-              "stocks under", "picks for", "stocks recommended", "stocks in focus", "shares in focus")
+              "stocks in news", "shares to buy", "stock recommendations", "stocks that",
+              "dhamaka stocks", "dhamaka picks", "promising stocks", "multibagger stocks",
+              "top stocks", "stocks for", "best stocks", "stocks under", "picks for",
+              "stocks recommended", "stocks in focus", "shares in focus", "stocks to bet")
 
 
 def tag(text):

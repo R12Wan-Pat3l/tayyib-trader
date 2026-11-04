@@ -2,7 +2,7 @@
 name: tayyib-exit
 description: >-
   Exit Planner. Sets the stop-loss, the target, the time stop and the trailing rules
-  before entry. Swing: stop at the setup's invalidation kept between 0.75 and 3 ATR, target 2R, out
+  before entry. Swing: stop at the setup's invalidation kept between 0.75 and 3 ATR and never more than 10% below entry, target 2R, out
   after 20 sessions, breakeven at +1R. Delivery: stop under the 200-day average, never wider than 15%,
   review at 3R, exit on a weekly close under the 200-day. Writes trader/plan.json. Use when the user
   asks "where should my stop be", "what's the target", "plan the trade", "exit strategy", "stop loss for X".

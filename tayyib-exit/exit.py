@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tayyib-exit: set the stop, the target and the time stop before you buy.
 
-Swing: stop at the setup's invalidation, kept between 0.75 and 3 x ATR;
+Swing: stop at the setup's invalidation, kept between 0.75 and 3 x ATR and
+never more than 10% below entry;
 target 2R; out after 20 sessions; breakeven at +1R, trail under the 20 EMA.
 Delivery: stop at the invalidation (just under the 200-day average), never
 wider than 15%; review at 3R; exit on a weekly close under the 200-day.

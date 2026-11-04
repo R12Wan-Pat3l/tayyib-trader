@@ -165,3 +165,20 @@ class Dedupe(OfflineCase):
         self.assertEqual(
             news.re.sub(r"[^a-z0-9]+", " ", news.re.sub(r"\s+-\s+[^-]+$", "", "Coforge shares rise - MarketsMojo".lower())).strip(),
             news.re.sub(r"[^a-z0-9]+", " ", news.re.sub(r"\s+-\s+[^-]+$", "", "Coforge Shares Rise! - Mojo".lower())).strip())
+
+
+class ThirdRun(unittest.TestCase):
+    def test_single_company_multibagger_keeps_flags(self):
+        tags, watch = news.tag("What drives Welspun Living's multibagger rally? Board approves QIP")
+        self.assertNotIn("pick-list", tags)
+        self.assertIn("new debt", watch)
+        self.assertEqual(news.tag("5 multibagger stocks to bet on this Diwali")[0], ["pick-list"])
+
+    def test_swing_stop_capped_at_10pct(self):
+        sig = {"setup": "breakout", "mode": "swing", "date": "2026-10-30", "trigger": 100.0,
+               "invalidation": 85.0, "atr": 6.0, "valid_days": 3}         # 15% structure, within 3 ATR
+        p = tc.plan_trade(sig, tc.DEFAULT_CONFIG)
+        self.assertEqual(p["stop"], 90.0)
+        self.assertIn("10% max swing stop", p["stop_method"])
+        cfg = tc.deep_merge(tc.DEFAULT_CONFIG, {"modes": {"swing": {"max_stop_pct": 20.0}}})
+        self.assertEqual(tc.plan_trade(sig, cfg)["stop"], 85.0)            # user can widen it

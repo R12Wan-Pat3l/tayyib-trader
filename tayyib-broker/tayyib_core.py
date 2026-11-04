@@ -94,7 +94,7 @@ DEFAULT_CONFIG = {
     # trade styles
     "modes": {
         "swing": {"atr_mult_cap": 3.0, "atr_fallback": 2.0, "min_stop_atr": 0.75,
-                  "target_r": 2.0, "max_hold_days": 20},
+                  "max_stop_pct": 10.0, "target_r": 2.0, "max_hold_days": 20},
         "delivery": {"max_stop_pct": 15.0, "min_stop_atr": 1.5,
                      "target_r": 3.0, "max_hold_days": 250},
     },
@@ -610,7 +610,9 @@ def plan_trade(sig, cfg, entry=None):
             stop, method = entry - m["atr_fallback"] * a, "%.1f x ATR (structure too wide)" % m["atr_fallback"]
         if entry - stop < m["min_stop_atr"] * a:
             stop, method = entry - m["min_stop_atr"] * a, "%.2f x ATR (structure too tight)" % m["min_stop_atr"]
-    else:
+        cap = m.get("max_stop_pct")
+        if cap and stop < entry * (1 - cap / 100.0):
+            stop, method = entry * (1 - cap / 100.0), "%.0f%% max swing stop (structure/ATR wider)" % cap
         floor_ = entry * (1 - m["max_stop_pct"] / 100.0)
         if stop < floor_:
             stop, method = floor_, "%.0f%% max stop" % m["max_stop_pct"]

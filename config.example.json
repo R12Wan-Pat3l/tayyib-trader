@@ -11,6 +11,10 @@
   "min_price": 20,
   "min_turnover_rs": 20000000,
   "holidays": [],
+  "modes": {
+    "swing": {"max_stop_pct": 10.0, "target_r": 2.0, "max_hold_days": 20},
+    "delivery": {"max_stop_pct": 15.0, "target_r": 3.0, "max_hold_days": 250}
+  },
   "halal": {
     "require_compliant": true,
     "allow_review": false,

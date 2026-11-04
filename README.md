@@ -155,6 +155,7 @@ Copy `config.example.json` to `trader/config.json` and set your own numbers:
 | `max_portfolio_heat_pct` | 6 | total open risk across all positions |
 | `max_positions_per_industry` | 2 | |
 | `min_reward_risk` | 1.5 | net of charges |
+| `modes.swing.max_stop_pct` | 10 | widest swing stop, % below entry (delivery: 15) |
 | `broker` | zerodha | `zerodha`, `groww` or `custom` (sets brokerage and DP charge) |
 | `holidays` | [] | NSE trading holidays, `"YYYY-MM-DD"` |
 | `halal.allow_review` | false | let `review` stocks through, with a warning |
@@ -212,7 +213,7 @@ flags ratios drifting toward a limit, and `tayyib-news` flags new borrowing.
 python3 -m unittest discover -s tests -v
 ```
 
-The 71 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
+The 73 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
 data formats (Yahoo, NSE CSV and JSON, RSS). They cover the indicators, the charges arithmetic, the halal
 screens, every hard rule, a full trade from screen to purification, and the MCP server. To regenerate
 the fixtures, run `tests/make_fixtures.py`. For live checks against real data, see [TESTING.md](TESTING.md).

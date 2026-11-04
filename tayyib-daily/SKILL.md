@@ -7,7 +7,7 @@ description: >-
   time-machine verdict and PASS / WARN / BLOCK. Saves trader/daily/DATE.md. Use when the user says
   "today's list", "daily list", "what should I trade today", "give me halal stocks with entry and
   exit", "run my daily", or after 3:30 PM IST on a trading day.
-argument-hint: "[--mode swing|delivery|all] [--top 10] [--no-news]"
+argument-hint: "[--mode swing|delivery|all] [--top 10] [--picks 3] [--no-news] [--no-rebuild]"
 ---
 
 # tayyib-daily
@@ -24,8 +24,14 @@ python3 "${CLAUDE_SKILL_DIR}/daily.py" --mode swing --top 5
 python3 "${CLAUDE_SKILL_DIR}/daily.py" --no-news           # faster
 ```
 
-It needs the other tayyib skills next to it (as in the plugin or the repo), and a halal universe
-(`tayyib-halal build`, monthly). It takes one to three minutes: a price download per halal stock.
+It needs the other tayyib skills next to it (as in the plugin or the repo). On the first run it builds
+the halal list (about 5 minutes) and rebuilds it by itself when it is 30 days old. A normal run takes
+one to three minutes: one price download per halal stock. It starts the output with **today's top
+picks** (the best 3 PASS stocks).
+
+First-time setup for a user: copy `config.example.json` from the plugin/repo root to
+`trader/config.json` in their data folder and set `capital`, `max_risk_per_trade_pct` and `broker`
+from what they tell you.
 
 What it does: scan; keep one setup per stock (with `--mode all`, alternating the best swing and the
 best delivery ideas); news (so HALAL-WATCH and results warnings reach the risk check); plan; time

@@ -39,8 +39,8 @@ class Daily(OfflineCase):
         self.assertTrue(out["rows"])
         self.assertTrue(all(r["mode"] == "swing" and r["stop_pct"] <= 10.0 for r in out["rows"]))
 
-    def test_needs_universe(self):
-        p = self.run_script("tayyib-daily/daily.py", ok=False)
+    def test_needs_universe_when_rebuild_is_off(self):
+        p = self.run_script("tayyib-daily/daily.py", "--no-rebuild", ok=False)
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("halal", p.stderr)
 
@@ -153,3 +153,31 @@ class DailyFixes2(OfflineCase):
         self.assertIn("removed", n)
         self.assertIn("GONE-1", n)
         self.assertIn("replaced ALFA-", n)                                  # swing ticket swapped for delivery
+
+
+class DailyAuto(OfflineCase):
+    def test_first_run_builds_the_halal_list(self):
+        out = self.run_script("tayyib-daily/daily.py", "--no-news")
+        self.assertTrue(any("rebuilt the halal list (first run)" in n for n in out["notes"]))
+        self.assertTrue(out["rows"])
+
+    def test_rebuilds_when_a_month_old(self):
+        self.build_universe()
+        u = self.read("halal_universe.json")
+        u["updated"] = "2026-09-20"                                   # 40 days before the pinned date
+        self.write("halal_universe.json", u)
+        out = self.run_script("tayyib-daily/daily.py", "--no-news")
+        self.assertTrue(any("list was 40 days old" in n for n in out["notes"]))
+        self.assertEqual(self.read("halal_universe.json")["updated"], "2026-10-30")
+        u["updated"] = "2026-09-20"
+        self.write("halal_universe.json", u)
+        out = self.run_script("tayyib-daily/daily.py", "--no-news", "--no-rebuild")
+        self.assertFalse(any("rebuilt" in n for n in out["notes"]))
+
+    def test_top_picks(self):
+        self.build_universe()
+        out = self.run_script("tayyib-daily/daily.py", "--no-news")
+        passed = [r["symbol"] for r in out["rows"] if r["risk"] == "PASS"]
+        self.assertEqual(out["top_picks"], passed[:3])
+        md = open(os.path.join(self.dir, "daily", "2026-10-30.md"), encoding="utf-8").read()
+        self.assertIn("Today's top picks", md)

@@ -19,6 +19,7 @@
     "require_compliant": true,
     "allow_review": false,
     "list_max_age_days": 120,
+    "auto_rebuild_days": 30,
     "max_debt_to_assets_pct": 25.0,
     "max_noncompliant_income_pct": 3.0,
     "max_cash_receivables_to_assets_pct": 90.0

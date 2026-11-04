@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.3 (2026-11-04)
+
+- Daily list builds the halal list on the first run and rebuilds it automatically when it is 30 days
+  old (`halal.auto_rebuild_days`; `--no-rebuild` to skip).
+- Daily list shows **today's top picks**: the best 3 PASS stocks with buy, stop, target and shares (`--picks N`).
+- Docs rewritten: a short README, plus a [User guide](docs/USER_GUIDE.md) (non-technical, step by step,
+  including running it automatically with Windows Task Scheduler), [How it works](docs/HOW_IT_WORKS.md),
+  a [FAQ](docs/FAQ.md) (halal criteria, data sources, PASS/WARN/BLOCK, R, privacy) and a
+  [Technical guide](docs/TECHNICAL.md). The old GETTING_STARTED guide is folded into the User guide.
+
 ## v0.1.2 (2026-11-04)
 
 - Packaging only: the plugin version is bumped so `claude plugin update` delivers the v0.1.1 risk and

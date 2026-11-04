@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 # ---------------------------------------------------------------------------
@@ -121,6 +121,7 @@ DEFAULT_CONFIG = {
         "require_compliant": True,      # BLOCK anything not 'compliant'
         "allow_review": False,          # treat 'review' as BLOCK unless true
         "list_max_age_days": 120,       # warn when the list is older
+        "auto_rebuild_days": 30,        # tayyib-daily rebuilds the list when older (0 = never)
         "max_debt_to_assets_pct": 25.0,         # TASIS
         "max_noncompliant_income_pct": 3.0,     # TASIS
         "max_cash_receivables_to_assets_pct": 90.0,  # TASIS

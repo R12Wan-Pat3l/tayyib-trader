@@ -69,16 +69,32 @@ def main(argv=None):
     p.add_argument("--top", type=int, default=10, help="plan at most N stocks (best scores first)")
     p.add_argument("--runs", type=int, default=3000, help="time-machine simulations per stock")
     p.add_argument("--no-news", action="store_true", help="skip the news step (faster)")
+    p.add_argument("--picks", type=int, default=3, help="how many top PASS stocks to highlight")
+    p.add_argument("--no-rebuild", action="store_true", help="never rebuild the halal list automatically")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
     notes = []
 
-    # 1. halal universe
+    # 1. halal universe: built on first run, rebuilt automatically once it is a month old
     uni = tc.load_universe()
+    age = tc.universe_age_days(uni) if uni.get("stocks") else None
+    every = cfg["halal"].get("auto_rebuild_days") or 0
+    if not a.no_rebuild and every and (not uni.get("stocks") or (age is not None and age >= every)):
+        why = "first run" if not uni.get("stocks") else "list was %d days old" % age
+        if not a.json:
+            sys.stderr.write("Rebuilding the halal list (%s): about 5 minutes...\n" % why)
+        try:
+            b = run("tayyib-halal", "halal.py", "build")
+            c = b.get("counts_with_overrides") or b["counts"]
+            notes.append("rebuilt the halal list (%s): %d compliant, %d review, %d excluded, %d unknown"
+                         % (why, c["compliant"], c["review"], c["excluded"], c["unknown"]))
+        except RuntimeError as e:
+            notes.append("halal list rebuild failed, using the existing list: %s" % str(e)[:120])
+        uni = tc.load_universe()
+        age = tc.universe_age_days(uni)
     if not uni.get("stocks"):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first (about 5 minutes, monthly)")
-    age = tc.universe_age_days(uni)
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
         notes.append("halal list is %d days old: rebuild it (halal.py build)" % age)
     elif age is not None and age > 35:
@@ -169,7 +185,8 @@ def main(argv=None):
     today = tc.today_ist().isoformat()
     out = {"date": today, "asof": tc.now_ist().isoformat(timespec="minutes"), "mode": a.mode,
            "capital": cfg["capital"], "risk_per_trade_pct": cfg["max_risk_per_trade_pct"], "broker": cfg["broker"],
-           "universe_updated": uni.get("updated"), "scanned": scan["scanned"], "rows": rows, "notes": notes}
+           "universe_updated": uni.get("updated"), "scanned": scan["scanned"], "rows": rows, "notes": notes,
+           "top_picks": [r["symbol"] for r in rows if r["risk"] == "PASS"][: max(a.picks, 0)]}
     tc.write_json(os.path.join("daily", today + ".json"), out)
     md = render_md(out)
     with open(tc.path("daily", today + ".md"), "w", encoding="utf-8") as f:
@@ -189,6 +206,16 @@ def render_md(out):
          % (tc.fmt_rs(out["capital"], 0), out["risk_per_trade_pct"], out["broker"], out["scanned"],
             out["universe_updated"]), ""]
     rows = out["rows"]
+    tops = [r for r in rows if r["symbol"] in out.get("top_picks", [])]
+    if tops:
+        L.append("**Today's top picks** (PASS, best time-machine expectancy first):")
+        for r in tops:
+            L.append("- **%s** (%s %s): buy above %s, stop %s, target %s, %s shares, risk %s"
+                     % (r["symbol"], r["mode"], r["setup"], fmt(r["entry"]), fmt(r["stop"]), fmt(r["target"]),
+                        r["qty"], tc.fmt_rs(r["loss_at_stop_rs"], 0)))
+        L.append("")
+    elif rows:
+        L += ["No stock passed every check today. Look at the reasons below; no trade is also a decision.", ""]
     if not rows:
         L += ["No setups armed today. That is a normal result: no trade is also a decision.", ""]
     else:

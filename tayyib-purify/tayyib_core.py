@@ -728,7 +728,8 @@ def business_screen(sym, name="", industry=""):
 
 FUNDAMENTAL_TYPES = ("TotalDebt", "TotalAssets", "CashAndCashEquivalents",
                      "AccountsReceivable", "InterestIncome", "InterestIncomeNonOperating",
-                     "TotalRevenue", "OtherShortTermInvestments")
+                     "TotalRevenue", "OtherShortTermInvestments", "OtherNonOperatingIncomeExpenses",
+                     "OtherIncomeExpense")
 
 
 def fetch_fundamentals(sym, freq="annual", types=FUNDAMENTAL_TYPES, exchange="NSE"):
@@ -792,13 +793,25 @@ def financial_screen(f, cfg):
     if rev:
         assumed = sti * h["noncompliant_investment_return_pct"] / 100.0
         nci = (interest or 0.0) + assumed
-        total_income = rev + (interest or 0.0)
+        # Total income as Indian annual reports define it: revenue from operations + other income.
+        # Other income already contains interest, so use it when Yahoo gives it and it is at least
+        # the interest figure; otherwise fall back to revenue + interest (slightly stricter).
+        other = latest(f, "OtherNonOperatingIncomeExpenses")
+        if other is None:
+            other = latest(f, "OtherIncomeExpense")
+        if other is not None and other >= (interest or 0.0):
+            total_income = rev + other
+            ratios_basis = "revenue + other income"
+        else:
+            total_income = rev + (interest or 0.0)
+            ratios_basis = "revenue + interest (other income not reported)"
         # Two figures, shown side by side:
         #   interest_income_pct      interest the company actually reported
         #   noncompliant_income_pct  that plus an ASSUMED 8% return on short-term investments (TASIS-style)
         ratios["interest_income_pct"] = round((interest or 0.0) / total_income * 100, 2)
         ratios["noncompliant_income_pct"] = round(nci / total_income * 100, 2)
         ratios["assumed_return_pct"] = round(assumed / total_income * 100, 2)
+        ratios["total_income_basis"] = ratios_basis
         if interest is None:
             reasons.append("interest income not reported: non-compliant income ratio is a lower bound")
     else:

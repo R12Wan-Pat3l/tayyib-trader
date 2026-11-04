@@ -287,3 +287,27 @@ class EighthRun(unittest.TestCase):
     def test_gst_includes_ipft(self):
         c = tc.order_charges("BUY", 4480.95, 100, tc.DEFAULT_CONFIG)
         self.assertEqual(c["total"], 532.07)                    # matches Zerodha's published rates
+
+
+class NinthRun(OfflineCase):
+    def test_total_income_includes_other_income(self):
+        d = "2026-03-31"
+        f = {"TotalDebt": [(d, 10)], "TotalAssets": [(d, 100)], "CashAndCashEquivalents": [(d, 5)],
+             "AccountsReceivable": [(d, 5)], "InterestIncome": [(d, 9.15)], "TotalRevenue": [(d, 584.62)],
+             "OtherNonOperatingIncomeExpenses": [(d, 19.72)]}
+        r = tc.financial_screen(f, tc.DEFAULT_CONFIG)
+        self.assertEqual(r["ratios"]["interest_income_pct"], 1.51)          # Sun Pharma's report: 1.51%
+        self.assertEqual(r["ratios"]["total_income_basis"], "revenue + other income")
+        del f["OtherNonOperatingIncomeExpenses"]
+        r = tc.financial_screen(f, tc.DEFAULT_CONFIG)
+        self.assertEqual(r["ratios"]["interest_income_pct"], 1.54)          # fallback: revenue + interest
+        f["OtherIncomeExpense"] = [(d, 1.0)]                                 # smaller than interest: ignored
+        self.assertEqual(tc.financial_screen(f, tc.DEFAULT_CONFIG)["ratios"]["interest_income_pct"], 1.54)
+
+    def test_build_summary_counts_overrides(self):
+        self.write("halal_overrides.json", {"ECHO": {"status": "compliant", "note": "test"}})
+        out = self.build_universe()
+        self.assertEqual(out["counts"]["review"], 1)
+        self.assertEqual(out["counts_with_overrides"]["review"], 0)
+        self.assertEqual(out["counts_with_overrides"]["compliant"], out["counts"]["compliant"] + 1)
+        self.assertEqual(out["overrides"], 1)

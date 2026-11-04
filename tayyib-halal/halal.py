@@ -71,13 +71,20 @@ def cmd_build(a, cfg):
            "stocks": stocks}
     tc.write_json("halal_universe.json", uni)
     counts = {s: sum(1 for x in stocks.values() if x["status"] == s) for s in tc.STATUSES}
+    eff = {s: 0 for s in tc.STATUSES}                 # what every other skill uses: overrides applied
+    for sym in stocks:
+        eff[tc.halal_status(sym, uni)["status"]] += 1
+    n_ov = len([k for k in (tc.read_json("halal_overrides.json", {}) or {}) if k in stocks])
     out = {"written": "trader/halal_universe.json", "source": source, "counts": counts,
-           "fetch_errors": errors}
+           "counts_with_overrides": eff, "overrides": n_ov, "fetch_errors": errors}
     if a.json:
         return tc.print_json(out)
     print("Halal universe built: %d stocks from %s" % (len(stocks), source))
+    print("  %-10s %8s %18s" % ("", "screen", "after overrides"))
     for s in tc.STATUSES:
-        print("  %-10s %d" % (s, counts[s]))
+        print("  %-10s %8d %18d" % (s, counts[s], eff[s]))
+    if n_ov:
+        print("  (%d of your overrides applied; they are kept across rebuilds in trader/halal_overrides.json)" % n_ov)
     if errors:
         print("  financials unavailable for %d (marked unknown): %s" % (len(errors), ", ".join(errors[:15])))
     print("Only 'compliant' stocks reach the scanner. " + tc.DISCLAIMER)
@@ -99,6 +106,8 @@ def show(rec, cfg=None):
         if key in ratios:
             v, L = ratios[key], cfg["halal"][lim]
             print("    %-44s %6.2f%%  (limit %.0f%%) %s" % (label, v, L, "ok" if v < L else "OVER"))
+    if ratios.get("total_income_basis"):
+        print("    (total income = %s)" % ratios["total_income_basis"])
 
 
 def cmd_check(a, cfg):

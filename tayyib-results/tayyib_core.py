@@ -793,18 +793,16 @@ def financial_screen(f, cfg):
     if rev:
         assumed = sti * h["noncompliant_investment_return_pct"] / 100.0
         nci = (interest or 0.0) + assumed
-        # Total income as Indian annual reports define it: revenue from operations + other income.
-        # Other income already contains interest, so use it when Yahoo gives it and it is at least
-        # the interest figure; otherwise fall back to revenue + interest (slightly stricter).
+        # Total income as Indian annual reports define it: revenue + other income. Yahoo splits
+        # "other income" into interest (reported separately) and a leftover "other" figure that
+        # excludes interest, so: revenue + interest + max(other, 0). Yahoo does not break out
+        # treasury / mutual-fund gains, so this can still read slightly high (the strict side).
         other = latest(f, "OtherNonOperatingIncomeExpenses")
         if other is None:
             other = latest(f, "OtherIncomeExpense")
-        if other is not None and other >= (interest or 0.0):
-            total_income = rev + other
-            ratios_basis = "revenue + other income"
-        else:
-            total_income = rev + (interest or 0.0)
-            ratios_basis = "revenue + interest (other income not reported)"
+        total_income = rev + (interest or 0.0) + max(other or 0.0, 0.0)
+        ratios_basis = ("revenue + interest + other income" if other is not None
+                        else "revenue + interest (other income not reported)")
         # Two figures, shown side by side:
         #   interest_income_pct      interest the company actually reported
         #   noncompliant_income_pct  that plus an ASSUMED 8% return on short-term investments (TASIS-style)

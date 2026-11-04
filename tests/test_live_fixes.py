@@ -294,15 +294,16 @@ class NinthRun(OfflineCase):
         d = "2026-03-31"
         f = {"TotalDebt": [(d, 10)], "TotalAssets": [(d, 100)], "CashAndCashEquivalents": [(d, 5)],
              "AccountsReceivable": [(d, 5)], "InterestIncome": [(d, 9.15)], "TotalRevenue": [(d, 584.62)],
-             "OtherNonOperatingIncomeExpenses": [(d, 19.72)]}
+             "OtherNonOperatingIncomeExpenses": [(d, 10.57)]}                # Yahoo's "other": excludes interest
         r = tc.financial_screen(f, tc.DEFAULT_CONFIG)
         self.assertEqual(r["ratios"]["interest_income_pct"], 1.51)          # Sun Pharma's report: 1.51%
-        self.assertEqual(r["ratios"]["total_income_basis"], "revenue + other income")
+        self.assertEqual(r["ratios"]["total_income_basis"], "revenue + interest + other income")
+        f["OtherNonOperatingIncomeExpenses"] = [(d, -5.0)]                  # a net loss never shrinks the base
+        self.assertEqual(tc.financial_screen(f, tc.DEFAULT_CONFIG)["ratios"]["interest_income_pct"], 1.54)
         del f["OtherNonOperatingIncomeExpenses"]
         r = tc.financial_screen(f, tc.DEFAULT_CONFIG)
         self.assertEqual(r["ratios"]["interest_income_pct"], 1.54)          # fallback: revenue + interest
-        f["OtherIncomeExpense"] = [(d, 1.0)]                                 # smaller than interest: ignored
-        self.assertEqual(tc.financial_screen(f, tc.DEFAULT_CONFIG)["ratios"]["interest_income_pct"], 1.54)
+        self.assertIn("not reported", r["ratios"]["total_income_basis"])
 
     def test_build_summary_counts_overrides(self):
         self.write("halal_overrides.json", {"ECHO": {"status": "compliant", "note": "test"}})

@@ -21,6 +21,12 @@ analyses, plans and checks. It never places an order.
    run at all, say so and stop: never give halal status, setups or levels from memory.
 6. Python: use `python3`; on Windows, if it opens the Microsoft Store, use `py`.
 
+## Today's list in one command
+
+```bash
+python3 tayyib-daily/daily.py          # after 3:30 PM IST: halal setups with entry, stop, target, qty, PASS/WARN
+```
+
 ## The pipeline (one trade)
 
 Run from the folder where the user keeps their data; files go to `./trader/` (or `$TAYYIB_DIR`).
@@ -45,7 +51,7 @@ Every script accepts `--json` (after the subcommand, where there is one) for mac
 
 ## MCP
 
-`python3 mcp/server.py` is a stdio MCP server exposing 16 read/analyse/plan tools with no order
+`python3 mcp/server.py` is a stdio MCP server exposing 17 read/analyse/plan tools with no order
 placement. See the README for client configuration.
 
 ## Developing

@@ -1,6 +1,7 @@
 # tayyib-trader
 
-**13 AI skills for halal swing and delivery trading on Indian stocks (NSE/BSE).** Screen for
+**14 AI skills for halal swing and delivery trading on Indian stocks (NSE/BSE).** One command gives
+you today's list of halal stocks with entry, stop, target and quantity. Underneath, it screens for
 Shariah compliance, scan charts, read Indian market news, time the entry, plan the exit, replay the
 trade 10,000 times, size it with real Indian charges, check the risk, get an order ticket you place
 yourself, then track alerts, results, insider deals and dividend purification.
@@ -40,10 +41,11 @@ ticket in plain words, you say yes, and you place it in Kite or Groww yourself.
 | **Indian costs** | STT, stamp duty, exchange and SEBI fees, GST and DP charges, plus Zerodha or Groww brokerage, are counted in sizing, reward:risk and every backtest. |
 | **Purification** | Works out how much of your dividends (and, if you choose, gains) to give away for the company's non-compliant income. |
 
-## The thirteen
+## The fourteen
 
 | skill | job | what it does |
 |---|---|---|
+| `tayyib-daily` | Daily List | **One command** after the close: runs everything below for today's best candidates and prints one table of halal stocks with entry, stop, stop %, target, quantity, rupee risk, time-machine verdict and PASS / WARN / BLOCK. |
 | `tayyib-halal` | Halal Screener | Builds the Shariah-screened universe: business screen, plus TASIS-style ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90% of assets), or loads an official list. Your overrides win. |
 | `tayyib-scanner` | Chart Scanner | Scans halal stocks for swing setups (breakout, pullback to the 20 EMA, oversold bounce, squeeze) and delivery setups (long-term trend), with liquidity filters. |
 | `tayyib-news` | News Monitor | Google News India, NSE announcements, Moneycontrol, ET, Mint. Tags each headline and flags **HALAL-WATCH** items (new debt, entering an impermissible business). |
@@ -66,7 +68,24 @@ while holding: alerts, broker stop/close            on a schedule: news, results
 year end: purify
 ```
 
-Everything is written to a `trader/` folder in your working directory, and each skill reads what the
+**The short way, every trading day after 3:30 PM IST:**
+
+```bash
+python3 tayyib-daily/daily.py                          # or ask Claude: "today's halal list"
+```
+
+```
+| # | stock | setup          | entry   | stop    | stop% | target  | qty | risk Rs | net R:R | time machine             | check    |
+| 1 | CHRL  | delivery trend | 1947.10 | 1739.05 | 10.7  | 2571.25 | 4   | 864     | 2.85    | +2.43R, leans + (2 past) | **PASS** |
+| 2 | ALFA  | delivery trend | 996.75  | 913.60  | 8.3   | 1246.20 | 11  | 953     | 2.83    | +2.16R, leans + (1 past) | **WARN** |
+Why not PASS:
+- ALFA WARN: HALAL-WATCH news: Alfa Industries board approves raising Rs 300 crore via NCDs (new debt)
+```
+
+(Offline test data with invented companies, so these numbers are only an example.) It saves the list
+to `trader/daily/DATE.md`. Pick a row, run `ticket.py show SYMBOL`, and place it yourself if you agree.
+
+**The long way, step by step** (what `daily` runs for you). Everything is written to a `trader/` folder in your working directory, and each skill reads what the
 previous one wrote. With Claude you just talk ("scan for halal swing setups", "plan ALFA", "how many
 shares", "is it OK?", "give me the ticket"), and it runs the commands below.
 
@@ -125,7 +144,7 @@ cp -r tayyib-trader/tayyib-* ~/.claude/skills/
 ```
 
 **Any MCP client** (Claude Desktop, Cursor, ChatGPT connectors and others): add the stdio server. It
-exposes 16 tools for analysis, planning and checks. None of them place orders.
+exposes 17 tools for analysis, planning and checks. None of them place orders.
 
 ```json
 {
@@ -215,7 +234,7 @@ flags ratios drifting toward a limit, and `tayyib-news` flags new borrowing.
 python3 -m unittest discover -s tests -v
 ```
 
-The 91 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
+The 96 tests run offline on **synthetic fixtures**: invented companies, seeded price walks, and real
 data formats (Yahoo, NSE CSV and JSON, RSS). They cover the indicators, the charges arithmetic, the halal
 screens, every hard rule, a full trade from screen to purification, and the MCP server. To regenerate
 the fixtures, run `tests/make_fixtures.py`. For live checks against real data, see [TESTING.md](TESTING.md).

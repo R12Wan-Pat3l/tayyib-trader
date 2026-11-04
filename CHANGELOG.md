@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.1 (2026-11-04)
+
+- New skill `tayyib-daily`: one command for today's halal trade list. It runs scan, news, plan, time
+  machine, sizing and the risk check for the best candidates (only today's stocks; earlier plans and
+  placed orders are left alone) and prints one table with entry, stop, stop %, target, quantity, rupee
+  risk, verdict and PASS / WARN / BLOCK, with every reason (HALAL-WATCH first). Saved to
+  `trader/daily/DATE.md`. Warns when run during market hours or when the halal list is due a rebuild.
+- MCP tool `daily` (17 tools, still none that place orders).
+- Plugin version 0.1.1, so `claude plugin update` picks this up.
+
 ## v0.1.0 (2026-11-04)
 
 First release. 13 skills for halal swing and delivery trading on NSE/BSE, an MCP server, and

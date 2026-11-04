@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 PROTOCOL = "2025-06-18"
 
 
@@ -31,6 +31,13 @@ SYM1 = {"type": "string", "description": "one NSE symbol, e.g. 'TCS'"}
 
 # name: (description, schema, script, argv builder)
 TOOLS = {
+    "daily": ("Today's halal trade list in one call: scan, news, plan, time machine, size and risk check for the "
+              "best candidates. Returns entry, stop, target, quantity, rupee risk, verdict and PASS/WARN/BLOCK. "
+              "Run after 3:30 PM IST. Places nothing.",
+              S({"mode": {"type": "string", "enum": ["swing", "delivery", "all"]}, "top": {"type": "integer"},
+                 "no_news": {"type": "boolean"}}), "tayyib-daily/daily.py",
+              lambda a: (["--mode", a["mode"]] if a.get("mode") else []) + (["--top", str(a["top"])] if a.get("top") else [])
+              + (["--no-news"] if a.get("no_news") else [])),
     "halal_check": ("Halal (Shariah) status of NSE stocks from the screened universe, with reasons and "
                     "TASIS-style ratios. live=true screens symbols not in the universe.",
                     S({"symbols": SYM, "live": {"type": "boolean"}}, ["symbols"]), "tayyib-halal/halal.py",

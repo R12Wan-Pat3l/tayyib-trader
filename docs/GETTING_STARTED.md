@@ -30,6 +30,7 @@ use `py` wherever this guide says `python3`. You should see `Python 3.x.x`.
    /plugin install tayyib-trader@tayyib-trader
    ```
 4. Now just talk to it in plain English (or Hinglish):
+   - **"Give me today's halal list"** (every trading day after 3:30 PM; this is the main one)
    - "Build my halal stock list" (first time; takes a few minutes)
    - "Scan for halal swing setups"
    - "Is ASIANPAINT halal?"

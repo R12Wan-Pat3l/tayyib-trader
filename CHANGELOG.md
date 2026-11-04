@@ -12,8 +12,10 @@ First release. 13 skills for halal swing and delivery trading on NSE/BSE, an MCP
   by side; total income = revenue + interest + other income, as Indian annual reports define it.
 - `compare` against a trusted Shariah list; `--accept-income-reviews` for income-only cases; user
   overrides kept across rebuilds; build summary shows counts before and after overrides.
-- Live check vs Nippon Shariah BeES + Tata Ethical holdings (Sep 2026): 94.8% agreement, and no stock
-  we mark compliant is non-compliant on those lists.
+- Live check vs Nippon Shariah BeES + Tata Ethical holdings (Sep 2026): the automatic screen agreed on
+  81.0% of stocks, all differences on the strict side (we block, the funds allow); no stock we mark
+  compliant is non-compliant on those lists. After checking 8 of the differences against their FY26
+  annual reports and recording them as user overrides, agreement is 94.8%.
 
 **Trading**
 - Swing (breakout, pullback, oversold, squeeze) and delivery (trend) setups with liquidity filters.

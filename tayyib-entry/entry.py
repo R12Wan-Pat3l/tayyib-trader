@@ -131,6 +131,10 @@ def main(argv=None):
             if ev.get("trigger"):
                 print("             %s (%s), trigger %.2f, invalidation %.2f, armed %s"
                       % (ev["setup"], ev["mode"], ev["trigger"], ev["invalidation"], ev["signal_date"]))
+                pl = ((tc.read_json("plan.json", {}) or {}).get("plans") or {}).get(ev["symbol"])
+                if pl and pl.get("setup") == ev["setup"]:
+                    print("             plan stop %.2f (the order's stop); invalidation is the setup's own "
+                          "level and only decides whether to enter" % pl["stop"])
                 if ev.get("other_setups"):
                     print("             also armed: %s (pick one with --setup)" % ", ".join(ev["other_setups"]))
         print("Next: tayyib-exit plan SYMBOL to set the stop and target before you buy.")

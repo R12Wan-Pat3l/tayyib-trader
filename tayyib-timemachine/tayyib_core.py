@@ -619,7 +619,8 @@ def plan_trade(sig, cfg, entry=None):
         floor_ = entry * (1 - m["max_stop_pct"] / 100.0)   # the cap is applied last: it always wins
         if stop < floor_:
             stop, method = floor_, "%.0f%% max stop" % m["max_stop_pct"]
-    stop = round_tick(stop, tick, "down")
+    # a stop set by a % cap rounds up to the tick so it never sits past the cap
+    stop = round_tick(stop, tick, "up" if "max" in method and "stop" in method else "down")
     risk = round(entry - stop, 2)
     if risk <= 0:
         raise ValueError("stop %.2f is not below entry %.2f" % (stop, entry))

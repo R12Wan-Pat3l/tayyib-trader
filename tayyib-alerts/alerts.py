@@ -125,7 +125,8 @@ def main(argv=None):
             return tc.print_json(store)
         for x in store["alerts"]:
             print("#%-3d %-12s %-6s %-10s %-6s %s" % (x["n"], x["symbol"], x["kind"], x["level"],
-                                                   "rang" if x["fired"] else "live", x["note"]))
+                                                   ("cancelled" if str(x["fired"]).startswith("cancelled") else "rang") if x["fired"] else "live",
+                                                   x["note"]))
         return
 
     if a.cmd == "clear":

@@ -19,7 +19,8 @@ python3 "${CLAUDE_SKILL_DIR}/check.py" TCS
 ```
 
 Only PASS and WARN orders become tickets. Read every WARN to the user. Orders are checked in turn,
-so a later one counts the cash, heat and positions of the earlier approved ones.
+so a later one counts the cash, heat and positions of the earlier approved ones, even before they
+are placed. That is deliberate: it assumes every approved ticket may fill.
 
 The hard rules are in the code, not the config, and cannot be switched off:
 CNC only (no MIS, NRML or MTF); no short selling (a SELL can never exceed shares held);

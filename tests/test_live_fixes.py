@@ -247,3 +247,26 @@ class SixthRun(OfflineCase):
         self.build_universe()
         txt = self.run_script("tayyib-news/news.py", "--symbols", "ALFA", "--show", "2", as_json=False)
         self.assertIn("+2 more", txt)
+
+
+class SeventhRun(OfflineCase):
+    def test_cap_is_strict(self):
+        for mode, cap in (("swing", 10.0), ("delivery", 15.0)):
+            sig = {"setup": "breakout" if mode == "swing" else "trend", "mode": mode, "date": "2026-10-30",
+                   "trigger": 4480.95, "invalidation": 3000.0, "atr": 150.0, "valid_days": 3}
+            p = tc.plan_trade(sig, tc.DEFAULT_CONFIG)
+            self.assertLessEqual((p["entry"] - p["stop"]) / p["entry"] * 100, cap + 1e-9, mode)
+
+    def test_verdict_no_contradiction(self):
+        sys.path.insert(0, os.path.join(ROOT, "tayyib-timemachine"))
+        import timemachine
+        mc = {"expectancy_r": 0.39, "probabilities_pct": {"target": 19.0, "stop": 22.0, "breakeven": 9.0, "time": 50.0},
+              "r_percentiles": {"p10": -1, "p50": 0.22, "p90": 2}}
+        self.assertNotIn("most likely single outcome is a loss", timemachine.verdict(mc, {"trades": 10, "expectancy_r": 0.12}))
+
+    def test_cancelled_alerts_labelled(self):
+        self.write("alerts.json", {"alerts": [{"n": 1, "symbol": "ALFA", "kind": "below", "level": 1, "note": "STOP: sell 1",
+                                               "fired": "cancelled: position closed", "created": "x"}]})
+        txt = self.run_script("tayyib-alerts/alerts.py", "list", as_json=False)
+        self.assertIn("cancelled", txt)
+        self.assertNotIn("rang", txt)

@@ -203,7 +203,9 @@ def main(argv=None):
     if market:
         print("Market headlines:")
         for it in market[:10]:
-            print("  %s  %s" % ((it["published"] or "")[:16].replace("T", " "), it["title"][:110]))
+            flags = (" [" + ", ".join(it["tags"]) + "]") if it.get("tags") else ""
+            watch = ("  HALAL-WATCH: " + ", ".join(it["halal_watch"])) if it.get("halal_watch") else ""
+            print("  %s  %s%s%s" % ((it["published"] or "")[:16].replace("T", " "), it["title"][:110], flags, watch))
     if errors:
         print("(%d sources failed; first: %s)" % (len(errors), errors[0]))
 

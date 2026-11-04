@@ -134,4 +134,8 @@ Live checks against real data: [TESTING.md](../TESTING.md).
 
 1. Bump the version everywhere: `.claude-plugin/plugin.json`, `VERSION` in `core/tayyib_core.py` (then sync) and in `mcp/server.py`, and add a new top entry to `CHANGELOG.md`. `claude plugin update` only compares this number, and `tests/test_repo.py` fails if they disagree.
 2. Make sure the tests pass and the sync check is clean.
-3. Tag `vX.Y.Z`, push the tag, then publish the GitHub release with the changelog section.
+3. Tag `vX.Y.Z` and push the tag. The **Release** workflow (`.github/workflows/release.yml`) runs the
+   tests on the tagged code and publishes the GitHub release, with notes from CHANGELOG.md
+   (`tools/release_notes.py`: the tag's section plus any untagged versions before it). For a tag that
+   already exists, go to **Actions → Release → Run workflow** and enter the tag.
+   The **Tests** workflow runs the suite on Python 3.8 and 3.12 on every push.

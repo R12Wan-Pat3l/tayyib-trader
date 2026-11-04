@@ -60,3 +60,16 @@ class Versions(unittest.TestCase):
         self.assertEqual(len({pl, core, mcp, top}), 1,
                          "bump every version together: plugin.json %s, core %s, mcp %s, CHANGELOG %s"
                          % (pl, core, mcp, top))
+
+
+class ReleaseNotes(unittest.TestCase):
+    def test_notes_for_top_version(self):
+        top = re.search(r"^## v(\S+)", open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8").read(), re.M).group(1)
+        p = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "release_notes.py"), "v" + top],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(p.stdout.startswith("## v" + top))
+        self.assertNotIn("](docs/", p.stdout)                          # links made absolute
+        self.assertIn("Not a fatwa", p.stdout)
+        self.assertNotEqual(subprocess.run([sys.executable, os.path.join(ROOT, "tools", "release_notes.py"),
+                                            "v9.9.9"], capture_output=True, text=True).returncode, 0)

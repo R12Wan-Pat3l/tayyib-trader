@@ -1,0 +1,21 @@
+# Runs the offline test suite on every push and pull request, on the oldest and a current Python.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python: ["3.8", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python3 tools/sync_core.py --check
+      - run: python3 -m unittest discover -s tests

@@ -36,4 +36,5 @@ Your `trader/` folder, broker keys, tokens, passwords or account numbers.
    plus a new top entry in `CHANGELOG.md`. `claude plugin update` only compares this number, so
    without a bump existing users keep stale files. `tests/test_repo.py` fails if these disagree.
 2. Add the changes to `CHANGELOG.md`.
-3. Tests green, `python3 tools/sync_core.py --check` clean, then tag `vX.Y.Z` and publish the release.
+3. Tests green, `python3 tools/sync_core.py --check` clean, then tag `vX.Y.Z` and push the tag.
+   GitHub Actions publishes the release page by itself (see `.github/workflows/release.yml`).

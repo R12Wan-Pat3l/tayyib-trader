@@ -114,7 +114,7 @@ DEFAULT_CONFIG = {
         "sebi_fee_pct": 0.0001,         # Rs 10 per crore
         "ipft_pct": 0.0001,             # NSE investor protection fund
         "stamp_duty_buy_pct": 0.015,
-        "gst_pct": 18.0,                # on brokerage + exchange + SEBI
+        "gst_pct": 18.0,                # on brokerage + exchange (incl. IPFT) + SEBI
     },
     # halal
     "halal": {
@@ -666,12 +666,13 @@ def order_charges(side, price, qty, cfg):
     sebi = turnover * ch["sebi_fee_pct"] / 100.0
     ipft = turnover * ch.get("ipft_pct", 0) / 100.0
     stamp = turnover * ch["stamp_duty_buy_pct"] / 100.0 if side == "BUY" else 0.0
-    gst = (brokerage + exch + sebi) * ch["gst_pct"] / 100.0
+    gst = (brokerage + exch + ipft + sebi) * ch["gst_pct"] / 100.0   # IPFT is part of the transaction charge
     dp = br.get("dp_charge_per_sell", 0.0) if side == "SELL" else 0.0
     parts = {"brokerage": brokerage, "stt": stt, "exchange": exch, "sebi": sebi,
              "ipft": ipft, "stamp_duty": stamp, "gst": gst, "dp_charge": dp}
+    total = round(sum(parts.values()), 2)          # sum unrounded parts, then round once
     parts = {k: round(v, 2) for k, v in parts.items()}
-    parts["total"] = round(sum(parts.values()), 2)
+    parts["total"] = total
     return parts
 
 

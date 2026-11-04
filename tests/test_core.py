@@ -69,13 +69,13 @@ class Time(unittest.TestCase):
 class Charges(unittest.TestCase):
     def test_zerodha_delivery_buy(self):
         c = tc.order_charges("BUY", 1000, 100, tc.DEFAULT_CONFIG)
-        # turnover 1,00,000: STT 100, exchange 2.97, SEBI 0.10, IPFT 0.10, stamp 15, GST 18% of 3.07
+        # turnover 1,00,000: STT 100, exchange 2.97, SEBI 0.10, IPFT 0.10, stamp 15, GST 18% of 3.17
         self.assertEqual(c["stt"], 100.0)
         self.assertEqual(c["exchange"], 2.97)
         self.assertEqual(c["stamp_duty"], 15.0)
-        self.assertEqual(c["gst"], 0.55)
+        self.assertEqual(c["gst"], 0.57)
         self.assertEqual(c["dp_charge"], 0.0)
-        self.assertEqual(c["total"], 118.72)
+        self.assertEqual(c["total"], 118.74)
 
     def test_sell_has_dp_no_stamp(self):
         c = tc.order_charges("SELL", 1000, 100, tc.DEFAULT_CONFIG)

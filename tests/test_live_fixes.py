@@ -270,3 +270,20 @@ class SeventhRun(OfflineCase):
         txt = self.run_script("tayyib-alerts/alerts.py", "list", as_json=False)
         self.assertIn("cancelled", txt)
         self.assertNotIn("rang", txt)
+
+
+class EighthRun(unittest.TestCase):
+    def test_election_results_not_company_results(self):
+        self.assertNotIn("results", news.tag("US Midterm Election Results Impact Decoded for Indian markets")[0])
+        self.assertIn("results", news.tag("Nykaa Q2 results: profit doubles")[0])
+
+    def test_skill_docs_mention_windows_and_no_memory(self):
+        import glob
+        for f in glob.glob(os.path.join(ROOT, "tayyib-*", "SKILL.md")):
+            s = open(f, encoding="utf-8").read()
+            self.assertIn("use `py` instead", s, f)
+            self.assertIn("Never give halal status", s, f)
+
+    def test_gst_includes_ipft(self):
+        c = tc.order_charges("BUY", 4480.95, 100, tc.DEFAULT_CONFIG)
+        self.assertEqual(c["total"], 532.07)                    # matches Zerodha's published rates

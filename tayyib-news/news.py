@@ -37,6 +37,7 @@ HALAL_WATCH = {
 
 # Phrases that only describe a LIST of stocks (plural). Words that can describe one company
 # ("multibagger", "dhamaka") are not here: a pick-list tag drops every flag from the headline.
+NOT_COMPANY_RESULTS = ("election", "poll", "midterm", "vote", "exam", "board result", "cbse", "by-election")
 PICK_LISTS = ("stocks to buy", "stock picks", "top picks", "stocks to watch", "buzzing stocks",
               "stocks in news", "shares to buy", "stock recommendations", "stocks that",
               "dhamaka stocks", "dhamaka picks", "promising stocks", "multibagger stocks",
@@ -49,6 +50,8 @@ def tag(text):
     if any(w in t for w in PICK_LISTS):
         return ["pick-list"], []            # a list of many stocks says little about this one
     tags = [k for k, words in TAGS.items() if any(w in t for w in words)]
+    if "results" in tags and any(w in t for w in NOT_COMPANY_RESULTS):
+        tags.remove("results")
     watch = [k for k, words in HALAL_WATCH.items() if any(w in t for w in words)]
     return tags, watch
 
@@ -181,7 +184,8 @@ def main(argv=None):
     if a.market:
         for g in general:
             if not g["published"] or dt.datetime.fromisoformat(g["published"]) >= cutoff:
-                g["tags"], g["halal_watch"] = tag(g["title"])
+                g["tags"], _ = tag(g["title"])
+                g["halal_watch"] = []       # HALAL-WATCH only applies to a named stock
                 market.append(g)
         market.sort(key=lambda x: x["published"] or "", reverse=True)
         market = market[:30]

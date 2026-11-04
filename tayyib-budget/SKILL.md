@@ -13,6 +13,10 @@ argument-hint: "[SYMBOLS] [--capital N] [--risk-pct 1] --write"
 
 `${CLAUDE_SKILL_DIR}` is this skill's folder. Without Claude Code, run the same commands from the repo root as `python3 tayyib-budget/size.py ...`.
 
+**Python:** commands use `python3`. On Windows, if `python3` or `python` opens the Microsoft Store or is not found, use `py` instead (check once with `py --version`) for every command.
+
+**If a command cannot run** (no permission, no Python, a data source down), say so and stop. Never give halal status, prices, ratios, setups or levels from memory.
+
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/size.py" --write                       # every plan
 python3 "${CLAUDE_SKILL_DIR}/size.py" TCS --capital 300000 --risk-pct 0.5 --broker groww --write

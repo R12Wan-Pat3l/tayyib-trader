@@ -13,6 +13,10 @@ argument-hint: "[check SYMBOLS | watch SYMBOL]"
 
 `${CLAUDE_SKILL_DIR}` is this skill's folder. Without Claude Code, run the same commands from the repo root as `python3 tayyib-entry/entry.py ...`.
 
+**Python:** commands use `python3`. On Windows, if `python3` or `python` opens the Microsoft Store or is not found, use `py` instead (check once with `py --version`) for every command.
+
+**If a command cannot run** (no permission, no Python, a data source down), say so and stop. Never give halal status, prices, ratios, setups or levels from memory.
+
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/entry.py" check ALFA,CHRL
 python3 "${CLAUDE_SKILL_DIR}/entry.py" check TCS --setup pullback

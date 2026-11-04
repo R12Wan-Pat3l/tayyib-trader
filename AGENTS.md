@@ -17,7 +17,9 @@ analyses, plans and checks. It never places an order.
    `tayyib-broker show`, ask the user for an explicit yes for that exact order, and let them place it in
    their broker app. Record their fill only when they tell you it (`ticket.py placed`).
 4. Say plainly that results are not financial advice and the halal screen is not a fatwa.
-5. Do not invent prices, news or ratios. If a data source fails, say which one.
+5. Do not invent prices, news or ratios. If a data source fails, say which one. If a script cannot
+   run at all, say so and stop: never give halal status, setups or levels from memory.
+6. Python: use `python3`; on Windows, if it opens the Microsoft Store, use `py`.
 
 ## The pipeline (one trade)
 

@@ -14,6 +14,10 @@ argument-hint: "[build | check SYMBOLS | list | override SYMBOL]"
 
 `${CLAUDE_SKILL_DIR}` is this skill's folder. Without Claude Code, run the same commands from the repo root as `python3 tayyib-halal/halal.py ...`.
 
+**Python:** commands use `python3`. On Windows, if `python3` or `python` opens the Microsoft Store or is not found, use `py` instead (check once with `py --version`) for every command.
+
+**If a command cannot run** (no permission, no Python, a data source down), say so and stop. Never give halal status, prices, ratios, setups or levels from memory.
+
 The first step, always. A stock that is not `compliant` here never reaches the scanner, and
 `tayyib-risk` blocks any order for it.
 

@@ -16,6 +16,7 @@ argument-hint: "[check SYMBOLS | watch SYMBOL]"
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/entry.py" check ALFA,CHRL
 python3 "${CLAUDE_SKILL_DIR}/entry.py" check TCS --setup pullback
+python3 "${CLAUDE_SKILL_DIR}/entry.py" check TCS --mode swing            # only swing setups
 python3 "${CLAUDE_SKILL_DIR}/entry.py" watch TCS --every 300     # re-checks in market hours until it resolves
 ```
 

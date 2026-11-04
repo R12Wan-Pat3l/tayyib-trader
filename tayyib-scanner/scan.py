@@ -76,6 +76,16 @@ def main(argv=None):
             rec = tc.halal_status(s, uni)
             sig.update(symbol=s, name=rec.get("name", ""), industry=rec.get("industry", ""),
                        halal=rec["status"])
+            try:
+                pl = tc.plan_trade(sig, cfg)
+            except ValueError:
+                continue
+            sig["plan_stop"] = pl["stop"]
+            sig["stop_pct"] = round((pl["entry"] - pl["stop"]) / pl["entry"] * 100, 1)
+            if pl["stop"] > sig["invalidation"] + 0.01:
+                sig["notes"] += "; structure low %.2f is %.1f%% down, plan stop capped at %.2f (%s)" % (
+                    sig["invalidation"], (sig["trigger"] - sig["invalidation"]) / sig["trigger"] * 100,
+                    pl["stop"], pl["stop_method"])
             cands.append(sig)
         if not tc.fixtures_dir():
             time.sleep(a.sleep)
@@ -89,10 +99,12 @@ def main(argv=None):
         return tc.print_json(out)
     print("Scanned %d halal-compliant stocks (%s mode), %d setups armed:" % (len(syms), a.mode, len(cands)))
     if cands:
-        print("  %-12s %-9s %-8s %9s %9s %9s %6s" % ("symbol", "setup", "mode", "close", "trigger", "invalid", "score"))
+        print("  %-12s %-9s %-8s %9s %9s %9s %6s %6s" % ("symbol", "setup", "mode", "close", "trigger", "stop",
+                                                         "stop%", "score"))
         for c in cands:
-            print("  %-12s %-9s %-8s %9.2f %9.2f %9.2f %6.1f" % (c["symbol"], c["setup"], c["mode"], c["close"],
-                                                              c["trigger"], c["invalidation"], c["score"]))
+            print("  %-12s %-9s %-8s %9.2f %9.2f %9.2f %6.1f %6.1f" % (c["symbol"], c["setup"], c["mode"], c["close"],
+                                                                     c["trigger"], c["plan_stop"], c["stop_pct"],
+                                                                     c["score"]))
             print("      %s" % c["notes"])
     if skipped:
         print("  skipped %d (illiquid, short history or not halal)" % len(skipped))

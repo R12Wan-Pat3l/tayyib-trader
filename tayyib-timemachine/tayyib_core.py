@@ -880,7 +880,9 @@ def read_index_csv(text):
 
 
 def _strip_tags(s):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s or "")).strip()
+    import html
+    s = html.unescape(html.unescape(s or ""))          # twice: some feeds double-encode (&amp;amp;)
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
 
 
 def _parse_when(s):

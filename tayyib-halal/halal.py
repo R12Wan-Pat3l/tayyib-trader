@@ -189,7 +189,22 @@ def cmd_compare(a, cfg):
     if not_in_ours:
         print("\n3. ON THEIR LIST, NOT IN OUR UNIVERSE (%d): outside the Nifty 500 or not built yet: %s"
               % (len(not_in_ours), ", ".join(x["symbol"] for x in not_in_ours[:30])))
-    print("\nRecord a ruling you accept: halal.py override SYMBOL --status excluded|compliant --note \"source\"")
+    income_only = [r for r in we_stricter if r["ours"] == "review"
+                   and any("only the income test failed" in x for x in r["reasons"])]
+    if a.accept_income_reviews and income_only:
+        ov = tc.read_json("halal_overrides.json", {}) or {}
+        for r in income_only:
+            ov[r["symbol"]] = {"status": "compliant", "date": tc.today_ist().isoformat(),
+                               "note": "trusted list %s says compliant; ours failed only the income test"
+                                       % os.path.basename(a.file)}
+        tc.write_json("halal_overrides.json", ov)
+        print("\nAccepted %d income-test reviews as compliant (overrides, source noted): %s"
+              % (len(income_only), ", ".join(r["symbol"] for r in income_only)))
+    elif income_only:
+        print("\n%d of group 2 failed only the income test (%s). If you trust this list, accept them with:"
+              % (len(income_only), ", ".join(r["symbol"] for r in income_only)))
+        print("   halal.py compare %s --accept-income-reviews" % a.file)
+    print("\nRecord any other ruling: halal.py override SYMBOL --status excluded|compliant --note \"source\"")
 
 
 def cmd_override(a, cfg):
@@ -222,6 +237,9 @@ def main(argv=None):
     l_.add_argument("--status", choices=tc.STATUSES)
     cp = sub.add_parser("compare", help="compare with a trusted Shariah list (CSV with a Symbol column)")
     cp.add_argument("file")
+    cp.add_argument("--accept-income-reviews", action="store_true",
+                    help="override to compliant the stocks this list calls compliant where our only objection "
+                         "is the income test (never debt or cash failures)")
     o = sub.add_parser("override", help="your own (or your scholar's) ruling on one stock")
     o.add_argument("symbol")
     o.add_argument("--status", default="excluded")

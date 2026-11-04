@@ -116,3 +116,52 @@ class Compare(OfflineCase):
         self.assertEqual([r["symbol"] for r in out["we_say_compliant_they_do_not"]], ["CHRL"])
         self.assertEqual([r["symbol"] for r in out["they_say_compliant_we_block"]], ["GOLF"])
         self.assertEqual([r["symbol"] for r in out["not_in_our_universe"]], ["NEWCO"])
+
+
+class SecondRun(OfflineCase):
+    def test_html_unescaped(self):
+        it = tc.parse_feed(b"<rss><channel><item><title>Indian Metals &amp;amp; Ferro Alloys</title></item></channel></rss>")[0]
+        self.assertEqual(it["title"], "Indian Metals & Ferro Alloys")
+
+    def test_pick_list_no_false_halal_watch(self):
+        self.assertEqual(news.tag("Dhamaka stocks: 5 promising picks for Diwali"), (["pick-list"], []))
+        # watch words in another company's summary no longer count: tags come from the title
+        self.assertEqual(news.tag("Eternal shares rise 2%")[1], [])
+
+    def test_scan_stop_matches_plan(self):
+        self.build_universe()
+        for c in self.run_script("tayyib-scanner/scan.py")["candidates"]:
+            self.assertGreaterEqual(c["plan_stop"], c["invalidation"] - 0.01)
+            if c["mode"] == "delivery":
+                self.assertLessEqual(c["stop_pct"], 15.1)
+
+    def test_mode_flag(self):
+        self.build_universe()
+        self.run_script("tayyib-scanner/scan.py")
+        self.assertEqual(self.run_script("tayyib-entry/entry.py", "check", "ALFA", "--mode", "swing")[0]["mode"], "swing")
+        self.assertEqual(self.run_script("tayyib-exit/exit.py", "plan", "ALFA", "--mode", "swing")[0]["mode"], "swing")
+        self.run_script("tayyib-scanner/scan.py", "--mode", "swing")          # default follows the scan
+        self.assertEqual(self.run_script("tayyib-exit/exit.py", "plan", "ALFA")[0]["mode"], "swing")
+
+    def test_accept_income_reviews(self):
+        self.build_universe()
+        self.run_script("tayyib-halal/halal.py", "override", "BRVO", "--status", "review", as_json=False)
+        u = self.read("halal_universe.json")
+        u["stocks"]["CHRL"]["status"] = "review"
+        u["stocks"]["CHRL"]["reasons"] = ["non-compliant income is 4.00%", "only the income test failed, by under 2x the limit"]
+        self.write("halal_universe.json", u)
+        p = os.path.join(self.dir, "t.csv")
+        with open(p, "w") as f:
+            f.write("Symbol\nCHRL\nDLTA\n")
+        self.run_script("tayyib-halal/halal.py", "compare", p, "--accept-income-reviews", as_json=False)
+        ov = self.read("halal_overrides.json")
+        self.assertEqual(ov["CHRL"]["status"], "compliant")
+        self.assertNotIn("DLTA", ov)                     # debt failure is never auto-accepted
+        self.assertEqual(ov["BRVO"]["status"], "review")
+
+
+class Dedupe(OfflineCase):
+    def test_same_headline_from_two_feeds_once(self):
+        self.assertEqual(
+            news.re.sub(r"[^a-z0-9]+", " ", news.re.sub(r"\s+-\s+[^-]+$", "", "Coforge shares rise - MarketsMojo".lower())).strip(),
+            news.re.sub(r"[^a-z0-9]+", " ", news.re.sub(r"\s+-\s+[^-]+$", "", "Coforge Shares Rise! - Mojo".lower())).strip())

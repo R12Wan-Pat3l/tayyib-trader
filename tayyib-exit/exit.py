@@ -15,18 +15,21 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 
-def signal_for(sym, setup, cfg):
+def signal_for(sym, setup, cfg, mode=None):
+    scan = tc.read_json("scan.json", {}) or {}
+    if not mode and scan.get("mode") in ("swing", "delivery"):
+        mode = scan["mode"]
     ent = (tc.read_json("entries.json", {}) or {}).get(sym)
-    if ent and ent.get("signal") and (not setup or ent["setup"] == setup):
+    if ent and ent.get("signal") and (not setup or ent["setup"] == setup) and (not mode or ent.get("mode") == mode):
         return ent["signal"], ent
-    hits = [c for c in (tc.read_json("scan.json", {}) or {}).get("candidates", [])
-            if c["symbol"] == sym and (not setup or c["setup"] == setup)]
+    hits = [c for c in scan.get("candidates", [])
+            if c["symbol"] == sym and (not setup or c["setup"] == setup) and (not mode or c["mode"] == mode)]
     if hits:
         best = dict(max(hits, key=lambda c: c["score"]))
         best["other_setups"] = sorted({c["setup"] for c in hits} - {best["setup"]})
         return best, None
     bars, _ = tc.get_daily_bars(sym, use_cache=False)
-    sigs = tc.detect_all(bars, "all", setups=[setup] if setup else None, tick=cfg["tick_size"])
+    sigs = tc.detect_all(bars, mode or "all", setups=[setup] if setup else None, tick=cfg["tick_size"])
     if sigs:
         sigs[0]["symbol"] = sym
         return sigs[0], None
@@ -39,6 +42,7 @@ def main(argv=None):
     pl = sub.add_parser("plan")
     pl.add_argument("symbols")
     pl.add_argument("--setup")
+    pl.add_argument("--mode", choices=("swing", "delivery"), help="only setups of this style")
     pl.add_argument("--entry", type=float, help="planned entry (default: the trigger, or the fill if triggered)")
     pl.add_argument("--stop", type=float, help="your own stop (overrides the rule)")
     pl.add_argument("--target", type=float, help="your own target (overrides the rule)")
@@ -71,7 +75,7 @@ def main(argv=None):
         if tc.halal_status(sym)["status"] != "compliant" and not cfg["halal"]["allow_review"]:
             out.append({"symbol": sym, "error": "not halal-compliant"})
             continue
-        sig, ent = signal_for(sym, a.setup, cfg)
+        sig, ent = signal_for(sym, a.setup, cfg, a.mode)
         if not sig:
             out.append({"symbol": sym, "error": "no armed setup; pass --setup or run the scanner"})
             continue
@@ -116,7 +120,7 @@ def main(argv=None):
             continue
         print("%s  %s (%s)" % (pln["symbol"], pln["setup"], pln["mode"]))
         if pln.get("other_setups"):
-            print("  note: also armed as %s; this plan uses %s (choose with --setup)"
+            print("  note: also armed as %s; this plan uses %s (choose with --setup or --mode swing|delivery)"
                   % (", ".join(pln["other_setups"]), pln["setup"]))
         print("  entry   %9.2f  %s, valid until %s" % (pln["entry"], pln["entry_type"], pln["valid_until"]))
         print("  stop    %9.2f  %s  (risk %.2f a share)" % (pln["stop"], pln["stop_method"], pln["risk_per_share"]))

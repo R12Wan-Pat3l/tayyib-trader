@@ -17,15 +17,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 
-def find_signal(sym, bars, setup, cfg, lookback=6):
+def find_signal(sym, bars, setup, cfg, lookback=6, mode=None):
     scan = tc.read_json("scan.json", {}) or {}
-    hits = [c for c in scan.get("candidates", []) if c["symbol"] == sym and (not setup or c["setup"] == setup)]
+    if not mode and scan.get("mode") in ("swing", "delivery"):
+        mode = scan["mode"]
+    hits = [c for c in scan.get("candidates", []) if c["symbol"] == sym and (not setup or c["setup"] == setup)
+            and (not mode or c["mode"] == mode)]
     if hits:
         best = dict(max(hits, key=lambda c: c["score"]))
         best["other_setups"] = sorted({c["setup"] for c in hits} - {best["setup"]})
         return best
     ind = tc.indicators(bars)
-    names = [setup] if setup else list(tc.SWING_SETUPS + tc.DELIVERY_SETUPS)
+    names = [setup] if setup else list(tc.SWING_SETUPS if mode == "swing" else tc.DELIVERY_SETUPS
+                                       if mode == "delivery" else tc.SWING_SETUPS + tc.DELIVERY_SETUPS)
     for i in range(len(bars) - 1, max(len(bars) - 1 - lookback, 200), -1):
         sigs = [x for x in (tc.detect(n, bars, ind, i, cfg["tick_size"]) for n in names) if x]
         if sigs:
@@ -68,12 +72,12 @@ def evaluate(sig, bars, live=None, chase_pct=4.0):
             % (last, (trig - last) / last * 100, trig, len(after), sig.get("valid_days", 3))}
 
 
-def check(sym, setup, cfg, live_ok=True):
+def check(sym, setup, cfg, live_ok=True, mode=None):
     rec = tc.halal_status(sym)
     if rec["status"] != "compliant" and not (rec["status"] == "review" and cfg["halal"]["allow_review"]):
         return {"symbol": sym, "status": "BLOCKED", "why": "not halal-compliant (%s)" % rec["status"]}
     bars, _ = tc.get_daily_bars(sym, use_cache=False)
-    sig = find_signal(sym, bars, setup, cfg)
+    sig = find_signal(sym, bars, setup, cfg, mode=mode)
     if not sig:
         return {"symbol": sym, "status": "NO-SETUP", "why": "no setup armed on the last few closes"}
     live = None
@@ -101,6 +105,7 @@ def main(argv=None):
     c = sub.add_parser("check")
     c.add_argument("symbols")
     c.add_argument("--setup")
+    c.add_argument("--mode", choices=("swing", "delivery"), help="only setups of this style")
     c.add_argument("--json", action="store_true")
     w = sub.add_parser("watch", help="re-check during market hours until it triggers")
     w.add_argument("symbol")
@@ -113,7 +118,7 @@ def main(argv=None):
         out = []
         for s in tc.parse_symbols(a.symbols):
             try:
-                ev = check(s, a.setup, cfg)
+                ev = check(s, a.setup, cfg, mode=a.mode)
             except tc.FetchError as e:
                 ev = {"symbol": s, "status": "ERROR", "why": str(e)}
             if ev["status"] not in ("ERROR",):

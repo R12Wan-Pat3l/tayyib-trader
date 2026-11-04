@@ -36,7 +36,9 @@ HALAL_WATCH = {
 
 
 PICK_LISTS = ("stocks to buy", "stock picks", "top picks", "stocks to watch", "buzzing stocks",
-              "stocks in news", "shares to buy", "stock recommendations", "stocks that")
+              "stocks in news", "shares to buy", "stock recommendations", "stocks that", "dhamaka",
+              "promising stocks", "multibagger", "top stocks", "stocks for", "best stocks",
+              "stocks under", "picks for", "stocks recommended", "stocks in focus", "shares in focus")
 
 
 def tag(text):
@@ -139,11 +141,11 @@ def main(argv=None):
         for it in items:
             if it["published"] and dt.datetime.fromisoformat(it["published"]) < cutoff:
                 continue
-            key = it["title"].lower()[:80]
+            key = re.sub(r"[^a-z0-9]+", " ", re.sub(r"\s+-\s+[^-]+$", "", it["title"].lower()))[:70].strip()
             if key in seen:
                 continue
             seen.add(key)
-            it["tags"], it["halal_watch"] = tag(it["title"] + " " + it["summary"])
+            it["tags"], it["halal_watch"] = tag(it["title"])
             kept.append(it)
         kept.sort(key=lambda x: x["published"] or "", reverse=True)
         result[s] = kept
@@ -151,7 +153,7 @@ def main(argv=None):
     if a.market:
         for g in general:
             if not g["published"] or dt.datetime.fromisoformat(g["published"]) >= cutoff:
-                g["tags"], g["halal_watch"] = tag(g["title"] + " " + g["summary"])
+                g["tags"], g["halal_watch"] = tag(g["title"])
                 market.append(g)
         market.sort(key=lambda x: x["published"] or "", reverse=True)
         market = market[:30]

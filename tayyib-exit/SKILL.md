@@ -16,6 +16,7 @@ argument-hint: "[plan SYMBOLS --write | show | remove SYMBOL]"
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/exit.py" plan ALFA --write
 python3 "${CLAUDE_SKILL_DIR}/exit.py" plan TCS --setup trend --write          # delivery plan
+python3 "${CLAUDE_SKILL_DIR}/exit.py" plan TCS --mode swing --write          # only swing setups
 python3 "${CLAUDE_SKILL_DIR}/exit.py" plan TCS --entry 4012 --stop 3890 --write  # user's own levels
 python3 "${CLAUDE_SKILL_DIR}/exit.py" show
 ```

@@ -27,10 +27,12 @@ python3 "${CLAUDE_SKILL_DIR}/daily.py" --no-news           # faster
 It needs the other tayyib skills next to it (as in the plugin or the repo), and a halal universe
 (`tayyib-halal build`, monthly). It takes one to three minutes: a price download per halal stock.
 
-What it does, for today's candidates only (older plans and placed orders are left alone):
-scan, keep the best setup per stock, news (so HALAL-WATCH and results warnings reach the risk check),
-plan, time machine (3,000 runs each), size, risk check. Rows are sorted PASS first, then WARN, then
-BLOCK, best expectancy first within each.
+What it does: scan; keep one setup per stock (with `--mode all`, alternating the best swing and the
+best delivery ideas); news (so HALAL-WATCH and results warnings reach the risk check); plan; time
+machine (3,000 runs each); size, best expectancy first; then the risk check on the whole orders file,
+exactly like `tayyib-risk`, so open positions and placed orders count. Today's tickets replace
+earlier unplaced ones (it says which); placed orders are never touched. Rows are sorted PASS, WARN,
+BLOCK, best expectancy first within each. A negative time-machine expectancy is a WARN.
 
 How to present it:
 - Show the table as it is. Read out every WARN and BLOCK reason.

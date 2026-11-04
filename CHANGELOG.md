@@ -7,6 +7,13 @@
   placed orders are left alone) and prints one table with entry, stop, stop %, target, quantity, rupee
   risk, verdict and PASS / WARN / BLOCK, with every reason (HALAL-WATCH first). Saved to
   `trader/daily/DATE.md`. Warns when run during market hours or when the halal list is due a rebuild.
+- The daily list's PASS / WARN / BLOCK always matches a plain `tayyib-risk` run: it risk-checks the
+  whole orders file (open positions and placed orders count), sizing best expectancy first. Today's
+  tickets replace earlier unplaced ones and it says which; placed orders are never touched.
+- `--mode all` alternates the best swing and delivery ideas instead of showing only delivery.
+- Budget: a new ticket never reuses a placed order's id (adds -2, -3); it says when it replaces an
+  earlier unplaced ticket for the same stock.
+- Risk: a negative time-machine expectancy is a WARN.
 - MCP tool `daily` (17 tools, still none that place orders).
 - Plugin version 0.1.1, so `claude plugin update` picks this up.
 

@@ -38,12 +38,28 @@ def run(skill, name, *args, want_json=True):
     return json.loads(p.stdout) if want_json else p.stdout
 
 
+def choose(cands, mode, top):
+    """One setup per stock. With --mode all, alternate the best swing and the best delivery
+    setups, so delivery's higher scores don't crowd out every swing idea."""
+    lists = [cands] if mode != "all" else [[c for c in cands if c["mode"] == "swing"],
+                                            [c for c in cands if c["mode"] == "delivery"]]
+    picks, seen, k = [], set(), 0
+    while len(picks) < top and any(k < len(l) for l in lists):
+        for l in lists:
+            if k < len(l) and l[k]["symbol"] not in seen and len(picks) < top:
+                picks.append(l[k])
+                seen.add(l[k]["symbol"])
+        k += 1
+    return picks
+
+
 def short_verdict(v):
     v = v or ""
     head = v.split(" (")[0]
     for k, s in (("negative", "negative"), ("coin flip", "coin flip"), ("leans positive", "leans +")):
         if k in head:
-            return s + (", loss most likely" if "most likely single outcome is a loss" in v else "")
+            return s + ("; sim: a loss is the most likely single outcome"
+                        if "most likely single outcome is a loss" in v else "")
     return head[:30]
 
 
@@ -73,11 +89,7 @@ def main(argv=None):
 
     # 2. scan
     scan = run("tayyib-scanner", "scan.py", "--mode", a.mode, "--top", max(a.top * 2, 25))
-    best = {}
-    for c in scan["candidates"]:                       # one setup per stock: the highest score
-        if c["symbol"] not in best:
-            best[c["symbol"]] = c
-    picks = list(best.values())[: a.top]
+    picks = choose(scan["candidates"], a.mode, a.top)
     syms = [c["symbol"] for c in picks]
     if scan.get("errors"):
         notes.append("%d price downloads failed (first: %s)" % (len(scan["errors"]), scan["errors"][0]["error"][:80]))
@@ -97,12 +109,24 @@ def main(argv=None):
             run("tayyib-exit", "exit.py", "plan", c["symbol"], "--setup", c["setup"], "--mode", c["mode"], "--write")
         # 5. time machine, 6. size, 7. risk, all for today's stocks only
         tm = run("tayyib-timemachine", "timemachine.py", "run", ",".join(syms), "--runs", a.runs, "--write")
+        # Size best expectancy first: the risk check fills limits (positions, heat, cash) in file order.
+        exp = lambda s: ((tm["results"].get(s) or {}).get("monte_carlo") or {}).get("expectancy_r") or -9
+        syms = sorted(syms, key=lambda s: -exp(s))
+        # Today's list replaces earlier UNPLACED tickets; placed orders are never touched.
+        store = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
+        stale = [o for o in store["orders"] if o.get("status") != "PLACED" and o["symbol"] not in syms]
+        if stale:
+            store["orders"] = [o for o in store["orders"] if o not in stale]
+            tc.write_json("orders.json", store)
+            notes.append("replaced %d earlier unplaced ticket(s): %s" % (len(stale), ", ".join(o["id"] for o in stale)))
         sized = {o["symbol"]: o for o in run("tayyib-budget", "size.py", ",".join(syms), "--write")}
-        risk = {r["symbol"]: r for r in run("tayyib-risk", "check.py", ",".join(syms))}
+        # Risk-check the WHOLE file, exactly like a plain check.py, so the statuses here match it.
+        by_id = {r["id"]: r for r in run("tayyib-risk", "check.py")}
+        risk = {s: by_id.get(o.get("id")) for s, o in sized.items() if o.get("id")}
         plans = (tc.read_json("plan.json", {}) or {}).get("plans", {})
         for c in picks:
             s = c["symbol"]
-            pl, o, r = plans.get(s, {}), sized.get(s, {}), risk.get(s, {})
+            pl, o, r = plans.get(s, {}), sized.get(s, {}), (risk.get(s) or {})
             sim = tm["results"].get(s, {})
             if r:
                 reasons = list(r.get("block") or []) + sorted(r.get("warn") or [], key=lambda w: "HALAL-WATCH" not in w)
@@ -156,8 +180,9 @@ def render_md(out):
         L += ["| # | stock | setup | entry | stop | stop% | target | qty | risk Rs | net R:R | time machine | check |",
               "|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for k, r in enumerate(rows, 1):
-            tmx = "-" if r["expectancy_r"] is None else "%+.2fR, %s (%s past)" % (
-                r["expectancy_r"], short_verdict(r["verdict"]), r["past_trades"])
+            tmx = "-" if r["expectancy_r"] is None else "%+.2fR %s; %s past trade%s%s" % (
+                r["expectancy_r"], short_verdict(r["verdict"]), r["past_trades"],
+                "" if r["past_trades"] == 1 else "s", " (too few)" if (r["past_trades"] or 0) < 8 else "")
             L.append("| %d | %s | %s %s | %s | %s | %s | %s | %s | %s | %s | %s | **%s** |" % (
                 k, r["symbol"], r["mode"], r["setup"], fmt(r["entry"]), fmt(r["stop"]), fmt(r["stop_pct"], 1),
                 fmt(r["target"]), r["qty"] if r["qty"] is not None else "-",

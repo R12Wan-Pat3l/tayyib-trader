@@ -15,6 +15,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 
+def unique_id(base, used):
+    """A placed order keeps its id; a new ticket for the same stock and day gets -2, -3, ..."""
+    if base not in used:
+        return base
+    n = 2
+    while "%s-%d" % (base, n) in used:
+        n += 1
+    return "%s-%d" % (base, n)
+
+
 def open_value(positions):
     return sum(p["qty"] * p["entry"] for p in positions if p.get("status") == "open")
 
@@ -76,6 +86,8 @@ def main(argv=None):
     cash = cfg["cash_available"] if cfg.get("cash_available") is not None else cfg["capital"] - open_value(positions)
     store = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
     keep = [o for o in store["orders"] if o["symbol"] not in syms or o.get("status") == "PLACED"]
+    replaced = {o["symbol"]: o["id"] for o in store["orders"] if o not in keep}
+    used_ids = {o["id"] for o in keep}
     new = []
     for s in syms:
         pl = plans.get(s)
@@ -87,7 +99,8 @@ def main(argv=None):
             new.append({"symbol": s, "error": sz["why"]})
             continue
         o = {
-            "id": "%s-%s-%s" % (s, pl["signal_date"], pl["setup"]), "symbol": s, "exchange": cfg["exchange"],
+            "id": unique_id("%s-%s-%s" % (s, pl["signal_date"], pl["setup"]), used_ids),
+            "symbol": s, "exchange": cfg["exchange"],
             "side": "BUY", "product": "CNC", "instrument": "EQ", "qty": sz["qty"],
             "order_type": "SL", "trigger_price": pl["entry"], "limit_price": sz["limit_price"],
             "stop": pl["stop"], "target": pl["target"], "mode": pl["mode"], "setup": pl["setup"],
@@ -96,6 +109,9 @@ def main(argv=None):
             "created": tc.now_ist().isoformat(timespec="minutes"),
         }
         o.update({k: v for k, v in sz.items() if k not in ("qty", "limit_price")})
+        if s in replaced:
+            o["replaced"] = replaced[s]
+        used_ids.add(o["id"])
         new.append(o)
         cash -= o["position_value_rs"]
     if a.write:
@@ -116,6 +132,8 @@ def main(argv=None):
         print("               stop %.2f -> lose %s incl. charges; target %.2f -> gain %s; %.2f : 1 net"
               % (o["stop"], tc.fmt_rs(o["loss_at_stop_rs"]), o["target"], tc.fmt_rs(o["gain_at_target_rs"]),
                  o["reward_risk_net"]))
+        if o.get("replaced"):
+            print("               (replaces the earlier unplaced ticket %s)" % o["replaced"])
     if a.write:
         print("-> trader/orders.json. Next: tayyib-risk check.")
 

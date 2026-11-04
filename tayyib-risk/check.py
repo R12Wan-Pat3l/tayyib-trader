@@ -19,7 +19,8 @@ import tayyib_core as tc  # noqa: E402
 REQUIRED = ("id", "symbol", "side", "product", "qty", "trigger_price", "stop", "target")
 
 
-def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, extra_ind=None, extra_value=0.0):
+def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, extra_ind=None, extra_value=0.0,
+                sim=None):
     block, warn, ok = [], [], []
     missing = [k for k in REQUIRED if o.get(k) in (None, "")]
     if missing:
@@ -82,6 +83,11 @@ def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, ext
         block.append("plan expired on %s: re-scan" % vu)
     if o["symbol"] in holdings:
         warn.append("already holding %d %s: this adds to it" % (holdings[o["symbol"]], o["symbol"]))
+    res = ((sim or {}).get("results") or {}).get(o["symbol"]) or {}
+    exp = (res.get("monte_carlo") or {}).get("expectancy_r")
+    if exp is not None and exp < 0 and (res.get("plan") or {}).get("setup") == o.get("setup"):
+        warn.append("time machine expectancy is negative (%+.2fR after charges): the past says this plan loses "
+                    "on average" % exp)
     for it in (news.get("symbols", {}) or {}).get(o["symbol"], []):
         if it.get("halal_watch"):
             warn.append("HALAL-WATCH news: %s (%s)" % (it["title"][:90], ", ".join(it["halal_watch"])))
@@ -101,6 +107,7 @@ def main(argv=None):
     positions = (tc.read_json("positions.json", {}) or {}).get("positions", [])
     uni = tc.load_universe()
     news = tc.read_json("news.json", {}) or {}
+    sim = tc.read_json("sim.json", {}) or {}
     want = set(tc.parse_symbols(a.ids)) if a.ids else None
     results, heat, count, inds, value = [], 0.0, 0, {}, 0.0
     for o in store["orders"]:
@@ -108,7 +115,7 @@ def main(argv=None):
             continue
         if want and o.get("symbol") not in want and str(o.get("id", "")).upper() not in want:
             continue
-        r = check_order(o, cfg, positions, uni, news, heat, count, inds, value)
+        r = check_order(o, cfg, positions, uni, news, heat, count, inds, value, sim)
         o["status"] = r["status"]
         o["risk_checked"] = tc.now_ist().isoformat(timespec="minutes")
         results.append(r)

@@ -1,0 +1,7 @@
+# your trading data stays on your machine
+trader/
+*.tmp
+__pycache__/
+*.pyc
+.env
+.DS_Store

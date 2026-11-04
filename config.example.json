@@ -1,0 +1,22 @@
+{
+  "capital": 100000,
+  "max_risk_per_trade_pct": 1.0,
+  "max_risk_per_trade_rs": null,
+  "max_position_pct": 20.0,
+  "max_open_positions": 6,
+  "max_portfolio_heat_pct": 6.0,
+  "max_positions_per_industry": 2,
+  "min_reward_risk": 1.5,
+  "broker": "zerodha",
+  "min_price": 20,
+  "min_turnover_rs": 20000000,
+  "holidays": [],
+  "halal": {
+    "require_compliant": true,
+    "allow_review": false,
+    "list_max_age_days": 120,
+    "max_debt_to_assets_pct": 25.0,
+    "max_noncompliant_income_pct": 3.0,
+    "max_cash_receivables_to_assets_pct": 90.0
+  }
+}

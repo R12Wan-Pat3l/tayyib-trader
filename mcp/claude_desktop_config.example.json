@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "tayyib-trader": {
+      "command": "python3",
+      "args": ["/ABSOLUTE/PATH/TO/tayyib-trader/mcp/server.py"],
+      "env": {
+        "TAYYIB_DIR": "/ABSOLUTE/PATH/TO/your-trading-folder/trader"
+      }
+    }
+  }
+}

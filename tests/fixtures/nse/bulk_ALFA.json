@@ -1,0 +1,12 @@
+{
+ "data": [
+  {
+   "BD_DT_DATE": "27-Oct-2026",
+   "BD_SYMBOL": "ALFA",
+   "BD_CLIENT_NAME": "EXAMPLE MUTUAL FUND",
+   "BD_BUY_SELL": "BUY",
+   "BD_QTY_TRD": 400000,
+   "BD_TP_WATP": 985.25
+  }
+ ]
+}

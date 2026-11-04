@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""tayyib-news: Indian market news for the stocks you watch.
+
+Sources (all free, public): Google News India RSS per stock, NSE corporate
+announcements, and Moneycontrol / ET Markets / Livemint RSS. Headlines are
+tagged (results, dividend, order win, deal, regulatory, fund-raise...) and
+anything that could change a stock's halal status is flagged HALAL-WATCH.
+Writes trader/news.json.
+"""
+import argparse
+import datetime as dt
+import os
+import sys
+import urllib.parse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tayyib_core as tc  # noqa: E402
+
+TAGS = {
+    "results": ("result", "q1", "q2", "q3", "q4", "quarter", "profit", "revenue", "earnings", "ebitda"),
+    "dividend": ("dividend", "record date", "bonus", "split", "buyback"),
+    "order-win": ("order", "contract", "bags", "wins", "secures"),
+    "deal": ("acqui", "merger", "stake", "demerger", "takeover", "joint venture"),
+    "bulk-block": ("block deal", "bulk deal"),
+    "rating": ("upgrade", "downgrade", "target price", "rating", "buy call", "sell call"),
+    "regulatory": ("sebi", "penalty", "probe", "raid", "notice", "show cause", "court", "nclt"),
+    "pledge": ("pledge",),
+    "management": ("resign", "ceo", "cfo", "appoint", "managing director", "auditor"),
+}
+HALAL_WATCH = {
+    "new debt": ("qip", "ncd", "bond", "debenture", "borrow", "loan", "term loan", "commercial paper"),
+    "impermissible business": ("liquor", "alcohol", "brewery", "casino", "gambling", "betting",
+                               "nbfc", "lending business", "insurance arm", "banking licence"),
+}
+
+
+def tag(text):
+    t = (text or "").lower()
+    tags = [k for k, words in TAGS.items() if any(w in t for w in words)]
+    watch = [k for k, words in HALAL_WATCH.items() if any(w in t for w in words)]
+    return tags, watch
+
+
+def nse_announcements(sess, sym):
+    obj = sess.get_json("/api/corporate-announcements", {"index": "equities", "symbol": sym},
+                        fixture="nse/announcements_%s.json" % sym)
+    rows = obj if isinstance(obj, list) else obj.get("data", [])
+    out = []
+    for r in rows:
+        when = r.get("an_dt") or r.get("sort_date") or ""
+        iso = None
+        for fmt in ("%d-%b-%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                iso = dt.datetime.strptime(when, fmt).replace(tzinfo=tc.IST).isoformat()
+                break
+            except ValueError:
+                pass
+        title = r.get("desc") or r.get("subject") or ""
+        detail = r.get("attchmntText") or ""
+        out.append({"title": (title + (": " + detail if detail else ""))[:300],
+                    "link": r.get("attchmntFile") or "", "published": iso,
+                    "source": "NSE announcement", "summary": ""})
+    return out
+
+
+def google_news(name, sym):
+    q = '"%s" share OR stock' % (name or sym)
+    url = "https://news.google.com/rss/search?q=%s&hl=en-IN&gl=IN&ceid=IN:en" % urllib.parse.quote(q)
+    return tc.parse_feed(tc.fetch(url, fixture="rss/google_%s.xml" % sym), "Google News")
+
+
+def mentions(item, sym, name):
+    t = (item["title"] + " " + item["summary"]).lower()
+    short = (name or "").lower().replace(" limited", "").replace(" ltd", "").strip()
+    return sym.lower() in t.split() or (short and short in t)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", help="default: scan candidates + open positions")
+    p.add_argument("--hours", type=float, default=72)
+    p.add_argument("--market", action="store_true", help="also list general market headlines")
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    cfg = tc.load_config()
+    uni = tc.load_universe()
+
+    if a.symbols:
+        syms = tc.parse_symbols(a.symbols)
+    else:
+        syms = [c["symbol"] for c in (tc.read_json("scan.json", {}) or {}).get("candidates", [])[:10]]
+        syms += [p_["symbol"] for p_ in (tc.read_json("positions.json", {}) or {}).get("positions", [])
+                 if p_.get("status") == "open"]
+        syms = list(dict.fromkeys(syms))
+    if not syms and not a.market:
+        tc.die("no symbols: pass --symbols or run tayyib-scanner first")
+
+    cutoff = tc.now_ist() - dt.timedelta(hours=a.hours)
+    errors, general = [], []
+    for name, url in (cfg["news"]["feeds"] or {}).items():
+        try:
+            general += tc.parse_feed(tc.fetch(url, fixture="rss/%s.xml" % name), name)
+        except tc.FetchError as e:
+            errors.append("%s: %s" % (name, e))
+    sess = tc.NSESession()
+    result = {}
+    for s in syms:
+        rec = tc.halal_status(s, uni)
+        name = rec.get("name", "")
+        items = []
+        if cfg["news"]["google_news"]:
+            try:
+                items += google_news(name, s)
+            except tc.FetchError as e:
+                errors.append("google %s: %s" % (s, e))
+        if cfg["news"]["nse_announcements"]:
+            try:
+                items += nse_announcements(sess, s)
+            except (tc.FetchError, ValueError) as e:
+                errors.append("nse %s: %s" % (s, e))
+        items += [g for g in general if mentions(g, s, name)]
+        seen, kept = set(), []
+        for it in items:
+            if it["published"] and dt.datetime.fromisoformat(it["published"]) < cutoff:
+                continue
+            key = it["title"].lower()[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            it["tags"], it["halal_watch"] = tag(it["title"] + " " + it["summary"])
+            kept.append(it)
+        kept.sort(key=lambda x: x["published"] or "", reverse=True)
+        result[s] = kept
+    market = []
+    if a.market:
+        for g in general:
+            if not g["published"] or dt.datetime.fromisoformat(g["published"]) >= cutoff:
+                g["tags"], g["halal_watch"] = tag(g["title"] + " " + g["summary"])
+                market.append(g)
+        market.sort(key=lambda x: x["published"] or "", reverse=True)
+        market = market[:30]
+    out = {"asof": tc.now_ist().isoformat(timespec="minutes"), "hours": a.hours,
+           "symbols": result, "market": market, "errors": errors}
+    tc.write_json("news.json", out)
+    if a.json:
+        return tc.print_json(out)
+    for s, items in result.items():
+        print("%s: %d headlines in the last %.0fh" % (s, len(items), a.hours))
+        for it in items[:8]:
+            when = (it["published"] or "")[:16].replace("T", " ")
+            flags = (" [" + ", ".join(it["tags"]) + "]") if it["tags"] else ""
+            watch = ("  HALAL-WATCH: " + ", ".join(it["halal_watch"])) if it["halal_watch"] else ""
+            print("  %s IST  %s%s%s" % (when, it["title"][:110], flags, watch))
+            print("      %s" % it["source"])
+    if market:
+        print("Market headlines:")
+        for it in market[:10]:
+            print("  %s  %s" % ((it["published"] or "")[:16].replace("T", " "), it["title"][:110]))
+    if errors:
+        print("(%d sources failed; first: %s)" % (len(errors), errors[0]))
+
+
+if __name__ == "__main__":
+    main()

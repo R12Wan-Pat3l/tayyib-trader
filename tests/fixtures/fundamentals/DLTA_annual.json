@@ -1,0 +1,205 @@
+{
+ "timeseries": {
+  "result": [
+   {
+    "meta": {
+     "symbol": [
+      "X.NS"
+     ],
+     "type": [
+      "annualTotalDebt"
+     ]
+    },
+    "timestamp": [
+     1
+    ],
+    "annualTotalDebt": [
+     {
+      "asOfDate": "2025-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 7200000000.0,
+       "fmt": "7200000000.0"
+      }
+     },
+     {
+      "asOfDate": "2026-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 8000000000.0,
+       "fmt": "8000000000.0"
+      }
+     }
+    ]
+   },
+   {
+    "meta": {
+     "symbol": [
+      "X.NS"
+     ],
+     "type": [
+      "annualTotalAssets"
+     ]
+    },
+    "timestamp": [
+     1
+    ],
+    "annualTotalAssets": [
+     {
+      "asOfDate": "2025-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 18400000000.0,
+       "fmt": "18400000000.0"
+      }
+     },
+     {
+      "asOfDate": "2026-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 20000000000.0,
+       "fmt": "20000000000.0"
+      }
+     }
+    ]
+   },
+   {
+    "meta": {
+     "symbol": [
+      "X.NS"
+     ],
+     "type": [
+      "annualCashAndCashEquivalents"
+     ]
+    },
+    "timestamp": [
+     1
+    ],
+    "annualCashAndCashEquivalents": [
+     {
+      "asOfDate": "2025-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 500000000.0,
+       "fmt": "500000000.0"
+      }
+     },
+     {
+      "asOfDate": "2026-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 500000000.0,
+       "fmt": "500000000.0"
+      }
+     }
+    ]
+   },
+   {
+    "meta": {
+     "symbol": [
+      "X.NS"
+     ],
+     "type": [
+      "annualAccountsReceivable"
+     ]
+    },
+    "timestamp": [
+     1
+    ],
+    "annualAccountsReceivable": [
+     {
+      "asOfDate": "2025-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 2000000000.0,
+       "fmt": "2000000000.0"
+      }
+     },
+     {
+      "asOfDate": "2026-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 2000000000.0,
+       "fmt": "2000000000.0"
+      }
+     }
+    ]
+   },
+   {
+    "meta": {
+     "symbol": [
+      "X.NS"
+     ],
+     "type": [
+      "annualInterestIncome"
+     ]
+    },
+    "timestamp": [
+     1
+    ],
+    "annualInterestIncome": [
+     {
+      "asOfDate": "2025-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 40000000.0,
+       "fmt": "40000000.0"
+      }
+     },
+     {
+      "asOfDate": "2026-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 50000000.0,
+       "fmt": "50000000.0"
+      }
+     }
+    ]
+   },
+   {
+    "meta": {
+     "symbol": [
+      "X.NS"
+     ],
+     "type": [
+      "annualTotalRevenue"
+     ]
+    },
+    "timestamp": [
+     1
+    ],
+    "annualTotalRevenue": [
+     {
+      "asOfDate": "2025-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 15840000000.0,
+       "fmt": "15840000000.0"
+      }
+     },
+     {
+      "asOfDate": "2026-03-31",
+      "periodType": "12M",
+      "currencyCode": "INR",
+      "reportedValue": {
+       "raw": 18000000000.0,
+       "fmt": "18000000000.0"
+      }
+     }
+    ]
+   }
+  ],
+  "error": null
+ }
+}

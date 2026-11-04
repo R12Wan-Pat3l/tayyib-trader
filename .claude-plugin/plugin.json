@@ -1,0 +1,14 @@
+{
+  "name": "tayyib-trader",
+  "description": "13 skills for halal swing and delivery trading on NSE/BSE: Shariah screening, chart scanner, Indian news, entry timer, exit planner, time machine, position sizing with Indian charges, risk manager, order tickets, alerts, results, insider deals and purification. CNC only, no F&O or shorts, never places an order.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Rizwan Patel",
+    "url": "https://github.com/R12Wan-Pat3l"
+  },
+  "homepage": "https://github.com/R12Wan-Pat3l/tayyib-trader",
+  "repository": "https://github.com/R12Wan-Pat3l/tayyib-trader",
+  "license": "MIT",
+  "keywords": ["claude-skills", "halal", "shariah", "islamic-finance", "nse", "bse", "india", "swing-trading", "stock-market", "mcp"],
+  "skills": "./"
+}

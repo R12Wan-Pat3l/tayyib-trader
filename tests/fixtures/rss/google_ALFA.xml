@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Google News</title>
+<item><title>Alfa Industries Q2 results: net profit rises 12% on strong orders - Example Times</title>
+<link>https://news.example.com/alfa-q2</link><pubDate>Fri, 30 Oct 2026 08:30:00 GMT</pubDate>
+<source url="https://news.example.com">Example Times</source><description>Alfa Industries reported...</description></item>
+<item><title>Alfa Industries board approves raising Rs 300 crore via NCDs - Example Markets</title>
+<link>https://news.example.com/alfa-ncd</link><pubDate>Thu, 29 Oct 2026 11:00:00 GMT</pubDate>
+<source url="https://news.example.com">Example Markets</source><description>The capital goods maker...</description></item>
+<item><title>Alfa Industries bags Rs 150 crore order - Old News</title>
+<link>https://news.example.com/alfa-old</link><pubDate>Mon, 05 Oct 2026 06:00:00 GMT</pubDate>
+<source url="https://news.example.com">Old News</source><description>Old.</description></item>
+</channel></rss>

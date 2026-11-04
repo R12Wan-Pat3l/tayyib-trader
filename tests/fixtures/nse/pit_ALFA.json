@@ -1,0 +1,40 @@
+{
+ "data": [
+  {
+   "symbol": "ALFA",
+   "acqName": "Alfa Promoter Trust",
+   "personCategory": "Promoter Group",
+   "secAcq": "50000",
+   "secVal": "18500000",
+   "tdpTransactionType": "Buy",
+   "acqMode": "Market Purchase",
+   "acqfromDt": "20-Oct-2026",
+   "acqtoDt": "21-Oct-2026",
+   "intimDt": "22-Oct-2026 18:00"
+  },
+  {
+   "symbol": "ALFA",
+   "acqName": "A. Director",
+   "personCategory": "Director",
+   "secAcq": "2000",
+   "secVal": "760000",
+   "tdpTransactionType": "Sell",
+   "acqMode": "Market Sale",
+   "acqfromDt": "15-Oct-2026",
+   "acqtoDt": "15-Oct-2026",
+   "intimDt": "16-Oct-2026 12:00"
+  },
+  {
+   "symbol": "ALFA",
+   "acqName": "Alfa Holdings Pvt Ltd",
+   "personCategory": "Promoters",
+   "secAcq": "100000",
+   "secVal": "-",
+   "tdpTransactionType": "Pledge Creation",
+   "acqMode": "Pledge Creation",
+   "acqfromDt": "10-Oct-2026",
+   "acqtoDt": "10-Oct-2026",
+   "intimDt": "12-Oct-2026 10:00"
+  }
+ ]
+}

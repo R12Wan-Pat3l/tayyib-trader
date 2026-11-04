@@ -24,6 +24,7 @@ python3 "${CLAUDE_SKILL_DIR}/halal.py" build --official list.csv     # trust an 
 python3 "${CLAUDE_SKILL_DIR}/halal.py" check TCS,INFY                # status + reasons + ratios
 python3 "${CLAUDE_SKILL_DIR}/halal.py" check XYZ --live              # screen a stock not in the universe (not saved)
 python3 "${CLAUDE_SKILL_DIR}/halal.py" list --status compliant
+python3 "${CLAUDE_SKILL_DIR}/halal.py" compare trusted.csv               # agreement with a trusted Shariah list
 python3 "${CLAUDE_SKILL_DIR}/halal.py" override ABC --status excluded --note "scholar: hotel income"
 ```
 

@@ -103,3 +103,16 @@ class DuplicateSetups(OfflineCase):        # bug 9
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Compare(OfflineCase):
+    def test_compare_buckets(self):
+        self.build_universe()
+        p = os.path.join(self.dir, "trusted.csv")
+        with open(p, "w", encoding="utf-8-sig") as f:
+            f.write("Symbol,Status\nALFA,Compliant\nCHRL,Non-Compliant\nGOLF,Compliant\nNEWCO,Compliant\n")
+        out = self.run_script("tayyib-halal/halal.py", "compare", p)
+        self.assertEqual(out["agree"], 1)                                                # ALFA
+        self.assertEqual([r["symbol"] for r in out["we_say_compliant_they_do_not"]], ["CHRL"])
+        self.assertEqual([r["symbol"] for r in out["they_say_compliant_we_block"]], ["GOLF"])
+        self.assertEqual([r["symbol"] for r in out["not_in_our_universe"]], ["NEWCO"])

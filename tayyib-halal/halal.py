@@ -134,6 +134,64 @@ def cmd_list(a, cfg):
         print("  %-12s %-10s %s" % (r["symbol"], r["status"], r.get("name", "")))
 
 
+def cmd_compare(a, cfg):
+    """Compare our universe with a trusted Shariah list (CSV with a Symbol column).
+
+    If the CSV has a Status/Compliance/Shariah column, its values are used
+    (compliant / halal / yes / pass vs anything else); otherwise every symbol in
+    the file is taken as compliant by that source."""
+    with open(a.file, "r", encoding="utf-8-sig") as f:
+        text = f.read()
+    import csv as _csv
+    import io as _io
+    theirs = {}
+    for r in _csv.DictReader(_io.StringIO(text)):
+        r = {(k or "").strip().lower(): (v or "").strip() for k, v in r.items()}
+        sym = tc.normalize_symbol(r.get("symbol") or r.get("nse symbol") or r.get("ticker") or r.get("nse code") or "")
+        if not sym or sym.startswith("DUMMY"):
+            continue
+        st = (r.get("status") or r.get("compliance") or r.get("shariah") or r.get("halal") or "compliant").lower()
+        theirs[sym] = "compliant" if st in ("compliant", "halal", "yes", "pass", "passed", "shariah compliant", "y") else "not compliant"
+    uni = tc.load_universe()
+    if not uni.get("stocks"):
+        tc.die("no halal universe yet: run halal.py build first")
+    ours = {s: tc.halal_status(s, uni) for s in uni["stocks"]}
+    agree, we_stricter, we_looser, not_in_ours = [], [], [], []
+    for sym, t in sorted(theirs.items()):
+        o = ours.get(sym)
+        if o is None:
+            not_in_ours.append({"symbol": sym, "theirs": t})
+            continue
+        row = {"symbol": sym, "theirs": t, "ours": o["status"], "name": o.get("name", ""),
+               "reasons": o.get("reasons", [])[:3], "ratios": o.get("ratios", {})}
+        if (t == "compliant") == (o["status"] == "compliant"):
+            agree.append(row)
+        elif t == "compliant":
+            we_stricter.append(row)      # they say halal, we block: safe side, worth checking
+        else:
+            we_looser.append(row)        # we say halal, they don't: fix this first
+    covered = len(agree) + len(we_stricter) + len(we_looser)
+    out = {"file": a.file, "their_symbols": len(theirs), "overlap": covered,
+           "agreement_pct": round(len(agree) / covered * 100, 1) if covered else None,
+           "we_say_compliant_they_do_not": we_looser, "they_say_compliant_we_block": we_stricter,
+           "not_in_our_universe": not_in_ours, "agree": len(agree)}
+    if getattr(a, "json", False):
+        return tc.print_json(out)
+    print("Compared with %s: %d symbols, %d also in our universe, agreement %s%%"
+          % (os.path.basename(a.file), len(theirs), covered, out["agreement_pct"]))
+    print("\n1. WE SAY COMPLIANT, THEY DO NOT (%d): check these first; they could let a non-halal trade through"
+          % len(we_looser))
+    for r in we_looser:
+        print("   %-12s %-30s ours %-9s %s" % (r["symbol"], r["name"][:30], r["ours"], r["ratios"]))
+    print("\n2. THEY SAY COMPLIANT, WE BLOCK (%d): the safe side; often missing data or the income test" % len(we_stricter))
+    for r in we_stricter:
+        print("   %-12s %-30s ours %-9s %s" % (r["symbol"], r["name"][:30], r["ours"], "; ".join(r["reasons"])[:90]))
+    if not_in_ours:
+        print("\n3. ON THEIR LIST, NOT IN OUR UNIVERSE (%d): outside the Nifty 500 or not built yet: %s"
+              % (len(not_in_ours), ", ".join(x["symbol"] for x in not_in_ours[:30])))
+    print("\nRecord a ruling you accept: halal.py override SYMBOL --status excluded|compliant --note \"source\"")
+
+
 def cmd_override(a, cfg):
     if a.status not in tc.STATUSES:
         tc.die("status must be one of %s" % ", ".join(tc.STATUSES))
@@ -162,16 +220,19 @@ def main(argv=None):
     c.add_argument("--live", action="store_true", help="screen symbols not in the universe now")
     l_ = sub.add_parser("list")
     l_.add_argument("--status", choices=tc.STATUSES)
+    cp = sub.add_parser("compare", help="compare with a trusted Shariah list (CSV with a Symbol column)")
+    cp.add_argument("file")
     o = sub.add_parser("override", help="your own (or your scholar's) ruling on one stock")
     o.add_argument("symbol")
     o.add_argument("--status", default="excluded")
     o.add_argument("--note")
     o.add_argument("--clear", action="store_true")
-    for sp in (b, c, l_, o):
+    for sp in (b, c, l_, o, cp):
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     cfg = tc.load_config()
-    {"build": cmd_build, "check": cmd_check, "list": cmd_list, "override": cmd_override}[a.cmd](a, cfg)
+    {"build": cmd_build, "check": cmd_check, "list": cmd_list, "override": cmd_override,
+     "compare": cmd_compare}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

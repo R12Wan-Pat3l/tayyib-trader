@@ -89,7 +89,7 @@ def title_key(title):
 def near_same(a, b, ta=None, tb=None):
     """Same story reworded slightly ('Amid' vs 'Amidst'). Never merges headlines whose
     numbers differ (a new high of Rs 2,086 vs Rs 2,125 is a new event) or that were
-    published more than 24 hours apart."""
+    published more than 12 hours apart (template sites repeat a story shape daily)."""
     import difflib
     if a == b:
         return True
@@ -100,7 +100,7 @@ def near_same(a, b, ta=None, tb=None):
             gap = abs((dt.datetime.fromisoformat(ta) - dt.datetime.fromisoformat(tb)).total_seconds())
         except ValueError:
             gap = 0
-        if gap > 24 * 3600:
+        if gap > 12 * 3600:
             return False
     return len(a) > 25 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.9
 
@@ -125,6 +125,7 @@ def main(argv=None):
     p.add_argument("--symbols", help="default: scan candidates + open positions")
     p.add_argument("--hours", type=float, default=72)
     p.add_argument("--market", action="store_true", help="also list general market headlines")
+    p.add_argument("--show", type=int, default=8, help="headlines printed per stock (all are saved)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
@@ -191,12 +192,14 @@ def main(argv=None):
         return tc.print_json(out)
     for s, items in result.items():
         print("%s: %d headlines in the last %.0fh" % (s, len(items), a.hours))
-        for it in items[:8]:
+        for it in items[:a.show]:
             when = (it["published"] or "")[:16].replace("T", " ")
             flags = (" [" + ", ".join(it["tags"]) + "]") if it["tags"] else ""
             watch = ("  HALAL-WATCH: " + ", ".join(it["halal_watch"])) if it["halal_watch"] else ""
             print("  %s IST  %s%s%s" % (when, it["title"][:110], flags, watch))
             print("      %s" % it["source"])
+        if len(items) > a.show:
+            print("  ... +%d more (use --show %d, or --json for all)" % (len(items) - a.show, len(items)))
     if market:
         print("Market headlines:")
         for it in market[:10]:

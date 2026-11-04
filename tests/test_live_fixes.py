@@ -235,3 +235,15 @@ class FifthRun(unittest.TestCase):
         mc2 = dict(mc, probabilities_pct={"target": 60.0, "stop": 35.0, "breakeven": 0, "time": 5.0},
                    r_percentiles={"p10": -1, "p50": 0.5, "p90": 2})
         self.assertNotIn("most likely", timemachine.verdict(mc2, {"trades": 2}))
+
+
+class SixthRun(OfflineCase):
+    def test_12h_window(self):
+        a = news.title_key("Coforge Ltd Sees Sharp Open Interest Surge Amidst Strong Market Momentum")
+        b = news.title_key("Coforge Ltd Sees Significant Open Interest Surge Amid Strong Market Momentum")
+        self.assertFalse(news.near_same(a, b, "2026-11-02T18:37:00+05:30", "2026-11-03T07:23:00+05:30"))
+
+    def test_more_line(self):
+        self.build_universe()
+        txt = self.run_script("tayyib-news/news.py", "--symbols", "ALFA", "--show", "2", as_json=False)
+        self.assertIn("+2 more", txt)

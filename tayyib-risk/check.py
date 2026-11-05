@@ -20,37 +20,49 @@ REQUIRED = ("id", "symbol", "side", "product", "qty", "trigger_price", "stop", "
 
 
 def news_why(sym, news, today=None):
-    """NEWS items for one stock from trader/news.json as the risk check reads it: HALAL-WATCH and
-    results headlines, or UNKNOWN (ok=None) when the news step did not run or its sources failed."""
+    """NEWS items for one stock from trader/news.json, the same headlines that raise the risk check's
+    HALAL-WATCH and "results news in the window" WARNs (Google News India, NSE corporate announcements
+    including board-meeting notices, and the RSS feeds, inside news.py's --hours window).
+
+    A headline found: ok=False (it is a WARN). Nothing found: ok=True, unless news was not fetched for
+    this stock or one of its own sources (Google News, NSE announcements) failed: then ok=None and
+    UNKNOWN, because a headline in the failed source would have been missed."""
     W = tc.why_item
     syms = (news or {}).get("symbols")
-    asof = (news or {}).get("asof")
     if not news or syms is None or sym not in syms:
-        return [W("NEWS", "news", None, None, None, None, None,
-                  "UNKNOWN: no news fetched for %s (news step skipped or failed)" % sym),
-                W("NEWS", "results due date", None, None, None, None, "date",
-                  "UNKNOWN: no results calendar is fetched")]
-    errs = [e for e in (news.get("errors") or []) if e.startswith(("google %s:" % sym, "nse %s:" % sym))]
-    when = "news of %s" % (asof or "UNKNOWN")
+        why = "UNKNOWN: no news fetched for %s (news step skipped or failed)" % sym
+        return [W("NEWS", "HALAL-WATCH news", None, None, None, None, None, why),
+                W("NEWS", "results news in the window", None, None, None, None, None, why)]
+    asof, hours = news.get("asof"), news.get("hours")
+    window = "last %s hours" % tc._fmt_val(hours) if hours is not None else "the news window"
+    when = "news of %s" % (asof or "UNKNOWN date")
     if asof and today and asof[:10] < today:
-        when += " (not today's)"
-    out = []
-    for it in syms.get(sym) or []:
+        when += ", not today's"
+    errs = [e for e in (news.get("errors") or []) if e.startswith(("google %s:" % sym, "nse %s:" % sym))]
+    items = syms.get(sym) or []
+    out, found = [], {"watch": False, "results": False}
+    for it in items:
         if it.get("halal_watch"):
+            found["watch"] = True
             out.append(W("NEWS", "HALAL-WATCH news", it["title"][:90], None, None, False, None,
-                         "%s: WARN (%s)" % (", ".join(it["halal_watch"]), it.get("published") or "no date")))
+                         "%s: WARN (%s, %s)" % (", ".join(it["halal_watch"]), it.get("source") or "?",
+                                               it.get("published") or "no date")))
         if "results" in it.get("tags", []):
+            found["results"] = True
             out.append(W("NEWS", "results news in the window", it["title"][:70], None, None, False, None,
-                         "gaps are likely: WARN (%s)" % (it.get("published") or "no date")))
-    if not out:
-        n = len(syms.get(sym) or [])
-        out.append(W("NEWS", "HALAL-WATCH or results news", "none", None, None, None if errs and not n else True,
-                     None, "%d headline%s checked, %s" % (n, "" if n == 1 else "s", when)))
-    if errs:
-        out.append(W("NEWS", "news sources for this stock", "%d failed" % len(errs), None, None, None, None,
-                     "UNKNOWN for those: " + "; ".join(e[:80] for e in errs)))
-    out.append(W("NEWS", "results due date", None, None, None, None, "date",
-                 "UNKNOWN: no results calendar is fetched; results headlines are flagged above"))
+                         "gaps are likely: WARN (%s, %s)" % (it.get("source") or "?", it.get("published") or "no date")))
+    failed = "; ".join(e[:80] for e in errs)
+    for key, check in (("watch", "HALAL-WATCH news"), ("results", "results news in the window")):
+        if found[key]:
+            continue
+        if errs:
+            out.append(W("NEWS", check, None, None, None, None, None,
+                         "UNKNOWN: a source for this stock failed (%s); %d headline%s from the others, none "
+                         "flagged" % (failed, len(items), "" if len(items) == 1 else "s")))
+        else:
+            out.append(W("NEWS", check, "none", None, None, True, None,
+                         "%d headline%s in the %s checked (%s)" % (len(items), "" if len(items) == 1 else "s",
+                                                                   window, when)))
     return out
 
 

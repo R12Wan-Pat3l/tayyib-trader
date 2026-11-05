@@ -15,7 +15,7 @@ class HalalUniverse(OfflineCase):
     def test_self_screen(self):
         out = self.build_universe()
         self.assertEqual(out["counts"], {"compliant": 4, "review": 1, "excluded": 3, "unknown": 1})
-        st = {r["symbol"]: r["status"] for r in self.run_script(H, "list")}
+        st = {r["symbol"]: r["status"] for r in self.run_script(H, "list")["stocks"]}
         self.assertEqual(st["ALFA"], "compliant")
         self.assertEqual(st["DLTA"], "excluded")      # debt 40% of assets
         self.assertEqual(st["EXBANK"], "excluded")    # financial services
@@ -31,9 +31,9 @@ class HalalUniverse(OfflineCase):
     def test_override_wins(self):
         self.build_universe()
         self.run_script(H, "override", "ALFA", "--status", "excluded", "--note", "my scholar", as_json=False)
-        self.assertEqual(self.run_script(H, "check", "ALFA")[0]["status"], "excluded")
+        self.assertEqual(self.run_script(H, "check", "ALFA")["stocks"][0]["status"], "excluded")
         self.run_script(H, "override", "ALFA", "--clear", as_json=False)
-        self.assertEqual(self.run_script(H, "check", "ALFA")[0]["status"], "compliant")
+        self.assertEqual(self.run_script(H, "check", "ALFA")["stocks"][0]["status"], "compliant")
 
 
 class Scanner(OfflineCase):

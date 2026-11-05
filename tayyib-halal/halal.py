@@ -139,7 +139,7 @@ def cmd_check(a, cfg):
         out.append(rec)
     banner = tc.halal_banner(cfg, uni)
     if a.json:
-        return tc.print_json({"banner": banner, "stocks": out} if banner else out)
+        return tc.print_json({"banner": banner, "stocks": out})          # banner is null unless loosened
     if banner:
         print(banner)
     for rec in out:
@@ -156,7 +156,7 @@ def cmd_list(a, cfg):
         rows = [r for r in rows if r["status"] == a.status]
     banner = tc.halal_banner(cfg, uni)
     if a.json:
-        return tc.print_json({"banner": banner, "stocks": rows} if banner else rows)
+        return tc.print_json({"banner": banner, "stocks": rows})         # banner is null unless loosened
     if banner:
         print(banner)
     print("%d stocks (%s), updated %s, source: %s" % (len(rows), a.status or "all",

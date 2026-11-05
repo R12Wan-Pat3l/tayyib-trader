@@ -42,10 +42,12 @@ TOOLS = {
                        "target or the stop? Win rate, average R and P&L by check, mode and setup.",
                        S(), "tayyib-tracker/tracker.py", lambda a: ["report"]),
     "halal_check": ("Halal (Shariah) status of NSE stocks from the screened universe, with reasons and "
-                    "TASIS-style ratios. live=true screens symbols not in the universe.",
+                    "TASIS-style ratios. live=true screens symbols not in the universe. Returns "
+                    "{banner, stocks[]}: banner is null, or the 'looser than TASIS' line to show first.",
                     S({"symbols": SYM, "live": {"type": "boolean"}}, ["symbols"]), "tayyib-halal/halal.py",
                     lambda a: ["check", a["symbols"]] + (["--live"] if a.get("live") else [])),
-    "halal_list": ("List the halal universe, optionally by status (compliant, review, excluded, unknown).",
+    "halal_list": ("List the halal universe, optionally by status (compliant, review, excluded, unknown). "
+                   "Returns {banner, stocks[]}: banner is null, or the 'looser than TASIS' line to show first.",
                    S({"status": {"type": "string", "enum": ["compliant", "review", "excluded", "unknown"]}}),
                    "tayyib-halal/halal.py", lambda a: ["list"] + (["--status", a["status"]] if a.get("status") else [])),
     "halal_build": ("Rebuild the halal universe. Default: self-screen the Nifty 500 (slow: one request per "

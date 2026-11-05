@@ -185,7 +185,35 @@ def digest(obj):
     return hashlib.sha256(canonical(obj).encode("utf-8")).hexdigest()
 
 
+DEFAULTS = os.path.join(FIX, "defaults_versions.json")
+
+
+def load_defaults():
+    with open(DEFAULTS, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def record_defaults():
+    """Add the current defaults to tests/fixtures/defaults_versions.json under DEFAULTS_VERSION.
+    New keys are added to the current version; a changed value is refused unless DEFAULTS_VERSION
+    was bumped first (that is what the version means)."""
+    hist = load_defaults() if os.path.exists(DEFAULTS) else {}
+    v, cur = str(tc.DEFAULTS_VERSION), tc.default_values()
+    old = hist.get(v, {})
+    changed = sorted(k for k in old if k in cur and cur[k] != old[k] or k not in cur)
+    if changed:
+        sys.exit("refused: defaults changed without a DEFAULTS_VERSION bump: %s" % ", ".join(changed))
+    hist[v] = dict(old, **{k: x for k, x in cur.items() if k not in old})
+    with open(DEFAULTS, "w", encoding="utf-8") as f:
+        json.dump(hist, f, indent=1, sort_keys=True)
+        f.write("\n")
+    print("defaults v%s: %d keys -> %s" % (v, len(hist[v]), DEFAULTS))
+
+
 if __name__ == "__main__":
+    if "--defaults" in sys.argv:
+        record_defaults()
+        sys.exit(0)
     data = capture()
     n_sig = sum(len(v["signals"]) for v in data["sweep"].values())
     print("signals in sweep: %d; pipeline runs: %d" % (n_sig, len(data["pipeline"])))

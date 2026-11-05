@@ -180,8 +180,9 @@ number measured and the limit it was compared with:
   8% part, cash + receivables) against their limits, and the date of the accounts.
 - **LIQUIDITY:** the price and the average daily traded value.
 - **SETUP:** each chart condition, for example "1.2% under the 20-day high (limit 3%)".
-- **NEWS:** HALAL-WATCH or results headlines. UNKNOWN if the news step didn't run or its sources failed.
-  The date of the next results is always UNKNOWN: no free source gives it.
+- **NEWS:** HALAL-WATCH or results headlines in the last 72 hours (Google News, NSE announcements
+  including board-meeting notices, Moneycontrol, ET Markets, Livemint). UNKNOWN if the news step didn't
+  run or a source for that stock failed.
 - **PLAN:** stop % against its cap, the target in R, net reward:risk against your minimum.
 - **HISTORY:** the time machine's expectancy and how many past trades it is based on ("too few" under 8).
 - **RISK:** each limit (loss at stop, position, cash, open positions, total risk, industry) and the final
@@ -193,7 +194,7 @@ shown as UNKNOWN, never as zero.
 
 ### What do PASS, WARN and BLOCK mean?
 - **PASS:** within all your limits and rules.
-- **WARN:** allowed, but read the reason. For example, results are due (prices can jump), there's a
+- **WARN:** allowed, but read the reason. For example, there's results news in the last few days (prices can jump), there's a
   HALAL-WATCH news item (new borrowing could change its halal status), or the time machine is negative.
 - **BLOCK:** do not take it. For example, it would exceed your open positions, total risk, cash or loss
   limit, the plan has expired, it isn't halal, or it breaks a hard rule.

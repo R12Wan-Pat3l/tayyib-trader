@@ -168,8 +168,8 @@ script prints them to stderr (never stdout, so `--json` stays clean).
   `CONFIG ERROR: halal.<key> = <v> is looser than TASIS ...` and the TASIS value is used.
 - With the note, every daily `.md` and `.json` and every `halal.py` output starts with
   `Halal thresholds are looser than TASIS (your setting): <note>`. In JSON it is a first `banner`
-  key; `halal.py list` and `check --json` then return `{"banner": ..., "stocks": [...]}` instead of a
-  bare list. The list records `method`, all four `thresholds` and `loosened` when it is built, so the
+  key. `halal.py list` and `check --json` always return `{"banner": null | "<text>", "stocks": [...]}`
+  (`banner` is null when nothing is loosened; before v0.1.5 they returned a bare list). The list records `method`, all four `thresholds` and `loosened` when it is built, so the
   banner stays until a rebuild even if the config is reset.
 - **AAOIFI** is not offered: it tests debt and interest-bearing deposits against market value, and the
   data we fetch has no share count or market value. We do not approximate it.
@@ -186,7 +186,7 @@ its items when it decides, and `daily` only puts them together:
 | HALAL | scanner (from the halal list) + risk check | status, your override, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check |
 | LIQUIDITY | scanner (`tc.liquidity_check`) | last price vs `min_price`, average traded value vs `min_turnover_rs` |
 | SETUP | `tc.detect` | every condition the setup tested, the measured value and its threshold, the score |
-| NEWS | risk check | HALAL-WATCH and results headlines, or UNKNOWN when news was not fetched or its sources failed; results-due date is always UNKNOWN (no results calendar is fetched) |
+| NEWS | risk check | `HALAL-WATCH news` and `results news in the window`: the same `trader/news.json` headlines (Google News India, NSE corporate announcements incl. board-meeting notices, RSS feeds; tagged by news.py, inside its `--hours` window, default 72) that raise the risk check's WARNs. A headline: `ok: false`. None: `ok: true`. `ok: null` / UNKNOWN only when news was not fetched for the stock or its Google News or NSE source failed |
 | PLAN | `tc.plan_trade` + risk check | stop % vs cap and method, stop in ATR, target R, time stop, net R:R vs `min_reward_risk` |
 | HISTORY | risk check | time-machine expectancy vs 0, past trades vs 8 ("too few" under 8) |
 | RISK | risk check + sizing | hard rules, loss at stop, position, cash, open positions, heat, industry, plan expiry, list age, which limit set the quantity, and the final `result` with its first reason |
@@ -198,13 +198,26 @@ carry their own `why[]` too.
 
 ### Settings snapshot
 
-`tc.settings_snapshot(cfg) -> {hash, values, differs_from_default[]}`. `hash` is the first 8 hex
-characters of the sha1 of the canonical JSON (sorted keys, no spaces) of every decision-affecting
-setting (everything except `user_agent`, `news.feeds`, `halal.list_url`, `halal.parent_list_url` and
-`halal.loosen_note`). `daily/DATE.json` has `settings` (with the `--top` / `--picks` actually used),
-each new tracker row has `settings_hash` (older rows: `pre-0.1.5`), and `tracker.py report`,
-`tracker.json` (`summary`, `settings_split`) and the Excel Summary sheet split the results by hash,
-saying what differed from the defaults.
+`tc.settings_snapshot(cfg) -> {hash, label, defaults_version, values, differs_from_default[]}`.
+`differs_from_default` lists every decision-affecting setting (everything except `user_agent`,
+`news.feeds`, `halal.list_url`, `halal.parent_list_url` and `halal.loosen_note`) whose value is not the
+default. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
+spaces) of `{"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}`: it depends only on
+what you changed, so adding a key whose default keeps the old behaviour does not change it. `label` is
+`default@<DEFAULTS_VERSION>` (now `default@1`) when nothing differs, otherwise the hash.
+
+`DEFAULTS_VERSION` (an integer in core) is bumped only when a default value changes behaviour.
+`tests/fixtures/defaults_versions.json` records the defaults of each version, and
+`test_defaults_version_bumped_when_a_default_changes` fails if a default changes without a bump. After
+a bump (or after adding keys), run `python3 tests/baseline.py --defaults`; it refuses to change a
+recorded value under the same version.
+
+`daily/DATE.json` has `settings` (with the `--top` / `--picks` actually used), each new tracker row has
+`settings_hash` (older rows: `pre-0.1.5`), and `tracker.py report`, `tracker.json` (`summary`,
+`settings_split`) and the Excel Summary sheet split the results by label, saying what differed from
+the defaults. Rows keep the hash they were recorded with; the split groups them by label
+(`tracker.json` `settings{hash: {label, ...}}`), and `cf8b2136`, the default hash of the first v0.1.5
+build, counts as `default@1`.
 
 ### Risk preview
 

@@ -35,6 +35,9 @@ COLUMNS = [("date", "List date"), ("symbol", "Stock"), ("name", "Company"), ("mo
            ("r", "Result R"), ("pnl_rs", "P&L Rs"), ("last", "Last close"), ("checked", "Checked"),
            ("settings_hash", "Settings")]
 PRE = "pre-0.1.5"          # rows recorded before settings were tracked
+# hashes from before DEFAULTS_VERSION existed (v0.1.5 as first committed hashed every value): the
+# rows keep them, and the summary counts them under the label they stand for
+LEGACY_LABELS = {"cf8b2136": "default@1"}
 
 
 def load():
@@ -48,7 +51,7 @@ def load():
 
 def save(store):
     """tracker.json: the rows, what each settings hash changed from the defaults, and the summary."""
-    store["summary"] = summary(store["rows"])
+    store["summary"] = summary(store["rows"], store)
     store["settings_split"] = settings_split(store)
     tc.write_json("tracker.json", store)
 
@@ -65,7 +68,8 @@ def add_from_daily(store, date):
     h = st.get("hash") or PRE
     if st.get("hash"):
         store.setdefault("settings", {}).setdefault(h, {
-            "first_seen": d["date"], "differs_from_default": st.get("differs_from_default") or []})
+            "label": st.get("label") or LEGACY_LABELS.get(h) or h, "first_seen": d["date"],
+            "differs_from_default": st.get("differs_from_default") or []})
     have = {key(r) for r in store["rows"]}
     n = 0
     for r in d.get("rows", []):
@@ -103,7 +107,17 @@ def update(store, cfg):
     return len(todo), errors
 
 
-def summary(rows):
+def settings_group(store, h):
+    """The label a row's settings_hash is counted under: default@N, the hash, or pre-0.1.5."""
+    h = h or PRE
+    if h == PRE:
+        return PRE
+    if h in LEGACY_LABELS:
+        return LEGACY_LABELS[h]
+    return ((store or {}).get("settings") or {}).get(h, {}).get("label") or h
+
+
+def summary(rows, store=None):
     def stats(group):
         closed = [r for r in group if r.get("status") in ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT")]
         trig = [r for r in group if r.get("filled")]
@@ -121,19 +135,21 @@ def summary(rows):
                 "total_r": round(sum(rs), 2) if rs else None,
                 "pnl_rs": round(sum(r.get("pnl_rs") or 0 for r in closed), 2)}
     out = {"all": stats(rows)}
-    for field in ("check", "mode", "setup", "settings_hash"):
-        for v in sorted({r.get(field) or (PRE if field == "settings_hash" else "-") for r in rows}):
-            label = "settings" if field == "settings_hash" else field
-            out["%s: %s" % (label, v)] = stats(
-                [r for r in rows if (r.get(field) or (PRE if field == "settings_hash" else "-")) == v])
+    for field in ("check", "mode", "setup"):
+        for v in sorted({r.get(field) or "-" for r in rows}):
+            out["%s: %s" % (field, v)] = stats([r for r in rows if (r.get(field) or "-") == v])
+    for g in sorted({settings_group(store, r.get("settings_hash")) for r in rows}):
+        out["settings: %s" % g] = stats([r for r in rows if settings_group(store, r.get("settings_hash")) == g])
     return out
 
 
-def settings_label(store, h):
-    """What a settings hash changed from the defaults, in words."""
-    if h == PRE:
+def settings_label(store, g):
+    """What a settings group (default@N, a hash, or pre-0.1.5) changed from the defaults, in words."""
+    if g == PRE:
         return "recorded before v0.1.5: settings not known"
-    info = (store.get("settings") or {}).get(h)
+    if g.startswith("default@"):
+        return "all defaults (defaults version %s)" % g.split("@", 1)[1]
+    info = (store.get("settings") or {}).get(g)
     if info is None:
         return "UNKNOWN: not in tracker.json"
     d = info.get("differs_from_default") or []
@@ -144,14 +160,17 @@ def settings_label(store, h):
 
 
 def settings_split(store):
-    """{hash: {differs, first_seen, stats}} so results can be compared settings by settings."""
+    """{label: {differs, hashes, first_seen, stats}} so results can be compared settings by settings."""
     rows = store["rows"]
     out = {}
-    for h in sorted({r.get("settings_hash") or PRE for r in rows}):
-        info = (store.get("settings") or {}).get(h) or {}
-        out[h] = {"differs": settings_label(store, h), "first_seen": info.get("first_seen"),
-                  "differs_from_default": info.get("differs_from_default"),
-                  "stats": summary([r for r in rows if (r.get("settings_hash") or PRE) == h])["all"]}
+    for g in sorted({settings_group(store, r.get("settings_hash")) for r in rows}):
+        mine = [r for r in rows if settings_group(store, r.get("settings_hash")) == g]
+        hashes = sorted({r.get("settings_hash") or PRE for r in mine})
+        infos = [(store.get("settings") or {}).get(h) or {} for h in hashes]
+        seen = [i["first_seen"] for i in infos if i.get("first_seen")]
+        out[g] = {"differs": settings_label(store, g), "hashes": hashes, "first_seen": min(seen) if seen else None,
+                  "differs_from_default": next((i.get("differs_from_default") for i in infos if i), None),
+                  "stats": summary(mine)["all"]}
     return out
 
 
@@ -248,7 +267,7 @@ def export(store):
     rows = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)
     table = [[label for _, label in COLUMNS]] + [[r.get(k) for k, _ in COLUMNS] for r in rows]
     widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11, 11]
-    summ = summary(store["rows"])
+    summ = summary(store["rows"], store)
     sheads = ["Group", "Listed", "Bought (triggered)", "Closed", "Open", "Waiting", "Not triggered",
               "Target", "Stop", "Breakeven", "Time exit", "Win rate %", "Avg R", "Total R", "P&L Rs",
               "Settings vs defaults"]
@@ -263,8 +282,9 @@ def export(store):
             ["Result R = profit or loss in units of the planned risk, after Indian charges (+2R = twice the risk)."],
             ["A day that touched both the stop and the target counts as the stop (conservative)."],
             ["Compare 'check: PASS' with 'check: BLOCK' in the Summary to see whether the risk check helped."],
-            ["'settings: abcd1234' rows split the results by the settings each list was made with; the last "
-             "column says what differed from the defaults. pre-0.1.5 = recorded before settings were tracked."],
+            ["'settings: ...' rows split the results by the settings each list was made with: default@1 = all "
+             "defaults, a code like abcd1234 = your changes (the last column says which). pre-0.1.5 = recorded "
+             "before settings were tracked."],
             ["Results from a few weeks are noise. Judge after 30+ closed trades."],
             [tc.DISCLAIMER]]
     xlsx = write_xlsx(tc.path("tracker.xlsx"), [("Tracker", table, widths),
@@ -314,7 +334,7 @@ def main(argv=None):
             return tc.print_json({"xlsx": path, "csv": tc.path("tracker.csv"), "rows": len(store["rows"])})
         print("wrote %s and trader/tracker.csv (%d rows)" % (path, len(store["rows"])))
         return
-    summ = summary(store["rows"])
+    summ = summary(store["rows"], store)
     recent = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)[:15]
     split = settings_split(store)
     if a.json:

@@ -167,8 +167,9 @@ only halal-compliant stocks. These are rules in the code, not settings.
 `loosen_note`; without it the tool refuses and keeps the TASIS limits. With it, every daily list starts
 with a line saying the thresholds are looser than TASIS, and why. See the [FAQ](FAQ.md#can-i-loosen-the-halal-thresholds).
 
-Every daily list records a short code for the settings it used (for example `cf8b2136`). The Excel
-tracker's Summary sheet splits the results by that code, so after a change you can see whether the new
+Every daily list records a short code for the settings it used: `default@1` when you changed nothing,
+otherwise a code such as `b1d996bb` that stands for your changes. The Excel tracker's Summary sheet
+splits the results by that code, so after a change you can see whether the new
 settings did better or worse.
 
 ---

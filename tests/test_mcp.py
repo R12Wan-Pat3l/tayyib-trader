@@ -31,7 +31,7 @@ class MCP(OfflineCase):
         names = {t["name"] for t in out[1]["result"]["tools"]}
         self.assertIn("scan", names)
         self.assertFalse([n for n in names if "place" in n or "order" in n])
-        self.assertEqual(json.loads(out[2]["result"]["content"][0]["text"])[0]["status"], "excluded")
+        self.assertEqual(json.loads(out[2]["result"]["content"][0]["text"])["stocks"][0]["status"], "excluded")
         self.assertIn("ALFA", out[3]["result"]["content"][0]["text"])
         self.assertEqual(out[4]["error"]["code"], -32601)
         self.assertTrue(out[5]["result"]["isError"])

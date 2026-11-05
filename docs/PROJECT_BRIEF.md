@@ -13,7 +13,7 @@ explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
 - Latest release: **v0.1.5** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5; v0.1.3 is folded into v0.1.4)
-- Tests: 157 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Tests: 162 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -51,9 +51,9 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 
 | file | contents |
 |---|---|
-| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `settings{hash, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
+| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `settings{hash, label ("default@1" when nothing differs), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
 | `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result` |
-| `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <hash>` groups) and `settings_split{hash: {differs, stats}}` |
+| `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
 | `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[]}}` |
 | settings for a UI | `tc.DEFAULT_CONFIG_DOCS`: `key -> {description, min, max, unit, type, ...}` for every setting; `tc.validate_config(user) -> (cfg, notes)`; `tc.risk_preview(cfg)` (also `daily.py --risk-preview --json`) |
 | `halal_overrides.json` | `{SYM: {status, note, date}}`: the user's rulings, which always win |

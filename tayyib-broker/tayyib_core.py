@@ -39,6 +39,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 VERSION = "0.1.5"
+# Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
+# records the defaults of every version, and a test fails if one changes without a bump). Adding a
+# key whose default keeps the old behaviour needs no bump.
+DEFAULTS_VERSION = 1
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 # ---------------------------------------------------------------------------
@@ -547,16 +551,28 @@ def _leaves(d, prefix=""):
     return out
 
 
+def default_values():
+    """Every decision-affecting default as flat dotted keys (what DEFAULTS_VERSION stands for)."""
+    return _leaves(_decision_values(validate_config({})[0]))
+
+
 def settings_snapshot(cfg):
-    """-> {hash, values, differs_from_default[]}. hash: the first 8 hex characters of the sha1 of
-    the canonical JSON (sorted keys, no spaces) of every decision-affecting setting."""
+    """-> {hash, label, defaults_version, values, differs_from_default[]}.
+
+    hash: the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no spaces) of
+    {"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}, so it depends only on
+    what you changed and on which set of defaults you changed it from. A new key whose default keeps
+    the old behaviour does not change it. label: "default@<DEFAULTS_VERSION>" when nothing differs,
+    otherwise the hash."""
     vals = _decision_values(cfg)
-    canon = json.dumps(vals, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
-    base, mine = _leaves(_decision_values(validate_config({})[0])), _leaves(vals)
+    base, mine = default_values(), _leaves(vals)
     differs = [{"key": k, "value": mine.get(k), "default": base.get(k)}
                for k in sorted(set(base) | set(mine)) if mine.get(k) != base.get(k)]
-    return {"hash": hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8], "values": vals,
-            "differs_from_default": differs}
+    canon = json.dumps({"defaults_version": DEFAULTS_VERSION, "differs": [[d["key"], d["value"]] for d in differs]},
+                       sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    h = hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8]
+    return {"hash": h, "label": "default@%d" % DEFAULTS_VERSION if not differs else h,
+            "defaults_version": DEFAULTS_VERSION, "values": vals, "differs_from_default": differs}
 
 
 def risk_preview(cfg, stops_pct=(2, 3, 5, 8, 10, 15), entry=1000.0):

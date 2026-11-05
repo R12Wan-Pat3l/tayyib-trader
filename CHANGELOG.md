@@ -14,8 +14,7 @@ change (2,986 signals across all fixtures, plus five full daily runs) proves it.
   and unit for each, ready for a settings screen). An invalid value falls back to its default for that
   key only and is reported: `CONFIG: <key> = <value> invalid (range a–b), using default <d>`. Unknown
   keys are reported and ignored. No key can enable intraday, F&O, shorting, margin or non-compliant
-  stocks: `halal.require_compliant` is now locked, and the exit planner no longer plans an excluded or
-  unknown stock when `allow_review` is on.
+  stocks (see Safety fixes below).
 - **Halal loosening policy.** Stricter than TASIS: allowed. Looser (debt > 25%, income > 3%, cash +
   receivables > 90%, assumed return < 8%, or `allow_review`) needs `halal.loosen_note` (your scholar or
   source), or the tool reports an error and keeps TASIS. With the note, every daily list and halal list
@@ -24,13 +23,34 @@ change (2,986 signals across all fixtures, plus five full daily runs) proves it.
 - **Why this stock.** Every daily row has `why[]` (HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK),
   with each check's value and limit as recorded when it was decided. Missing input is UNKNOWN, never 0.
   The daily `.md` shows a compact **Why:** block under each top pick. See the [FAQ](docs/FAQ.md).
-- **Settings snapshot.** The daily `.json` records `settings` (a hash plus what differs from the
-  defaults). Each tracker row records its `settings_hash` (older rows: `pre-0.1.5`), and the tracker
-  report, `tracker.json` and the Excel Summary sheet split results by settings.
+- **Settings snapshot.** The daily `.json` records `settings`: what differs from the defaults and a
+  hash of only those differences plus `DEFAULTS_VERSION` (1). With no changes the label is
+  `default@1`. Adding a new key with a behaviour-preserving default leaves the hash alone; a test fails
+  if a default changes without bumping `DEFAULTS_VERSION`. Each tracker row records its
+  `settings_hash` (older rows: `pre-0.1.5`), and the tracker report, `tracker.json` and the Excel
+  Summary sheet split results by label.
+- **NEWS in why[].** The NEWS items use the same headlines that raise the risk check's HALAL-WATCH and
+  "results news in the window" WARNs (Google News, NSE announcements, RSS); UNKNOWN only when the news
+  step did not run for the stock or one of its sources failed. No new data source.
 - **Risk preview.** `daily.py --risk-preview` shows the loss per trade, the drawdown after 3, 5 and 10
   losses in a row, and whether risk % or max position % sets the quantity for sample stops.
+- **Breaking for `--json` readers:** `halal.py list` and `halal.py check --json` (and the MCP tools
+  `halal_list` and `halal_check`) now always return `{"banner": null | "<text>", "stocks": [...]}`
+  instead of a bare list. `banner` is null unless the halal thresholds are looser than TASIS. Read
+  `stocks`.
 - Docs: "Changing your settings" in the [User guide](docs/USER_GUIDE.md), new FAQ answers, and the
-  Technical guide, AGENTS.md and the project brief updated. 157 tests (42 new).
+  Technical guide, AGENTS.md and the project brief updated. 162 tests (47 new).
+
+### Safety fixes
+
+- **`halal.require_compliant` is locked to true.** In v0.1.4, `require_compliant: false` let stocks
+  with an `unknown` halal status through the risk check. The risk check now always blocks any stock
+  that is not compliant (`review` passes only with `allow_review` and a `loosen_note`). A v0.1.4 config
+  with `require_compliant: false` is now ignored, with the note
+  `CONFIG: halal.require_compliant = false ignored: it is a hard rule and stays true`.
+- **The exit planner no longer plans excluded or unknown stocks when `allow_review` is on.** In
+  v0.1.4, `allow_review` opened the exit planner to every non-compliant status, not just `review`.
+  Now only compliant stocks are planned, plus `review` stocks when `allow_review` is on.
 
 ## v0.1.4 (2026-11-04)
 

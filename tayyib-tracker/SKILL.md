@@ -21,6 +21,7 @@ argument-hint: "[report | update | export | add --from-daily DATE]"
 python3 "${CLAUDE_SKILL_DIR}/tracker.py" report       # how every earlier list did
 python3 "${CLAUDE_SKILL_DIR}/tracker.py" update       # re-follow unfinished rows on the latest prices
 python3 "${CLAUDE_SKILL_DIR}/tracker.py" export       # write trader/tracker.xlsx and tracker.csv
+python3 "${CLAUDE_SKILL_DIR}/tracker.py" migrate      # apply the REPLACED / ALREADY_HELD rule (no prices)
 python3 "${CLAUDE_SKILL_DIR}/tracker.py" add --from-daily 2026-11-04
 ```
 
@@ -37,7 +38,10 @@ It records every row, PASS, WARN and BLOCK alike, so the user can see whether th
 - **Swing:** the stop moves to the buy price at +1R.
 - **Time exit** after the plan's holding days.
 
-Statuses: WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT.
+Statuses: WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT. Kept for the record but
+never followed or counted: SUPERSEDED (the same date's list re-made with other settings), REPLACED (a
+later list showed the stock again while this row was still waiting) and ALREADY_HELD (a later listing of
+a stock an earlier row already held). A stock is counted once while it is waiting or held.
 
 How to present it:
 - This is paper, not real trades. Nothing was bought.

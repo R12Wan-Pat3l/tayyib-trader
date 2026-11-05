@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.1.11 (2026-11-05)
+
+Tracker accounting change: repeat listings of a held or waiting stock are no longer counted twice.
+
+No pick, plan or verdict changes (still default@2; the baseline is unchanged).
+
+### Changed
+
+- **One stock, counted once.** When a later list shows a stock that an earlier tracker row has (any setup):
+  - the earlier row still waiting for its buy price becomes **REPLACED** (by the newer list's date), like
+    a new ticket replacing one you never placed;
+  - if the earlier row already holds it (bought on paper, not exited), the new row is **ALREADY_HELD**;
+  - if the earlier row is closed, the new row counts as usual.
+  Both are kept for the record, not followed and left out of every summary (tracker.json, the Excel
+  Summary, the dashboard Results), and shown greyed with a status chip and a tooltip.
+- Existing rows are sorted out on the next run (or `tracker.py migrate`), in list-date order; running it
+  again changes nothing.
+- Excel: the **Settings** column shows the label (default@2, default@1, pre-0.1.5, or the code for your
+  own settings) instead of the hash. **P&L, win rate and average R are blank, not 0,** while a group has
+  no closed trades. The "Read me" sheet explains the new statuses.
+
 ## v0.1.10 (2026-11-05)
 
 Clearer NEWS: what was checked, and what you need to check yourself. Display only: no decision changes

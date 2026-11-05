@@ -420,6 +420,27 @@ hash differs from earlier rows of the same date, those earlier rows that never f
 Rows that filled are never touched, and no new row is added for a pick that already has a filled row. A
 re-run with the same settings adds nothing. Re-running the earlier settings restores its rows.
 
+### Tracker: repeat listings (v0.1.11)
+
+A stock is counted once while it is waiting or held. `tracker.overlap(store)` runs at the end of `update`
+(after the rows are followed, so a fill on the new list's day is known) and as `tracker.py migrate` (no
+prices). It walks the rows in list-date order; for each row N not already SUPERSEDED / REPLACED /
+ALREADY_HELD, it looks at earlier-dated rows E of the same symbol (any setup, any settings) that are not
+in those statuses, judged on N's list date:
+- E held then (`filled <= N.date` and not `exited <= N.date`): N becomes **ALREADY_HELD**, `held_from` =
+  the latest such E's date;
+- otherwise each E still waiting then (not bought by N.date: WAITING, bought later, or NOT TRIGGERED
+  with `valid_until >= N.date`) becomes **REPLACED**, `replaced_by` = N.date (`replaced_on` = when);
+- E closed by then: N is a normal row.
+Both statuses are kept for the record, skipped by `update` and excluded from `summary`, `settings_split`,
+`tracker.json`, the Excel Summary and the dashboard Results (greyed, a status chip with a tooltip).
+Marked rows are never re-judged, so it is idempotent. A REPLACED row whose replacing listing is gone (that
+date's list was re-made without the stock) is restored to WAITING. Symbols with no prices in this run
+are left for the next one. `filled()` treats both statuses as not bought, so a same-day re-run under
+other settings can still supersede them. Excel: the Settings column shows the label (default@2,
+default@1, pre-0.1.5 or the hash), and Win rate / Avg R / Total R / P&L are blank (`pnl_rs` None, not
+0) while a group has no closed trades.
+
 ## Data endpoints (free, unofficial)
 
 | data | endpoint |

@@ -143,6 +143,13 @@ If you run it twice on one day with different settings, the tracker keeps the fi
 as **SUPERSEDED** (greyed in Results, "not counted") and follows the new ones. Picks that had already
 reached their buy price are never touched.
 
+When a later list shows a stock again, the tracker counts it once:
+- if the earlier pick was still waiting for its buy price, the earlier row becomes **REPLACED** and the
+  new one is followed (like a new ticket replacing one you never placed);
+- if the earlier pick had already been bought (on paper) and not sold, the new row is **ALREADY HELD**:
+  a repeat listing is not a second trade.
+Both are greyed in Results and the Excel file, kept for the record, and not counted.
+
 ### While you hold a trade
 - **"Check my alerts"**: tells you if a stop, target or time limit was hit.
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.

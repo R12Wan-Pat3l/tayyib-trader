@@ -127,6 +127,10 @@ over MCP (stdio), none of which place orders.
 - **Tracker re-runs (v0.1.8):** key `date|symbol|setup|settings_hash`. A same-day re-run under other
   settings marks the earlier unfilled rows SUPERSEDED (kept, not counted anywhere); filled rows are never
   touched; same settings add nothing.
+- **Tracker repeat listings (v0.1.11):** one stock is counted once while waiting or held. A later listing
+  makes an earlier still-waiting row REPLACED, or (if an earlier row holds it) makes the new row
+  ALREADY_HELD. Both kept, not followed, not counted. Judged on the new list's date, in list-date order,
+  idempotent.
 - **No bot-check circumvention (v0.1.9):** the project never imitates a browser or works around a site's
   bot checks. NSE and BSE get only the honest user agent (`tayyib-trader/<version> (+github URL)`), no
   browser headers, no cookie warm-up; a refusal is UNKNOWN, with a banner and "Check announcements
@@ -160,9 +164,11 @@ over MCP (stdio), none of which place orders.
 - **v0.1.9:** honest requests to NSE (no browser imitation, no cookie warm-up), why[] NEWS
   names the sources that answered and failed, the clearer banner, and "Check announcements yourself"
   links. No decision changes (still default@2).
-- **v0.1.10** (this release): NEWS shown as two lines, "Media news" and "Exchange filings (NSE)"; when NSE
+- **v0.1.10:** NEWS shown as two lines, "Media news" and "Exchange filings (NSE)"; when NSE
   refuses, "Not available: NSE blocks automated access → check yourself" (neutral mark, ok=null, never a
   ✓); real failures stay UNKNOWN. Display only: no decision changes (still default@2).
+- **v0.1.11** (this release): tracker accounting: REPLACED and ALREADY_HELD rows (repeat listings of a
+  waiting or held stock), not counted; Excel Settings column shows the label; empty results blank.
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

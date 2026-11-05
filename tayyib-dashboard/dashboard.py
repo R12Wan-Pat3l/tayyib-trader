@@ -439,8 +439,23 @@ def verdict(r):
         return {"verdict": "pending", "label": "%s: pending" % s, "kind": "info"}
     if s == "SUPERSEDED":
         return {"verdict": "superseded", "label": "SUPERSEDED by %s: not counted" % text(r.get("superseded_by")),
-                "kind": "unknown"}
+                "kind": "unknown", "tip": NOT_COUNTED_TIPS["SUPERSEDED"]}
+    if s == "REPLACED":
+        return {"verdict": "replaced", "label": "REPLACED by the %s list: not counted" % text(r.get("replaced_by")),
+                "kind": "unknown", "tip": NOT_COUNTED_TIPS["REPLACED"]}
+    if s == "ALREADY_HELD":
+        return {"verdict": "already held", "label": "ALREADY HELD from the %s list: not counted" % text(r.get("held_from")),
+                "kind": "unknown", "tip": NOT_COUNTED_TIPS["ALREADY_HELD"]}
     return {"verdict": "unknown", "label": "%s" % text(s), "kind": "unknown"}
+
+
+NOT_COUNTED_TIPS = {
+    "SUPERSEDED": "The list for that date was made again with other settings before this pick filled. Kept for the "
+                  "record, not followed, not counted.",
+    "REPLACED": "A later list showed this stock again while this row was still waiting for its buy price. The newer "
+                "row is the one followed. Kept for the record, not followed, not counted.",
+    "ALREADY_HELD": "An earlier row already held this stock (bought, not exited) when this list showed it again. A "
+                    "repeat listing is not a second trade. Kept for the record, not followed, not counted."}
 
 
 def equity_curve(rows, width=640, height=200, pad=28):
@@ -486,7 +501,7 @@ def stats_display(s):
 def result_counts(rows):
     out = {"right": 0, "wrong": 0, "no trade": 0, "pending": 0, "other": 0}
     for r in rows:
-        if r.get("status") == "SUPERSEDED":                 # kept for the record, never counted
+        if r.get("status") in NOT_COUNTED_TIPS:             # kept for the record, never counted
             continue
         v = r["verdict"]["verdict"]
         out[v if v in out else "other"] += 1
@@ -510,8 +525,8 @@ def api_tracker(q):
     for k, r in enumerate(sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)):
         v = verdict(r)
         pending = r.get("status") in ("WAITING", "OPEN")
-        sup = r.get("status") == "SUPERSEDED"
-        rows.append(dict(r, row_id=k, verdict=v, superseded=sup, settings_label=tr.settings_group(store, r.get("settings_hash")),
+        sup = r.get("status") in NOT_COUNTED_TIPS          # SUPERSEDED / REPLACED / ALREADY_HELD: greyed
+        rows.append(dict(r, row_id=k, verdict=v, superseded=sup, not_counted=sup, settings_label=tr.settings_group(store, r.get("settings_hash")),
                          display={"entry": inr(r.get("entry")), "stop": inr(r.get("stop")),
                                   "target": inr(r.get("target")), "fill": inr(r.get("fill")),
                                   "exit": "not yet" if pending and r.get("exit") is None else
@@ -544,8 +559,10 @@ def api_tracker(q):
                                    "label": "%d of %d closed trades" % (closed, NOISE_UNTIL)},
             "result_counts": result_counts(rows),
             "superseded": sum(1 for r in rows if r["superseded"]),
-            "superseded_note": "SUPERSEDED: the list for that date was made again with other settings before the pick "
-                               "filled. Kept for the record, not followed, not counted in any result.",
+            "superseded_note": "Not counted in any result, kept for the record: SUPERSEDED (the list for that date "
+                               "was re-made with other settings before the pick filled), REPLACED (a later list "
+                               "showed the stock again while it was still waiting) and ALREADY HELD (a later "
+                               "listing of a stock an earlier row already held). Hover a row's chip for details.",
             "equity": equity_curve(store["rows"]), "closed": closed,
             "noise_banner": ("still noise: don't judge yet (%d of %d closed trades)" % (closed, NOISE_UNTIL))
             if closed < NOISE_UNTIL else None}

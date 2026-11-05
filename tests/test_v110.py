@@ -103,7 +103,6 @@ class States(unittest.TestCase):
         self.assertIn('warn.append("HALAL-WATCH news: %s', body)
         self.assertIn('warn.append("results news in the window: gaps are likely', body)
         self.assertEqual(tc.DEFAULTS_VERSION, 2)
-        self.assertEqual(tc.VERSION, "0.1.10")
 
 
 class Display(unittest.TestCase):

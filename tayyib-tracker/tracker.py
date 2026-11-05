@@ -13,7 +13,13 @@ target or the stop first? Result in R and rupees after charges.
 
 Paper only: nothing is bought. Statuses: WAITING (buy price not reached yet),
 NOT TRIGGERED (never reached in its valid days), OPEN, TARGET, STOP,
-BREAKEVEN (stop had moved to the buy price), TIME EXIT.
+BREAKEVEN (stop had moved to the buy price), TIME EXIT. Not counted, kept for
+the record: SUPERSEDED (same-date list re-made with other settings), REPLACED
+(a later list showed the stock again while this row was still waiting) and
+ALREADY_HELD (a later listing of a stock an earlier row already holds).
+
+  migrate                   apply the REPLACED / ALREADY_HELD rule to the saved rows
+                            (no prices fetched; update does this too)
 """
 import argparse
 import csv
@@ -33,7 +39,8 @@ COLUMNS = [("date", "List date"), ("symbol", "Stock"), ("name", "Company"), ("mo
            ("expectancy_r", "Time machine R"), ("status", "Status"), ("filled", "Bought on"),
            ("fill", "Buy price"), ("exited", "Exit on"), ("exit", "Exit price"), ("days", "Days held"),
            ("r", "Result R"), ("pnl_rs", "P&L Rs"), ("last", "Last close"), ("checked", "Checked"),
-           ("settings_hash", "Settings"), ("superseded_by", "Superseded by")]
+           ("settings_label", "Settings"), ("superseded_by", "Superseded by"), ("replaced_by", "Replaced by"),
+           ("held_from", "Held from")]
 PRE = "pre-0.1.5"          # rows recorded before settings were tracked
 # hashes from before DEFAULTS_VERSION existed (v0.1.5 as first committed hashed every value): the
 # rows keep them, and the summary counts them under the label they stand for
@@ -41,6 +48,15 @@ LEGACY_LABELS = {"cf8b2136": "default@1"}
 # v0.1.8: a list re-made for the same date under other settings replaces the earlier one. Its rows that never
 # filled become SUPERSEDED: kept for audit, never followed again and left out of every summary.
 SUPERSEDED = "SUPERSEDED"
+# v0.1.11: one stock is counted once while it is waiting or held. A later list that shows the same stock again
+# (any setup): an earlier row still WAITING on that list date -> REPLACED (replaced_by = the new list's date),
+# like today's tickets replace earlier unplaced ones; an earlier row OPEN on that date (bought on or before it,
+# not exited by it) -> the new row is ALREADY_HELD (held_from = the earlier row's date). Neither is followed or
+# counted; both are kept for the record. An earlier row closed by then (TARGET / STOP / BREAKEVEN / TIME EXIT /
+# NOT TRIGGERED / SUPERSEDED / REPLACED) leaves the new row as a normal one.
+REPLACED = "REPLACED"
+ALREADY_HELD = "ALREADY_HELD"
+NOT_COUNTED = (SUPERSEDED, REPLACED, ALREADY_HELD)
 
 
 def load():
@@ -70,12 +86,59 @@ def pick(r):
 
 def filled(r):
     """A row that reached its buy price (or is past waiting): never touched by a re-run."""
-    return bool(r.get("filled")) or r.get("status") not in ("WAITING", "NOT TRIGGERED", SUPERSEDED)
+    return bool(r.get("filled")) or r.get("status") not in ("WAITING", "NOT TRIGGERED") + NOT_COUNTED
 
 
 def counted(rows):
-    """The rows every summary counts: all but SUPERSEDED ones."""
-    return [r for r in rows if r.get("status") != SUPERSEDED]
+    """The rows every summary counts: all but SUPERSEDED, REPLACED and ALREADY_HELD ones."""
+    return [r for r in rows if r.get("status") not in NOT_COUNTED]
+
+
+def _held_on(e, date):
+    """Was earlier row e holding the stock when the list of `date` was made (after that day's close)?"""
+    return bool(e.get("filled")) and e["filled"] <= date and not (e.get("exited") and e["exited"] <= date)
+
+
+def _waiting_on(e, date):
+    """Was earlier row e still waiting for its buy price on `date` (not bought by then, still valid)?"""
+    if e.get("filled") and e["filled"] <= date:
+        return False
+    return e.get("status") in ("WAITING", "OPEN") or bool(e.get("filled")) or (
+        e.get("status") == "NOT TRIGGERED" and bool(e.get("valid_until")) and e["valid_until"] >= date)
+
+
+def overlap(store, skip=()):
+    """Apply the REPLACED / ALREADY_HELD rule to every row, in list-date order. Idempotent: rows already marked
+    are left alone, so a second run changes nothing. A REPLACED row whose replacing listing no longer exists
+    (that list was re-made without the stock) comes back as WAITING. Stocks in `skip` (no prices this run, so a
+    fill today is not known yet) wait for the next run. -> {"replaced", "already_held", "restored"}."""
+    rows = store["rows"]
+    n = {"replaced": 0, "already_held": 0, "restored": 0}
+    live = {(r["date"], r["symbol"]) for r in rows if r.get("status") not in NOT_COUNTED}
+    for r in rows:
+        if r.get("status") == REPLACED and (r.get("replaced_by"), r["symbol"]) not in live:
+            r["status"] = "WAITING"
+            for k in ("replaced_by", "replaced_on"):
+                r.pop(k, None)
+            n["restored"] += 1
+    for new in sorted(rows, key=lambda r: (r["date"], r["symbol"], r["setup"])):
+        if new.get("status") in NOT_COUNTED or new["symbol"] in skip:
+            continue
+        earlier = [e for e in rows if e["symbol"] == new["symbol"] and e["date"] < new["date"]
+                   and e.get("status") not in NOT_COUNTED]
+        held = [e for e in earlier if _held_on(e, new["date"])]
+        if held:
+            new["status"] = ALREADY_HELD
+            new["held_from"] = max(e["date"] for e in held)
+            n["already_held"] += 1
+            continue
+        for e in earlier:
+            if _waiting_on(e, new["date"]):
+                e["status"] = REPLACED
+                e["replaced_by"] = new["date"]
+                e["replaced_on"] = tc.now_ist().isoformat(timespec="minutes")
+                n["replaced"] += 1
+    return n
 
 
 def supersede(store, date, h, label):
@@ -131,7 +194,7 @@ def add_from_daily(store, date):
 
 
 def update(store, cfg):
-    todo = [r for r in store["rows"] if r.get("status") not in tc.FINAL_OUTCOMES and r.get("status") != SUPERSEDED]
+    todo = [r for r in store["rows"] if r.get("status") not in tc.FINAL_OUTCOMES and r.get("status") not in NOT_COUNTED]
     bars_by, errors = {}, []
     for r in todo:
         s = r["symbol"]
@@ -147,6 +210,8 @@ def update(store, cfg):
         if not plan.get("max_hold_days"):
             plan["max_hold_days"] = cfg["modes"][r["mode"]]["max_hold_days"]
         r.update(tc.trade_outcome(bars_by[s], plan, cfg))
+    store["_overlap"] = overlap(store, {s for s, b in bars_by.items() if b is None})   # after following: today's
+                                                        # fills decide held vs waiting
     return len(todo), errors
 
 
@@ -161,7 +226,7 @@ def settings_group(store, h):
 
 
 def summary(rows, store=None):
-    rows = counted(rows)                       # SUPERSEDED rows are kept for audit, never counted
+    rows = counted(rows)                       # SUPERSEDED / REPLACED / ALREADY_HELD: kept for audit, never counted
 
     def stats(group):
         closed = [r for r in group if r.get("status") in ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT")]
@@ -178,7 +243,7 @@ def summary(rows, store=None):
                 "win_rate_pct": round(sum(x > 0 for x in rs) / len(rs) * 100, 1) if rs else None,
                 "avg_r": round(sum(rs) / len(rs), 2) if rs else None,
                 "total_r": round(sum(rs), 2) if rs else None,
-                "pnl_rs": round(sum(r.get("pnl_rs") or 0 for r in closed), 2)}
+                "pnl_rs": round(sum(r.get("pnl_rs") or 0 for r in closed), 2) if closed else None}   # never a 0 that looks real
     out = {"all": stats(rows)}
     for field in ("check", "mode", "setup"):
         for v in sorted({r.get(field) or "-" for r in rows}):
@@ -310,8 +375,10 @@ def write_xlsx(path, sheets):
 
 def export(store):
     rows = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)
-    table = [[label for _, label in COLUMNS]] + [[r.get(k) for k, _ in COLUMNS] for r in rows]
-    widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11, 11, 14]
+    table = [[label for _, label in COLUMNS]] + [
+        [settings_group(store, r.get("settings_hash")) if k == "settings_label" else r.get(k) for k, _ in COLUMNS]
+        for r in rows]
+    widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11, 12, 14, 12, 11]
     summ = summary(store["rows"], store)
     sheads = ["Group", "Listed", "Bought (triggered)", "Closed", "Open", "Waiting", "Not triggered",
               "Target", "Stop", "Breakeven", "Time exit", "Win rate %", "Avg R", "Total R", "P&L Rs",
@@ -330,8 +397,16 @@ def export(store):
             ["'settings: ...' rows split the results by the settings each list was made with: default@1, default@2 = all "
              "defaults, a code like abcd1234 = your changes (the last column says which). pre-0.1.5 = recorded "
              "before settings were tracked."],
+            ["Settings = the label of the settings the list was made with: default@2, default@1, pre-0.1.5, or a code "
+             "like abcd1234 for your own changes."],
             ["SUPERSEDED = the list for that date was made again with other settings before this pick filled. The row "
              "is kept for the record, not followed and not counted in the Summary. Picks that had filled stay."],
+            ["REPLACED = a later list showed the same stock again while this row was still waiting for its buy price "
+             "('Replaced by' = that list's date), like a new ticket replacing an unplaced one. Kept, not followed, "
+             "not counted."],
+            ["ALREADY_HELD = this list showed a stock an earlier row already held (bought, not yet exited; 'Held from' "
+             "= that row's date). A repeat listing is not a second trade: kept, not followed, not counted."],
+            ["Win rate, Avg R, Total R and P&L are blank, not 0, while a group has no closed trades."],
             ["Results from a few weeks are noise. Judge after 30+ closed trades."],
             [tc.DISCLAIMER]]
     xlsx = write_xlsx(tc.path("tracker.xlsx"), [("Tracker", table, widths),
@@ -351,6 +426,7 @@ def main(argv=None):
     sub.add_parser("update")
     sub.add_parser("report")
     sub.add_parser("export")
+    sub.add_parser("migrate")
     for sp in sub.choices.values():
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
@@ -369,12 +445,26 @@ def main(argv=None):
         if gone:
             print("%d earlier row(s) of %s made with other settings are SUPERSEDED (kept, not counted)" % (gone, date))
         return
+    if a.cmd == "migrate":
+        before = len(counted(store["rows"]))
+        n = overlap(store)
+        save(store)
+        after = len(counted(store["rows"]))
+        if a.json:
+            return tc.print_json(dict(n, counted_before=before, counted_after=after))
+        print("REPLACED %d, ALREADY_HELD %d, restored %d; counted rows %d -> %d"
+              % (n["replaced"], n["already_held"], n["restored"], before, after))
+        return
     if a.cmd == "update":
         n, errors = update(store, cfg)
+        ov = store.pop("_overlap", {})
         save(store)
         if a.json:
-            return tc.print_json({"checked": n, "errors": errors})
+            return tc.print_json({"checked": n, "errors": errors, "overlap": ov})
         print("followed %d unfinished row(s) on the latest prices" % n)
+        if ov.get("replaced") or ov.get("already_held"):
+            print("%d earlier waiting row(s) REPLACED, %d repeat listing(s) of a held stock ALREADY_HELD "
+                  "(kept, not counted)" % (ov["replaced"], ov["already_held"]))
         for e in errors:
             print("  price error %s" % e)
         return

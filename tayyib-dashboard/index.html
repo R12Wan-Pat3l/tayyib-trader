@@ -933,7 +933,8 @@ function loadToday(date) {
 }
 
 // --- Results ----------------------------------------------------------------------------------------
-var VERDICT_CHIP = { right:"pass", wrong:"block", "no trade":"unknown", pending:"info", breakeven:"warn", unknown:"unknown" };
+var VERDICT_CHIP = { right:"pass", wrong:"block", "no trade":"unknown", pending:"info", breakeven:"warn", unknown:"unknown",
+  superseded:"unknown", replaced:"unknown", "already held":"unknown" };
 function priceChart(box, row) {
   box.appendChild(el("div", { cls:"sk", style:"height:220px", "aria-hidden":"true" }));
   getJSON("/api/chart?symbol=" + encodeURIComponent(row.symbol) + "&from=" + encodeURIComponent(row.date)).then(function (c) {
@@ -1028,7 +1029,7 @@ function renderResults(panel, d) {
     { key:"symbol", title:"Stock", w:"15%", sort:function (r) { return r.symbol; }, cell:function (r) { return [el("b", { text:r.symbol }), el("span", { cls:"sub", text:r.mode + " " + r.setup })]; } },
     { key:"check", title:"Check", w:"104px", sort:function (r) { return r.check; }, cell:function (r) { return badge(r.display.check); } },
     { key:"verdict", title:"Result", w:"16%", td:"wide", sort:function (r) { return r.verdict.verdict; }, cell:function (r) {
-        return [chip(r.verdict.verdict, VERDICT_CHIP[r.verdict.verdict] || "unknown"), el("span", { cls:"sub", text:r.verdict.label })]; } },
+        return [chip(r.verdict.verdict, VERDICT_CHIP[r.verdict.verdict] || "unknown", r.verdict.tip || null), el("span", { cls:"sub", text:r.verdict.label })]; } },
     { key:"entry", title:"Buy above", num:true, sort:function (r) { return r.entry; }, cell:function (r) { return r.display.entry; } },
     { key:"stop", title:"Stop", num:true, sort:function (r) { return r.stop; }, cell:function (r) { return r.display.stop; } },
     { key:"target", title:"Target", num:true, sort:function (r) { return r.target; }, cell:function (r) { return r.display.target; } },

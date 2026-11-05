@@ -541,6 +541,18 @@ class Settings(OfflineCase):
         s = tc.settings_snapshot(V({"scanner": {"setups": {"trend": {"enabled": False}}}})[0])
         self.assertNotEqual(s["hash"], d["hash"])
         self.assertEqual(tc.settings_snapshot(V({"user_agent": "me"})[0])["hash"], d["hash"])   # no decision
+        self.assertEqual(tc.settings_snapshot(V({"halal": {"loosen_note": "my scholar"}})[0])["hash"], d["hash"])
+        # data sources change which stocks and headlines reach the decisions
+        u = tc.settings_snapshot(V({"halal": {"parent_list_url": "https://example.org/nifty200.csv"}})[0])
+        self.assertEqual([x["key"] for x in u["differs_from_default"]], ["halal.parent_list_url"])
+        f = tc.settings_snapshot(V({"news": {"feeds": {"et_markets": "https://example.org/et.xml"}}})[0])
+        self.assertNotEqual(f["hash"], d["hash"])
+        self.assertIn("news.feeds.et_markets", [x["key"] for x in f["differs_from_default"]])
+        # every documented key is in the snapshot except the three display/transport ones
+        snap = set(tc.default_values())
+        missing = sorted(k for k in tc.DEFAULT_CONFIG_DOCS if k not in snap and not any(
+            s.startswith(k + ".") for s in snap))
+        self.assertEqual(missing, sorted(tc.SETTINGS_EXCLUDE))
         # the capital only counts when it differs from the default, like any other key
         self.assertNotEqual(tc.settings_snapshot(V({"capital": 200000})[0])["hash"], d["hash"])
 

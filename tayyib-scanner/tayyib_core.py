@@ -526,7 +526,9 @@ def halal_banner(cfg, universe=None):
 
 
 # Keys that change no decision; every other key is part of the settings snapshot.
-SETTINGS_EXCLUDE = ("user_agent", "news.feeds", "halal.list_url", "halal.parent_list_url", "halal.loosen_note")
+# display or transport only: user_agent (HTTP header), halal.loosen_note (banner text; the thresholds it
+# allows are recorded as values), halal.list_url (documented but read by no script yet)
+SETTINGS_EXCLUDE = ("user_agent", "halal.list_url", "halal.loosen_note")
 
 
 def _decision_values(cfg):

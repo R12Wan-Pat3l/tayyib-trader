@@ -199,9 +199,11 @@ carry their own `why[]` too.
 ### Settings snapshot
 
 `tc.settings_snapshot(cfg) -> {hash, label, defaults_version, values, differs_from_default[]}`.
-`differs_from_default` lists every decision-affecting setting (everything except `user_agent`,
-`news.feeds`, `halal.list_url`, `halal.parent_list_url` and `halal.loosen_note`) whose value is not the
-default. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
+`differs_from_default` lists every decision-affecting setting whose value is not the default. Only
+three keys are left out: `user_agent` (an HTTP header), `halal.loosen_note` (the banner text; the
+looser thresholds it allows are recorded as values, and without it they fall back to TASIS) and
+`halal.list_url` (documented but not read by any script yet). `halal.parent_list_url` (which stocks
+are screened) and each `news.feeds.<name>` (which headlines can raise a WARN) are included. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
 spaces) of `{"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}`: it depends only on
 what you changed, so adding a key whose default keeps the old behaviour does not change it. `label` is
 `default@<DEFAULTS_VERSION>` (now `default@1`) when nothing differs, otherwise the hash.

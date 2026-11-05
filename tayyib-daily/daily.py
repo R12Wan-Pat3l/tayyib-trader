@@ -102,7 +102,7 @@ def main(argv=None):
     age = tc.universe_age_days(uni) if uni.get("stocks") else None
     every = cfg["halal"].get("auto_rebuild_days") or 0
     if not a.no_rebuild and every and (not uni.get("stocks") or (age is not None and age >= every)):
-        why = "first run" if not uni.get("stocks") else "list was %d days old" % age
+        why = "first run" if not uni.get("stocks") else "list was %s old" % tc.plural(age, "day")
         if not a.json:
             sys.stderr.write("Rebuilding the halal list (%s): about 5 minutes...\n" % why)
         try:
@@ -117,9 +117,9 @@ def main(argv=None):
     if not uni.get("stocks"):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first (about 5 minutes, monthly)")
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
-        notes.append("halal list is %d days old: rebuild it (halal.py build)" % age)
+        notes.append("halal list is %s old: rebuild it (halal.py build)" % tc.plural(age, "day"))
     elif age is not None and age > 35:
-        notes.append("halal list is %d days old: a monthly rebuild is due" % age)
+        notes.append("halal list is %s old: a monthly rebuild is due" % tc.plural(age, "day"))
     if tc.market_status() != "closed":
         notes.append("market is %s: today's bar is not final, so levels can still move. Best run after 3:30 PM IST"
                      % tc.market_status())

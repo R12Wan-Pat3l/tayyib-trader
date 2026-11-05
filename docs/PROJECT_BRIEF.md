@@ -12,9 +12,8 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.1.6** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5, v0.1.6; v0.1.3 is folded into v0.1.4).
-  v0.1.7 is committed, not yet tagged
-- Tests: 209 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.1.7** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5, v0.1.6, v0.1.7; v0.1.3 is folded into v0.1.4)
+- Tests: 213 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 

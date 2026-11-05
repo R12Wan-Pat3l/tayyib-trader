@@ -63,14 +63,14 @@ def evaluate(sig, bars, live=None, chase_pct=4.0):
                     "why": "closed %.2f under the invalidation %.2f" % (b["close"], inv)}
         if n >= sig.get("valid_days", 3):
             return {"status": "EXPIRED", "date": b["date"],
-                    "why": "not triggered within %d sessions" % sig.get("valid_days", 3)}
+                    "why": "not triggered within %s" % tc.plural(sig.get("valid_days", 3), "session")}
     last = live or bars[-1]["close"]
     if live and live >= trig:
         return {"status": "TRIGGERING", "why": "live price %.2f is over the trigger %.2f (confirm at close)"
                 % (live, trig)}
     return {"status": "WAITING", "distance_pct": round((trig - last) / last * 100, 2),
-            "why": "price %.2f is %.2f%% under the trigger %.2f; %d of %d sessions used"
-            % (last, (trig - last) / last * 100, trig, len(after), sig.get("valid_days", 3))}
+            "why": "price %.2f is %.2f%% under the trigger %.2f; %d of %s used"
+            % (last, (trig - last) / last * 100, trig, len(after), tc.plural(sig.get("valid_days", 3), "session"))}
 
 
 def check(sym, setup, cfg, live_ok=True, mode=None):

@@ -311,7 +311,7 @@ def sparkline(sym, days=60, width=240, height=48, pad=3):
     return {"status": "ok", "width": width, "height": height, "line": line,
             "area": "%.1f,%d %s %.1f,%d" % (pts[0][0], height, line, pts[-1][0], height),
             "change": "%+.1f%%" % ch, "up": ch >= 0, "first": bars[0]["date"], "last": bars[-1]["date"],
-            "summary": "%d sessions to %s: %+.1f%%, from %s to %s" % (n, bars[-1]["date"], ch,
+            "summary": "%s to %s: %+.1f%%, from %s to %s" % (tc.plural(n, "session"), bars[-1]["date"], ch,
                                                                     inr(cl[0]), inr(cl[-1]))}
 
 
@@ -597,7 +597,8 @@ def api_halal(q):
     return {"updated": text(uni.get("updated")), "source": text(uni.get("source")), "method": text(uni.get("method")),
             "limits": limits, "list_thresholds": uni.get("thresholds"), "near_limit_pct": near,
             "banner": tc.halal_banner(cfg, uni), "counts": counts, "stocks": stocks, "donut": donut(counts),
-            "age_days": tc.universe_age_days(uni)}
+            "age_days": tc.universe_age_days(uni),
+            "age_text": None if tc.universe_age_days(uni) is None else tc.plural(tc.universe_age_days(uni), "day") + " ago"}
 
 
 def api_tickets(q):

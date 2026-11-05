@@ -101,7 +101,7 @@ def main(argv=None):
     if a.json:
         return tc.print_json(out)
     for s, rec in result.items():
-        print("%s, last %d days" % (s, a.days))
+        print("%s, last %s" % (s, tc.plural(a.days, "day")))
         if rec["pit"] is None:
             print("  insider filings: UNKNOWN (NSE did not answer; this is not the same as none)")
         else:

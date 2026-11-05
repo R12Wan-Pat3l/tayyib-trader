@@ -107,7 +107,8 @@ def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, ext
                      "BLOCK"))
     age = tc.universe_age_days(uni)
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
-        warn.append("halal list is %d days old (max %d): rebuild it" % (age, cfg["halal"]["list_max_age_days"]))
+        warn.append("halal list is %s old (max %s): rebuild it" % (tc.plural(age, "day"),
+                                                                        tc.plural(cfg["halal"]["list_max_age_days"], "day")))
     why.append(W("RISK", "halal list age", age, cfg["halal"]["list_max_age_days"], "<=",
                  None if age is None else not age > cfg["halal"]["list_max_age_days"], "days",
                  "WARN when older" if age is not None else "UNKNOWN: the list has no build date"))

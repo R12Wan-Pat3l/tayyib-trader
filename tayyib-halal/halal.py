@@ -148,7 +148,7 @@ def cmd_check(a, cfg):
         show(rec, cfg)
     age = tc.universe_age_days(uni)
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
-        print("warning: the halal universe is %d days old; rebuild it" % age)
+        print("warning: the halal universe is %s old; rebuild it" % tc.plural(age, "day"))
 
 
 def cmd_list(a, cfg):

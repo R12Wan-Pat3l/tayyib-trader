@@ -227,6 +227,42 @@ class ServerLabels(OfflineCase):
         self.assertNotIn('it["title"][:70], None', src)
 
 
+class PluralsAndScroll(OfflineCase):
+    def test_plural(self):
+        self.assertEqual(tc.plural(1, "day"), "1 day")
+        self.assertEqual(tc.plural(0, "day"), "0 days")
+        self.assertEqual(tc.plural(30, "day"), "30 days")
+        self.assertEqual(tc.plural(1, "session"), "1 session")
+
+    def test_no_unpluralised_day_counts(self):
+        import re
+        bad = re.compile(r"%d (days|sessions)\b|\+ \" days")      # a count printed with a fixed plural
+        dirs = [os.path.join(ROOT, "core")] + [os.path.join(ROOT, x) for x in os.listdir(ROOT)
+                                               if x.startswith("tayyib-") and os.path.isdir(os.path.join(ROOT, x))]
+        for d in dirs:
+            for f in os.listdir(d):
+                if not f.endswith((".py", ".html")) or (f == "tayyib_core.py" and not d.endswith("core")):
+                    continue                                          # the synced copies equal core
+                src = open(os.path.join(d, f), encoding="utf-8").read()
+                m = bad.search(src)
+                self.assertIsNone(m, "%s/%s: %s" % (os.path.basename(d), f, m and m.group(0)))
+        self.assertIsNotNone(bad.search('"%d days old" % n'))           # the pattern does catch one
+
+    def test_halal_age_text(self):
+        self.build_universe()
+        h = D.api_halal({})
+        self.assertEqual(h["age_text"], tc.plural(h["age_days"], "day") + " ago")
+        html = open(os.path.join(ROOT, "tayyib-dashboard", "index.html"), encoding="utf-8").read()
+        self.assertNotIn('" days ago"', html)
+
+    def test_tab_switch_scrolls_to_top(self):
+        html = open(os.path.join(ROOT, "tayyib-dashboard", "index.html"), encoding="utf-8").read()
+        body = html[html.index("function show(name, focus)"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("if (changed) window.scrollTo(0, 0);", body)     # click, keys, hash, back / forward
+        self.assertIn('history.scrollRestoration = "manual"', html)
+
+
 class ExitSignalNotStale(OfflineCase):
     """WELSPUNLIV-2026-11-04-trend on the 2026-11-05 list: a WAITING entries.json record from an earlier day
     replaced today's scan. A newer scan signal now wins; a triggered record still wins."""

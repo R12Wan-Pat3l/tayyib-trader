@@ -718,6 +718,11 @@ def today_ist():
     return now_ist().date()
 
 
+def plural(n, word, many=None):
+    """'1 day', '2 days', '0 days': a count with its noun in the right number."""
+    return "%d %s" % (n, word if n == 1 else (many or word + "s"))
+
+
 def parse_date(s):
     return dt.datetime.strptime(s[:10], "%Y-%m-%d").date()
 
@@ -1086,7 +1091,7 @@ def _uptrend(p, ind, i, c, S):
     ok = c > fv > sv and fv > prev
     return ok, [why_item("SETUP", "close above the %d-day average" % f, c, fv, ">", c > fv, "Rs"),
                 why_item("SETUP", "%d-day average above the %d-day" % (f, sl), fv, sv, ">", fv > sv, "Rs"),
-                why_item("SETUP", "%d-day average rising (vs %d days ago)" % (f, d), fv, prev, ">", fv > prev,
+                why_item("SETUP", "%d-day average rising (vs %s ago)" % (f, plural(d, "day")), fv, prev, ">", fv > prev,
                          "Rs")]
 
 
@@ -1167,7 +1172,7 @@ def detect(setup, bars, ind, i, tick=0.05, cfg=None):
             sig = {"trigger": bars[i]["high"] * _factor(p["trigger_buffer_pct"]), "invalidation": lo(i - L + 1, i),
                    "score": score, "notes": "RSI low %.0f, green close above the 200-day" % rmin}
             w = [why_item("SETUP", "close above the %d-day average" % p["trend_slow_ma"], c, slow, ">", True, "Rs"),
-                 why_item("SETUP", "lowest RSI(%d) of the last %d days" % (p["rsi_length"], N), rmin, p["rsi_below"],
+                 why_item("SETUP", "lowest RSI(%d) of the last %s" % (p["rsi_length"], plural(N, "day")), rmin, p["rsi_below"],
                           "<", True, "RSI"),
                  why_item("SETUP", "green day (close above open)", bars[i]["close"], bars[i]["open"], ">", green, "Rs",
                           None if p["require_green_day"] else "not required (require_green_day is false)")]
@@ -1204,7 +1209,7 @@ def detect(setup, bars, ind, i, tick=0.05, cfg=None):
                        % ((1 - c / h52) * 100, ret6 * 100)}
                 w = [why_item("SETUP", "close above the %d-day average" % sl, c, s200, ">", True, "Rs"),
                      why_item("SETUP", "%d-day average above the %d-day" % (f, sl), s50, s200, ">", True, "Rs"),
-                     why_item("SETUP", "%d-day average rising (vs %d days ago)" % (sl, d), s200, s200_prev, ">", True,
+                     why_item("SETUP", "%d-day average rising (vs %s ago)" % (sl, plural(d, "day")), s200, s200_prev, ">", True,
                               "Rs"),
                      why_item("SETUP", "close as %% of the %d-day high" % L, c / h52 * 100, p["min_pct_of_high"], ">=",
                               True, "%", "%d-day high %.2f" % (L, h52)),
@@ -1233,7 +1238,7 @@ def detect(setup, bars, ind, i, tick=0.05, cfg=None):
     sig["why"] = w + [
         why_item("SETUP", "score", sig["score"], p["min_score"], ">=", True, "score"),
         why_item("SETUP", "stop structure (invalidation) under the trigger", sig["invalidation"], sig["trigger"], "<",
-                 True, "Rs", "buy-stop trigger %.2f, valid %d sessions" % (sig["trigger"], sig["valid_days"]))]
+                 True, "Rs", "buy-stop trigger %.2f, valid %s" % (sig["trigger"], plural(sig["valid_days"], "session")))]
     return sig
 
 
@@ -1256,7 +1261,7 @@ def liquidity_check(bars, cfg):
     n = ((cfg.get("scanner") or {}).get("liquidity_days") or 20)
     ind_v = sma([float(b["volume"]) for b in bars], n)[-1] if bars else None
     if ind_v is None:
-        return False, "less than %d days of data" % n, [
+        return False, "less than %s of data" % plural(n, "day"), [
             why_item("LIQUIDITY", "days of price data", len(bars), n, ">=", False, "days")]
     c = bars[-1]["close"]
     turnover = ind_v * c

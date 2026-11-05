@@ -133,7 +133,7 @@ def main(argv=None):
         print("  entry   %9.2f  %s, valid until %s" % (pln["entry"], pln["entry_type"], pln["valid_until"]))
         print("  stop    %9.2f  %s  (risk %.2f a share)" % (pln["stop"], pln["stop_method"], pln["risk_per_share"]))
         print("  target  %9.2f  %.1fR" % (pln["target"], pln["reward_risk"]))
-        print("  time    out by %s (%d sessions)" % (pln["time_stop_date"], pln["max_hold_days"]))
+        print("  time    out by %s (%s)" % (pln["time_stop_date"], tc.plural(pln["max_hold_days"], "session")))
         for t in pln["trail"]:
             print("  - %s" % t)
     if a.write:

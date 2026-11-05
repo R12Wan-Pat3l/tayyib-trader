@@ -27,6 +27,7 @@ Fixes from the live check of the pipeline, and a read-only dashboard.
   - Labels say what is true: "no closed trades" instead of ₹0.00, "Triggered (paper)" instead of
     "Bought", "Current settings: default@2" next to "This list was made with: default@1", and lists made
     before v0.1.7 say "Older list: ranked by expectancy only". Large money reads ₹523.7 cr.
+  - Switching tabs (click, keyboard, link or back / forward) always starts at the top of the page.
 - It is **read-only**: it runs on 127.0.0.1 only and answers GET only. It checks the Host header, sends
   no CORS headers, serves a fixed list of files and writes nothing. It cannot place, change or cancel an
   order. Every row and ticket is re-checked against the current halal list: a stock that is no longer
@@ -66,6 +67,7 @@ Fixes from the live check of the pipeline, and a read-only dashboard.
   - **NEWS:** headlines are kept in full in why[] (they were cut at 70 / 90 characters). The risk
     reasons are unchanged.
 - The past-trades check in HISTORY uses the new setting instead of a fixed 8.
+- Day and session counts are pluralised everywhere ("1 day ago", "1 session"), via `tc.plural`.
 - The Kite / Groww steps moved into the core (`tc.broker_steps`), so `ticket.py` and the dashboard show the
   same text.
 - **Fix: a ticket could keep an earlier day's signal.** The exit planner preferred a `tayyib-entry`

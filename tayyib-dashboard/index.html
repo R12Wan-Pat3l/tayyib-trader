@@ -917,7 +917,7 @@ function renderHalal(panel, d) {
         el("div", null, el("dt", { text:"Debt / total assets" }), el("dd", { text:"under " + L.max_debt_to_assets_pct + "%" })),
         el("div", null, el("dt", { text:"Non-compliant income" }), el("dd", { text:"under " + L.max_noncompliant_income_pct + "% (incl. assumed " + L.noncompliant_investment_return_pct + "%)" })),
         el("div", null, el("dt", { text:"Cash + receivables / assets" }), el("dd", { text:"under " + L.max_cash_receivables_to_assets_pct + "%" })),
-        el("div", null, el("dt", { text:"List built" }), el("dd", { text:d.updated + (d.age_days !== null ? " (" + d.age_days + " days ago)" : "") }))),
+        el("div", null, el("dt", { text:"List built" }), el("dd", { text:d.updated + (d.age_text ? " (" + d.age_text + ")" : "") }))),
       el("p", { cls:"small muted", style:"margin-top:14px", text:"Near limit = from " + d.near_limit_pct + "% of a limit up to it; at or over the limit = over limit. Method " + d.method +
         ", source " + d.source + ". Review and excluded stocks are listed for their status only: they are never picks." }))));
   var q = el("input", { type:"search", id:"hq", placeholder:"Symbol, company or industry" });
@@ -1029,9 +1029,11 @@ var LOADERS = {
   halal:function () { load("/api/halal", "p-halal", renderHalal); },
   tickets:function () { load("/api/tickets", "p-tickets", renderTickets); }
 };
-var loaded = {};
+var loaded = {}, current = null;
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";   // a reload starts at the top too
 function show(name, focus) {
   if (!LOADERS[name]) name = "today";
+  var changed = name !== current; current = name;
   Object.keys(LOADERS).forEach(function (n) {
     var t = document.getElementById("tab-" + n), p = document.getElementById("p-" + n), on = n === name;
     t.setAttribute("aria-selected", on ? "true" : "false"); t.tabIndex = on ? 0 : -1; p.hidden = !on;
@@ -1039,11 +1041,12 @@ function show(name, focus) {
   });
   if (!loaded[name]) { loaded[name] = true; skeleton(document.getElementById("p-" + name)); LOADERS[name](); }
   if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  if (changed) window.scrollTo(0, 0);           // every way of switching tabs: click, keys, hash, back / forward
 }
 var names = Object.keys(LOADERS);
 names.forEach(function (n, i) {
   var t = document.getElementById("tab-" + n);
-  t.addEventListener("click", function () { show(n); window.scrollTo(0, 0); });
+  t.addEventListener("click", function () { show(n); });
   t.addEventListener("keydown", function (e) {
     var k = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (e.key === "Home") { show(names[0], true); e.preventDefault(); }

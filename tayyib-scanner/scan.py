@@ -65,7 +65,7 @@ def main(argv=None):
             errors.append({"symbol": s, "error": str(e)})
             continue
         if len(bars) < cfg["scanner"]["min_history_bars"]:
-            skipped.append({"symbol": s, "reason": "only %d days of history" % len(bars)})
+            skipped.append({"symbol": s, "reason": "only %s of history" % tc.plural(len(bars), "day")})
             continue
         ok, why, liq_why = tc.liquidity_check(bars, cfg)
         if not ok:

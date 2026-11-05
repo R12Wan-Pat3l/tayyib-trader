@@ -159,7 +159,7 @@ def plan_change(change):
     snap = tc.settings_snapshot(cfg)
     return {"ok": not errors, "errors": _errors_by_key(errors), "user": user, "cfg": cfg, "diff": diff,
             "dropped": dropped, "label": snap["label"], "label_now": tc.settings_snapshot(old_cfg)["label"],
-            "banner": tc.halal_banner(cfg), "info": [n for n in notes if n not in errors]}
+            "banner": tc.halal_banner(cfg), "info": [n for n in notes if n not in errors], "snap": snap}
 
 
 def list_backups():
@@ -242,6 +242,7 @@ def save_config(body):
         backup = _backup_now()
         tc.write_json(config_path(), plan["user"])          # temp file + os.replace: never half written
         return {"saved": True, "label": plan["label"], "backup": backup, "diff": plan["diff"],
+                "account": plan["snap"]["account_differs"],
                 "message": APPLY_NOTE, "version": config_version()}
 
 

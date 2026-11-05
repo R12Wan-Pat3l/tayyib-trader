@@ -791,6 +791,91 @@ TASIS_LOOSER = {"max_debt_to_assets_pct": "above", "max_noncompliant_income_pct"
                 "max_cash_receivables_to_assets_pct": "above", "noncompliant_investment_return_pct": "below"}
 
 
+NOTE_WORDS = "your source / scholar note"
+
+
+def plain(text):
+    """User-facing text: no internal key names for the source note, ₹ for Rs."""
+    if not text:
+        return text
+    return (text.replace("halal.loosen_note", NOTE_WORDS).replace("loosen_note", NOTE_WORDS)
+            .replace("Rs ", "₹"))
+
+
+def field_name(key):
+    """A setting's name as the page shows it (the code line under each field keeps the key)."""
+    doc = tc.DEFAULT_CONFIG_DOCS.get(key)
+    if doc is None:
+        return key
+    if key == "halal.loosen_note":
+        return "Your source / scholar note"
+    return plain(re.sub(r"\s*\(null = [^)]*\)", "", doc["description"]))
+
+
+def _with_unit(v, key):
+    doc = tc.DEFAULT_CONFIG_DOCS.get(key) or {}
+    return v + ("%" if doc.get("unit") == "%" else "")
+
+
+def friendly(err):
+    """{key, message} from the validator -> + text (under the field) and full (with the setting's name).
+    The validator's own message stays in `message` (CLI and daily notes keep it); only the page rewords."""
+    m, key = err["message"], err.get("key")
+    out = dict(err, needs_note=False)
+    x = re.match(r"CONFIG ERROR: halal\.(\w+) = (\S+) is looser than TASIS \(([^)]*)\)", m)
+    if x:
+        out["needs_note"] = True
+        if x.group(1) == "allow_review":
+            text = ("Letting 'review' stocks through is looser than TASIS. Add your source / scholar note below "
+                    "to save this, or turn it off.")
+        else:
+            text = ("%s is looser than TASIS (%s). Add your source / scholar note below to save this, or reset "
+                    "to %s." % (_with_unit(x.group(2), key), _with_unit(x.group(3), key), _with_unit(x.group(3), key)))
+    else:
+        x = re.match(r"CONFIG: [\w.]+ = (.*) invalid \((.*)\), using (?:default|the defaults).*$", m)
+        y = re.match(r"CONFIG: [\w.]+ = (.*) ignored: it is a hard rule and stays (.*)$", m)
+        if x and key:
+            text = "%s is not allowed (%s)." % (x.group(1), x.group(2).replace("range ", "allowed: "))
+        elif y and key:
+            text = "This is a hard rule: it stays %s." % y.group(2)
+        else:
+            text = plain(re.sub(r"^CONFIG(?: ERROR)?: ", "", m))
+            text = text[:1].upper() + text[1:]
+    out["text"] = text
+    short = re.sub(r"\s*\([^)]*\)$", "", re.split(r"\.\s+(?=[A-Z])", field_name(key))[0]) if key else ""
+    out["full"] = "%s: %s" % (short, text) if key else text
+    return out
+
+
+def friendly_info(n):
+    if n.startswith(tc.HALAL_METHOD_NOTE):
+        return "Your halal thresholds differ from TASIS, so the halal method is saved as 'custom'."
+    t = plain(re.sub(r"^CONFIG(?: ERROR)?: ", "", n))
+    return t[:1].upper() + t[1:]
+
+
+def friendly_errors(errors):
+    return [friendly(e) for e in errors]
+
+
+def account_note(snap):
+    """'Kept your own capital ₹2,00,000 and broker groww: they are not part of the label.' or None."""
+    acc = snap.get("account_differs") or []
+    if not acc or not str(snap.get("label") or "").startswith("default@"):
+        return None                           # with other changes the label is the hash, which includes them
+    order = ("capital", "cash_available", "broker", "exchange")
+    acc = sorted(acc, key=lambda d: (order.index(d["key"]) if d["key"] in order else len(order), d["key"]))
+    parts = []
+    for d in acc:
+        doc = tc.DEFAULT_CONFIG_DOCS.get(d["key"]) or {"type": "number", "unit": None}
+        name = {"capital": "capital", "cash_available": "cash", "broker": "broker", "exchange": "exchange"}.get(
+            d["key"], field_name(d["key"]).lower())
+        parts.append("%s %s" % (name, _value_text(d["value"], doc)))
+    return ("Your own %s %s kept: %s not part of the settings label." % (
+        ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1],
+        "are" if len(parts) > 1 else "is", "they are" if len(parts) > 1 else "it is"))
+
+
 def _step(doc):
     if doc["type"] == "int":
         return 1
@@ -829,7 +914,7 @@ def setting_field(key, cur, saved, raw_has):
     doc = tc.DEFAULT_CONFIG_DOCS[key]
     dflt = A._flat(tc.DEFAULT_CONFIG).get(key)
     v = cur.get(key)
-    f = {"key": key, "label": re.sub(r"\s*\(null = [^)]*\)", "", doc["description"]).replace("Rs ", "₹"), "type": doc["type"], "unit": doc.get("unit"),
+    f = {"key": key, "label": field_name(key), "type": doc["type"], "unit": doc.get("unit"), "account": tc.is_account_key(key),
          "min": doc.get("min"), "max": doc.get("max"), "choices": doc.get("choices"), "nullable": bool(doc.get("nullable")),
          "default": dflt, "value": v, "saved": key in saved, "changed": v != dflt,
          "default_text": _value_text(dflt, doc), "value_text": _value_text(v, doc), "range_text": _range_text(doc),
@@ -844,11 +929,18 @@ def setting_field(key, cur, saved, raw_has):
     if key == "halal.allow_review":
         f["tasis_text"] = "on is looser than TASIS and needs your source"
     if key == "halal.loosen_note":
-        f["label"] = "Source / scholar: who allowed thresholds looser than TASIS"
+        f["label"] = "Your source / scholar note: who allowed thresholds looser than TASIS"
         f["multiline"] = True
     if key.startswith("scanner.setups.") and short == "enabled":
         f["toggle_section"] = True
     return f
+
+
+def reset_keys(account=False):
+    """The keys "Reset all to defaults" sends as {"reset": [...]}: every editable setting, without the account
+    facts (capital, cash, broker and charges) unless `account`. Only the form changes; a save writes it."""
+    return [k for k, doc in tc.DEFAULT_CONFIG_DOCS.items()
+            if doc["type"] != "locked" and (account or not tc.is_account_key(k))]
 
 
 def api_settings(q):
@@ -876,14 +968,20 @@ def api_settings(q):
     for g in groups.values():
         order = SECTION_ORDER.get(g["id"], ())
         g["sections"].sort(key=lambda x: order.index(x["title"]) if x["title"] in order else len(order))
+        g["keys"] = []                                # what "Reset this section" puts back to the defaults
         for sec in g["sections"]:
-            sec["changed"] = sum(1 for f in sec["fields"] + ([sec["toggle"]] if sec.get("toggle") else []) if f["changed"])
+            fs = sec["fields"] + ([sec["toggle"]] if sec.get("toggle") else [])
+            sec["changed"] = sum(1 for f in fs if f["changed"])
+            g["keys"] += [f["key"] for f in fs]
     snap = tc.settings_snapshot(cfg)
     return {"groups": [groups[g] for g, _, _ in SETTING_GROUPS], "version": A.config_version(),
             "label": snap["label"], "changed": len(snap["differs_from_default"]),
             "always_on": list(tc.HARD_RULES) + ["only halal-compliant stocks can pass (review needs your source; "
                                                 "excluded and unknown never pass)"],
-            "notes": ([problem] if problem else []) + dropped + tc.config_errors(notes),
+            "notes": [friendly_info(n) for n in ([problem] if problem else []) + dropped]
+                     + [e["full"] for e in friendly_errors(A._errors_by_key(tc.config_errors(notes)))],
+            "account_note": account_note(snap),
+            "reset_all": reset_keys(False), "account_keys": [k for k in reset_keys(True) if tc.is_account_key(k)],
             "banner": tc.halal_banner(cfg), "backups": A.list_backups(), "keep_backups": A.KEEP_BACKUPS,
             "apply_note": A.APPLY_NOTE, "data_dir": tc.data_dir(),
             "preview": preview_view(tc.risk_preview(cfg))}
@@ -914,6 +1012,7 @@ def diff_view(diff):
         doc = tc.DEFAULT_CONFIG_DOCS[d["key"]]
         d["from_text"], d["to_text"] = _value_text(d["from"], doc), _value_text(d["to"], doc)
         d["default_text"] = _value_text(d["default"], doc)
+        d["description"] = field_name(d["key"])
     return diff
 
 
@@ -930,8 +1029,10 @@ def api_risk_preview(q):
         return {"error": "change must be JSON"}
     except A.Refused as e:
         return {"error": "; ".join(e.errors)}
-    return {"ok": plan["ok"], "errors": plan["errors"], "diff": diff_view(plan["diff"]), "dropped": plan["dropped"],
-            "label": plan["label"], "label_now": plan["label_now"], "banner": plan["banner"], "info": plan["info"],
+    return {"ok": plan["ok"], "errors": friendly_errors(plan["errors"]), "diff": diff_view(plan["diff"]),
+            "dropped": [friendly_info(n) for n in plan["dropped"]], "account_note": account_note(plan["snap"]),
+            "label": plan["label"], "label_now": plan["label_now"], "banner": plan["banner"],
+            "info": [friendly_info(n) for n in plan["info"]],
             "preview": preview_view(tc.risk_preview(plan["cfg"])), "apply_note": A.APPLY_NOTE}
 
 
@@ -947,8 +1048,10 @@ def api_backup_diff(q):
         return {"error": "; ".join(e.errors)}
     except ValueError as e:
         return {"error": "the backup could not be read: %s" % e}
-    return {"ok": plan["ok"], "errors": plan["errors"], "diff": diff_view(plan["diff"]), "label": plan["label"],
-            "label_now": plan["label_now"], "dropped": plan["dropped"], "info": plan["info"], "banner": plan["banner"]}
+    return {"ok": plan["ok"], "errors": friendly_errors(plan["errors"]), "diff": diff_view(plan["diff"]),
+            "label": plan["label"], "label_now": plan["label_now"], "account_note": account_note(plan["snap"]),
+            "dropped": [friendly_info(n) for n in plan["dropped"]], "info": [friendly_info(n) for n in plan["info"]],
+            "banner": plan["banner"]}
 
 
 def run_status(runner):
@@ -1092,11 +1195,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/api/config":
                 out = A.save_config(body)
+                out["account_note"] = account_note({"account_differs": out.pop("account", []), "label": out["label"]})
             else:
                 self.server.runner.start(body)
                 out = run_status(self.server.runner)
         except A.Refused as e:
-            return self._json(e.code, {"error": e.errors[0] if len(e.errors) == 1 else "refused", "errors": e.errors})
+            obj = {"error": e.errors[0] if len(e.errors) == 1 else "refused", "errors": e.errors}
+            if p == "/api/config":                     # the validator's words stay in errors; the page shows these
+                obj["problems"] = [x["full"] for x in friendly_errors(A._errors_by_key(e.errors))]
+            return self._json(e.code, obj)
         except Exception as e:                           # never a stack trace in the page
             return self._json(500, {"error": "%s: %s" % (type(e).__name__, str(e)[:200])})
         return self._json(200, out)

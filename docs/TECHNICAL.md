@@ -211,7 +211,7 @@ carry their own `why[]` too.
 
 ### Settings snapshot
 
-`tc.settings_snapshot(cfg) -> {hash, label, defaults_version, values, differs_from_default[]}`.
+`tc.settings_snapshot(cfg) -> {hash, label, defaults_version, values, differs_from_default[], account_differs[]}`.
 `differs_from_default` lists every decision-affecting setting whose value is not the default. Only
 three keys are left out: `user_agent` (an HTTP header), `halal.loosen_note` (the banner text; the
 looser thresholds it allows are recorded as values, and without it they fall back to TASIS) and
@@ -220,7 +220,13 @@ config that still has it gets `CONFIG: halal.list_url removed: it was never used
 are screened) and each `news.feeds.<name>` (which headlines can raise a WARN) are included. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
 spaces) of `{"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}`: it depends only on
 what you changed, so adding a key whose default keeps the old behaviour does not change it. `label` is
-`default@<DEFAULTS_VERSION>` (now `default@2`) when nothing differs, otherwise the hash. Version 2
+`default@<DEFAULTS_VERSION>` (now `default@2`) when nothing differs, otherwise the hash. **Account facts
+(v0.1.8 review):** `capital`, `cash_available`, `broker`, `exchange`, `charges.*` and `brokers.*`
+(`tc.ACCOUNT_KEYS`, `tc.is_account_key`) are facts about the user, not strategy: they stay in the hash
+(they change quantities and charges, so a re-run with another capital is a different run), but a config
+that differs from the defaults only in them is still labelled `default@N`, and they are listed in
+`account_differs`. The dashboard says so ("Your own capital ₹2,50,000 and broker groww are kept: they are
+not part of the settings label"). Version 2
 (v0.1.7) added `daily.min_past_trades_for_rank = 8`, a behaviour change; lists made before it stay
 `default@1` in the tracker.
 
@@ -314,6 +320,19 @@ current file is copied to `trader/config_backups/config-YYYYmmdd-HHMMSS.json` (t
 new file is written atomically (`tc.write_json`: temp file + `os.replace`) under a lock, and the response
 has the new settings label and "Changes apply from the next run." Restoring a backup goes through the same
 path. The hard rules are code, not keys: the page lists them as "Always on".
+
+**Reset (v0.1.8 review):** "Reset this section" (each group's `keys`) and "Reset all to defaults"
+(`reset_all` from `/api/settings`: every editable key except the account facts; with "Also reset capital
+and broker", `account_keys` too) only change the form. They are sent as `{"reset": [...]}` through the same
+review, `POST /api/config`, validation, backup and atomic write as any edit, so they can be undone from
+Backups. A Halal reset restores TASIS, turns `allow_review` off and clears the source note. A reset that
+would leave looser thresholds without the note (resetting only the note) is refused like any other save.
+
+**Wording:** the page never shows internal key names for the source note ("your source / scholar note")
+and never the validator's fallback ("using 25"). The server adds `text` (under the field) and `full` (with
+the setting's name) to each error, `needs_note` for a halal loosening, and `problems` to a refused save;
+the validator's own `message` / `errors` are unchanged (the CLI and daily notes keep them). The key name
+stays only in the small code line under each field.
 
 **Run (`POST /api/run`, `actions.Runner`):** the only option is `{"skip_news": bool}` (→ `--no-news`); any
 other key is 400. It starts `tayyib-daily/daily.py` with `sys.executable`, the same `TAYYIB_DIR`, UTF-8 and

@@ -26,8 +26,20 @@ Change your settings and run today's list from the dashboard, safely.
   or on a holiday in your settings, it asks first ("Prices aren't final yet, levels may change"). When it
   ends the Today tab reloads; a failure shows the error and keeps the old list.
 - The risk preview in `daily.py --risk-preview` also prints the warning above 2%.
+- **Back to the defaults:** Reset per field, **Reset this section** per group, and **Reset all to
+  defaults** at the top, which keeps your capital and broker unless you tick "Also reset capital and
+  broker". A Halal reset restores TASIS, turns review off and clears your source / scholar note. A reset
+  only changes the form: it goes through the same review, confirmation, validation and backup as any
+  edit, so it can be undone from Backups.
 
 ### Changed
+
+- **Settings label:** your own capital, cash and broker (with its charges) no longer make the label a
+  hash: with nothing else changed it stays `default@2`, and the dashboard says they were kept. They still
+  count in the stored hash.
+- **Plain words on the Settings page:** no internal key names ("your source / scholar note", not
+  `halal.loosen_note`), and a looser halal value says "Add your source / scholar note below to save this,
+  or reset to 25%." The CLI and daily-list notes keep their wording.
 
 - **Tracker: same-day re-runs.** Running the list again on the same day with different settings no longer
   loses the new picks. The earlier unfilled rows become **SUPERSEDED** (kept for audit, greyed in Results,

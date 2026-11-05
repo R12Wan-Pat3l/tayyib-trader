@@ -582,6 +582,17 @@ def halal_banner(cfg, universe=None):
 SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct")
 
 
+# Facts about the user, not strategy: your money and your broker. They stay in the hash (they change
+# quantities and charges), but a config that differs from the defaults only in these is still labelled
+# default@N, with the kept values listed in "account_differs" (v0.1.8 review).
+ACCOUNT_KEYS = ("capital", "cash_available", "broker", "exchange")
+ACCOUNT_PREFIXES = ("charges.", "brokers.")
+
+
+def is_account_key(key):
+    return key in ACCOUNT_KEYS or key.startswith(ACCOUNT_PREFIXES)
+
+
 def _decision_values(cfg):
     vals = copy.deepcopy({k: v for k, v in cfg.items() if not str(k).startswith("_")})
     for dotted in SETTINGS_EXCLUDE:
@@ -615,8 +626,8 @@ def settings_snapshot(cfg):
     hash: the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no spaces) of
     {"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}, so it depends only on
     what you changed and on which set of defaults you changed it from. A new key whose default keeps
-    the old behaviour does not change it. label: "default@<DEFAULTS_VERSION>" when nothing differs,
-    otherwise the hash."""
+    the old behaviour does not change it. label: "default@<DEFAULTS_VERSION>" when nothing differs but
+    the account facts (capital, cash, broker and its charges: account_differs), otherwise the hash."""
     vals = _decision_values(cfg)
     base, mine = default_values(), _leaves(vals)
     differs = [{"key": k, "value": mine.get(k), "default": base.get(k)}
@@ -624,8 +635,10 @@ def settings_snapshot(cfg):
     canon = json.dumps({"defaults_version": DEFAULTS_VERSION, "differs": [[d["key"], d["value"]] for d in differs]},
                        sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
     h = hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8]
-    return {"hash": h, "label": "default@%d" % DEFAULTS_VERSION if not differs else h,
-            "defaults_version": DEFAULTS_VERSION, "values": vals, "differs_from_default": differs}
+    account = [d for d in differs if is_account_key(d["key"])]
+    return {"hash": h, "label": "default@%d" % DEFAULTS_VERSION if len(account) == len(differs) else h,
+            "defaults_version": DEFAULTS_VERSION, "values": vals, "differs_from_default": differs,
+            "account_differs": account}
 
 
 RISK_WARN_PCT = 2.0      # risk_preview warns in plain words above this risk per trade

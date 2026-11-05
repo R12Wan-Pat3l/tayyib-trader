@@ -329,7 +329,10 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
 .set-layout { display:grid; grid-template-columns:minmax(0, 1fr) 380px; gap:24px; align-items:start; }
 .set-aside { position:sticky; top:84px; display:grid; gap:16px; min-width:0; }
 .sgroup { scroll-margin-top:84px; margin-bottom:26px; }
-.sgroup > h2.section { margin-top:0; }
+.sgroup > h2.section { margin-top:0; justify-content:space-between; align-items:center; }
+.sgroup > h2.section .link { font:600 14px var(--sans); }
+.reset-all { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; }
+label.check.slim { padding:8px 12px; min-height:44px; margin:0; align-items:center; font-size:14px; }
 .sgroup > p.intro { margin:-8px 0 14px; color:var(--muted); font-size:14px; }
 .ssec { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow-1); margin-bottom:14px; overflow:clip; }
 .ssec > header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 18px; min-height:56px; background:var(--surface-2); }
@@ -627,7 +630,7 @@ function postJSON(url, body) {   // only "/api/config" and "/api/run"; the serve
   return request(url, { method:"POST", cache:"no-store", credentials:"same-origin",
     headers:{ "Content-Type":"application/json", "X-Tayyib-Token":TOKEN }, body:JSON.stringify(body) });
 }
-function errText(r) { return (r.errors && r.errors.length ? r.errors.join(" ") : r.error) || ("refused (" + r.status + ")"); }
+function errText(r) { var e = r.problems && r.problems.length ? r.problems : r.errors; return (e && e.length ? e.join(" ") : r.error) || ("refused (" + r.status + ")"); }
 function announce(t) { var l = document.getElementById("live"); l.textContent = ""; setTimeout(function () { l.textContent = t; }, 30); }
 function copyText(text, btn) {
   function done() {
@@ -1173,6 +1176,11 @@ function resetField(key) {
   if (F.f.saved && !same(F.f.value, F.f.default)) SET.reset[key] = true;
   F.put(F.f.default); refreshField(key); schedulePreview();
 }
+function resetKeys(keys, what) {
+  var n = 0;
+  keys.forEach(function (k) { var F = SET.fields[k]; if (!F) return; if (!same(effective(k), F.f.default)) n++; resetField(k); });
+  announce(n ? what + ": " + n + " value" + (n === 1 ? "" : "s") + " back to the default. Nothing is saved until you review and save." : what + ": already the defaults.");
+}
 function refreshField(key) {
   var F = SET.fields[key], v = effective(key), ch = !same(v, F.f.default), dirty = key in SET.set || !!SET.reset[key];
   F.chg.hidden = !ch; F.rst.hidden = !ch;
@@ -1304,11 +1312,12 @@ function runPreview() {
     });
     p.errors.forEach(function (e) {
       var keys = e.key ? [e.key] : [];
-      if (/needs halal\.loosen_note/.test(e.message)) keys.push("halal.loosen_note");
+      if (e.needs_note) keys.push("halal.loosen_note");
       keys.forEach(function (key) {
         var F = SET.fields[key]; if (!F) return;
         if (F.eq) F.eq.textContent = "";
-        F.err.hidden = false; add(F.err, icon("block", 14), el("span", { text:key === e.key ? e.message : "Needed: " + e.message }));
+        var src = e.key && SET.fields[e.key] ? SET.fields[e.key].f.label : "";
+        F.err.hidden = false; add(F.err, icon("block", 14), el("span", { text:key === e.key ? e.text : "Needed for: " + src }));
         if (!F.toggle) F.box.classList.add("has-err");
       });
     });
@@ -1323,7 +1332,7 @@ function drawSavebar(p) {
   bar.textContent = "";
   var what = el("div", { cls:"what" }, el("b", { text:n ? n + " change" + (n === 1 ? "" : "s") + " not saved yet" : "Nothing to save" }),
     bad ? el("span", { cls:"bad", text:(p.errors || []).length + " problem" + ((p.errors || []).length === 1 ? "" : "s") + ": fix the marked fields first." })
-        : el("span", { cls:"muted", text:"Settings label after saving: " + p.label + ". " + SET.d.apply_note }));
+        : el("span", { cls:"muted", text:"Settings label after saving: " + p.label + ". " + (p.account_note ? p.account_note + " " : "") + SET.d.apply_note }));
   var review = el("button", { cls:"act", type:"button", text:"Review & save", disabled:bad || !n ? "disabled" : null });
   review.addEventListener("click", function () { reviewChanges("Review your changes", p, changeBody()); });
   var undo = el("button", { cls:"close", type:"button", text:"Undo all" });
@@ -1342,6 +1351,7 @@ function reviewChanges(title, p, body) {
     add(b, el("p", { cls:"small muted", style:"margin-bottom:8px", text:"Check each change. Saving keeps a copy of your current config.json in config_backups." }), diffList(p));
     if (p.banner) add(b, banner(["Every list and halal list will start with: ", p.banner], "warn"));
     (p.info || []).forEach(function (n) { add(b, banner(n, "info")); });
+    if (p.account_note) add(b, banner(p.account_note, "info"));
     add(b, el("p", { cls:"small", text:SET.d.apply_note }));
     var msg = el("div", { style:"margin-top:12px" });
     var go = el("button", { cls:"act", type:"button", text:body.restore ? "Restore this backup" : "Save settings" });
@@ -1354,7 +1364,8 @@ function reviewChanges(title, p, body) {
         if (r.failed) { go.disabled = false; add(msg, banner(["Not saved. ", errText(r)], "block")); return; }
         b.textContent = "";
         add(b, el("div", { cls:"empty-state", style:"padding:28px 16px" }, el("h3", { text:r.saved ? "Saved ✓" : "Nothing changed" }),
-          el("p", { text:r.message }), el("p", { cls:"small muted", style:"margin-top:8px", text:"Settings label now: " + r.label + (r.backup ? ". Your previous config.json is kept as config_backups/" + r.backup + "." : ".") })),
+          el("p", { text:r.message }), el("p", { cls:"small muted", style:"margin-top:8px", text:"Settings label now: " + r.label + (r.backup ? ". Your previous config.json is kept as config_backups/" + r.backup + " (restore it under Backups)." : ".") }),
+          r.account_note ? el("p", { cls:"small muted", style:"margin-top:4px", text:r.account_note }) : null),
           el("div", { cls:"dacts" }, el("button", { cls:"close", type:"button", text:"Close", onclick:closeDrawer })));
         announce(r.saved ? "Settings saved" : "Nothing changed");
         loaded.settings = false; LOADERS.settings(); loadMeta();
@@ -1372,7 +1383,7 @@ function backupsEl(d) {
     btn.addEventListener("click", function () {
       getJSON("/api/config/backup-diff?name=" + encodeURIComponent(bk.name)).then(function (p) {
         if (p.error) { openDrawer("Restore " + bk.saved, bk.name, function (b) { add(b, banner(p.error, "block")); }); return; }
-        if (!p.ok) { openDrawer("Restore " + bk.saved, bk.name, function (b) { add(b, banner("This backup has settings that are no longer valid:", "block"), el("ul", null, p.errors.map(function (e) { return el("li", { text:e.message }); }))); }); return; }
+        if (!p.ok) { openDrawer("Restore " + bk.saved, bk.name, function (b) { add(b, banner("This backup has settings that are no longer valid:", "block"), el("ul", null, p.errors.map(function (e) { return el("li", { text:e.full }); }))); }); return; }
         reviewChanges("Restore the settings of " + bk.saved, p, { restore:bk.name });
       });
     });
@@ -1387,7 +1398,16 @@ function renderSettings(panel, d) {
   d.groups.forEach(function (g) { g.sections.forEach(function (s) { s.fields.forEach(function (f) { if (f.key === "broker") SET.broker = f.value; }); }); });
   add(panel, el("div", { cls:"set-head" }, el("div", null, el("span", { cls:"eyebrow", text:"config.json" }), el("h1", { text:"Settings" }),
       el("p", { cls:"muted", text:"Current settings: " + d.label + (d.changed ? " (" + d.changed + " changed from the defaults)" : " (all defaults)") + ". Every value is checked before it is saved. " + d.apply_note }))));
-  d.notes.forEach(function (n) { add(panel, banner(n, n.indexOf("CONFIG ERROR") === 0 ? "block" : "warn")); });
+  var also = el("input", { type:"checkbox", id:"resetAccount" });
+  var all = el("button", { cls:"close", type:"button", text:"Reset all to defaults" });
+  all.addEventListener("click", function () {
+    resetKeys(d.reset_all.concat(also.checked ? d.account_keys : []), "Reset all");
+  });
+  add(panel.lastChild, el("div", { cls:"reset-all" }, all,
+    el("label", { cls:"check slim", "for":"resetAccount" }, also, el("span", null, "Also reset capital and broker",
+      el("span", { cls:"small muted", style:"display:block", text:"Off: your capital, cash and broker & charges stay as they are." })))));
+  if (d.account_note) add(panel, el("p", { cls:"small muted", style:"margin:-8px 0 14px", text:d.account_note }));
+  d.notes.forEach(function (n) { add(panel, banner(n, "warn")); });
   if (d.banner) add(panel, banner(d.banner, "warn"));
   var nav = el("div", { cls:"group-nav", role:"navigation", "aria-label":"Setting groups" });
   d.groups.concat([{ id:"backups", title:"Backups" }]).forEach(function (g) {
@@ -1399,7 +1419,9 @@ function renderSettings(panel, d) {
   add(panel, nav);
   var main = el("div", { style:"min-width:0" });
   d.groups.forEach(function (g) {
-    var gb = el("div", { cls:"sgroup", id:"g-" + g.id }, el("h2", { cls:"section", text:g.title }), el("p", { cls:"intro", text:g.intro }));
+    var rs = el("button", { cls:"link slim", type:"button", text:"Reset this section", title:"Every " + g.title + " setting back to its default" + (g.id === "halal" ? " (TASIS, review off, no source note)" : "") + ". Nothing is saved until you review and save." });
+    rs.addEventListener("click", function () { resetKeys(g.keys, "Reset " + g.title); });
+    var gb = el("div", { cls:"sgroup", id:"g-" + g.id }, el("h2", { cls:"section" }, el("span", { text:g.title }), rs), el("p", { cls:"intro", text:g.intro }));
     g.sections.forEach(function (sec) { gb.appendChild(sectionEl(sec, g)); });
     main.appendChild(gb);
   });

@@ -368,6 +368,149 @@ class SettingsPage(ServerCase):
         self.assertEqual(self.get("/api/config/backup-diff?name=../tracker.json"), {"error": "no such backup"})
 
 
+class SettingsWording(ServerCase):
+    """v0.1.8 review: the page never shows internal key names for the source note, nor the server's "using 25"."""
+
+    def test_labels_and_messages_have_no_key_names(self):
+        s = self.get("/api/settings")
+        for g in s["groups"]:
+            for sec in g["sections"]:
+                for f in sec["fields"] + ([sec["toggle"]] if sec.get("toggle") else []):
+                    self.assertNotIn("loosen_note", f["label"], f["key"])
+                    self.assertNotIn("loosen_note", f.get("tasis_text") or "", f["key"])
+        p = self.preview({"set": {"halal.max_debt_to_assets_pct": 30}})
+        e = p["errors"][0]
+        self.assertIn("needs halal.loosen_note", e["message"])                  # the validator's own words, kept
+        self.assertEqual(e["text"], "30% is looser than TASIS (25%). Add your source / scholar note below to save "
+                                    "this, or reset to 25%.")
+        self.assertTrue(e["needs_note"])
+        for t in (e["text"], e["full"]):
+            self.assertNotIn("loosen_note", t)
+            self.assertNotIn("using 25", t)
+        e = self.preview({"set": {"halal.allow_review": True}})["errors"][0]
+        self.assertIn("Add your source / scholar note below", e["text"])
+        e = self.preview({"set": {"max_risk_per_trade_pct": 9}})["errors"][0]
+        self.assertEqual(e["text"], "9 is not allowed (allowed: 0.25–3).")
+        r, out = self.save({"set": {"halal.max_debt_to_assets_pct": 30}})
+        self.assertEqual(r.status, 400)
+        self.assertIn("needs halal.loosen_note", out["errors"][0])               # API keeps the validator text
+        self.assertNotIn("loosen_note", " ".join(out["problems"]))              # the page shows these
+        self.assertIn("your source / scholar note", out["problems"][0])
+        # the CLI / daily note is unchanged
+        self.assertIn("using 25", tc.validate_config({"halal": {"max_debt_to_assets_pct": 30}})[1][0])
+
+    def test_page_shows_friendly_errors(self):
+        page = open(os.path.join(DASH_DIR, "index.html"), encoding="utf-8").read()
+        self.assertFalse(re.search(r"\be\.message\b", page))       # errors are shown by e.text / e.full
+        self.assertNotIn("needs halal", page)
+
+
+class ResetToDefaults(ServerCase):
+    MINE = {"capital": 250000, "broker": "groww", "max_risk_per_trade_pct": 0.5, "max_open_positions": 4,
+            "modes": {"swing": {"target_r": 2.5}}, "scanner": {"setups": {"squeeze": {"enabled": False}}},
+            "halal": {"max_debt_to_assets_pct": 30, "allow_review": True, "loosen_note": "Mufti X"},
+            "holidays": ["2026-11-10"]}
+
+    def setUp(self):
+        super().setUp()
+        self.write("config.json", self.MINE)
+        self.s = self.get("/api/settings")
+        self.group = {g["id"]: g["keys"] for g in self.s["groups"]}
+
+    def test_reset_lists(self):
+        allk, acc = set(self.s["reset_all"]), set(self.s["account_keys"])
+        editable = {k for k, d in tc.DEFAULT_CONFIG_DOCS.items() if d["type"] != "locked"}
+        self.assertEqual(allk | acc, editable)
+        self.assertFalse(allk & acc)
+        self.assertTrue({"capital", "broker", "cash_available"} <= acc)
+        self.assertNotIn("halal.require_compliant", allk | acc)               # hard rules are never options
+        self.assertEqual({k for ks in self.group.values() for k in ks}, editable)
+        self.assertIn("halal.loosen_note", self.group["halal"])
+        self.assertIn("halal.allow_review", self.group["halal"])
+
+    def test_nothing_written_without_confirmation(self):
+        before = open(os.path.join(self.dir, "config.json"), "rb").read()
+        p = self.preview({"reset": self.s["reset_all"] + self.s["account_keys"]})
+        self.assertTrue(p["ok"])
+        self.assertEqual(p["label"], "default@%d" % tc.DEFAULTS_VERSION)
+        self.assertTrue(p["diff"])
+        self.assertEqual(open(os.path.join(self.dir, "config.json"), "rb").read(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "config_backups")))
+        # the page's reset only changes the form: no request is sent from it
+        page = open(os.path.join(DASH_DIR, "index.html"), encoding="utf-8").read()
+        body = page[page.index("function resetKeys"):page.index("function refreshField")]
+        self.assertNotIn("postJSON", body)
+        self.assertNotIn("request(", body)
+
+    def test_reset_all_keeps_capital_and_broker(self):
+        r, out = self.save({"reset": self.s["reset_all"]})
+        self.assertEqual(r.status, 200, out)
+        self.assertEqual(self.read("config.json"), {"capital": 250000, "broker": "groww"})
+        self.assertEqual(out["label"], "default@%d" % tc.DEFAULTS_VERSION)
+        self.assertEqual(out["account_note"], "Your own capital ₹2,50,000 and broker groww are kept: they are not "
+                                              "part of the settings label.")
+        self.assertTrue(re.match(r"config-\d{8}-\d{6}\.json$", out["backup"]))
+        self.assertEqual(tc.read_json(os.path.join(self.dir, "config_backups", out["backup"])), self.MINE)
+        cfg = tc.load_config()
+        snap = tc.settings_snapshot(cfg)
+        self.assertEqual(snap["label"], "default@2")
+        self.assertNotEqual(snap["hash"], tc.settings_snapshot(tc.validate_config({})[0])["hash"])  # still recorded
+        self.assertEqual(self.get("/api/meta")["settings_header"], "Current settings: default@2")
+        # undo from Backups, through the same save
+        r, out = self.save({"restore": out["backup"]})
+        self.assertEqual(r.status, 200, out)
+        want = json.loads(json.dumps(self.MINE))
+        want["halal"]["method"] = "custom"                    # what the validator decides for looser thresholds
+        self.assertEqual(self.read("config.json"), want)
+
+    def test_reset_all_with_capital_and_broker(self):
+        r, out = self.save({"reset": self.s["reset_all"] + self.s["account_keys"]})
+        self.assertEqual(r.status, 200, out)
+        self.assertEqual(self.read("config.json"), {})
+        self.assertEqual(out["label"], "default@%d" % tc.DEFAULTS_VERSION)
+        self.assertIsNone(out["account_note"])
+        self.assertEqual(tc.settings_snapshot(tc.load_config())["hash"],
+                         tc.settings_snapshot(tc.validate_config({})[0])["hash"])
+        self.assertEqual(len(os.listdir(os.path.join(self.dir, "config_backups"))), 1)
+
+    def test_section_reset(self):
+        r, out = self.save({"reset": self.group["risk"]})
+        self.assertEqual(r.status, 200, out)
+        mine = self.read("config.json")
+        self.assertNotIn("max_risk_per_trade_pct", mine)
+        self.assertNotIn("max_open_positions", mine)
+        self.assertNotIn("capital", mine)                      # the section's own reset includes capital
+        self.assertEqual(mine["modes"], {"swing": {"target_r": 2.5}})            # other sections untouched
+        self.assertEqual(mine["halal"]["loosen_note"], "Mufti X")
+        r, out = self.save({"reset": self.group["plan"]})
+        self.assertNotIn("modes", self.read("config.json"))
+
+    def test_halal_reset_clears_the_note(self):
+        r, out = self.save({"reset": self.group["halal"]})
+        self.assertEqual(r.status, 200, out)
+        mine = self.read("config.json")
+        self.assertNotIn("halal", mine)
+        cfg = tc.load_config()
+        self.assertEqual({k: cfg["halal"][k] for k in tc.TASIS_HALAL}, tc.TASIS_HALAL)
+        self.assertEqual((cfg["halal"]["allow_review"], cfg["halal"]["loosen_note"], cfg["halal"]["method"]),
+                         (False, "", "tasis"))
+        self.assertIsNone(cfg["_halal_loosened"])
+        self.assertIsNone(tc.halal_banner(cfg))
+
+    def test_reset_is_validated_like_any_save(self):
+        # a reset of the note alone leaves looser thresholds without a source: refused, nothing written
+        before = open(os.path.join(self.dir, "config.json"), "rb").read()
+        r, out = self.save({"reset": ["halal.loosen_note"]})
+        self.assertEqual(r.status, 400)
+        self.assertIn("needs halal.loosen_note", " ".join(out["errors"]))
+        self.assertEqual(open(os.path.join(self.dir, "config.json"), "rb").read(), before)
+        r, out = self.save({"reset": ["halal.require_compliant"]})                 # a hard rule: not resettable
+        self.assertEqual(r.status, 400)
+        r, out = self.post("/api/config", {"reset": self.s["reset_all"], "version": "0" * 12})
+        self.assertEqual(r.status, 409)                                             # stale page
+        self.assertEqual(open(os.path.join(self.dir, "config.json"), "rb").read(), before)
+
+
 # --- C. the Run button --------------------------------------------------------------------------------
 
 class RunButton(ServerCase):

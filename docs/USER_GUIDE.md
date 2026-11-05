@@ -197,6 +197,14 @@ charges, Halal), with its default, its allowed range and its unit. Move a slider
 Every save keeps a copy of your old `config.json` in `trader\config_backups\` (the last 20). Under
 **Backups** you can see what each one would change and restore it, the same safe way.
 
+**Back to the defaults.** Each field has **Reset**, each group has **Reset this section**, and the top of
+the page has **Reset all to defaults**. "Reset all" keeps your capital and broker (they are facts about
+you, not strategy) unless you tick **Also reset capital and broker**. Resetting Halal puts back the TASIS
+limits, turns "review" stocks off and clears your source / scholar note. A reset only changes the form:
+nothing is saved until you press **Review & save** and confirm, and the old settings are kept as a backup,
+so you can undo it from **Backups**. After a full reset your settings code is `default@2`, even if you kept
+your own capital and broker (the page tells you it kept them).
+
 The rules that keep it halal and cash-only are shown under **Always on**: they are not settings, and the
 page cannot switch them off.
 
@@ -252,7 +260,8 @@ only halal-compliant stocks. These are rules in the code, not settings.
 TASIS limits, and the dashboard will not save. With it, every daily list starts
 with a line saying the thresholds are looser than TASIS, and why. See the [FAQ](FAQ.md#can-i-loosen-the-halal-thresholds).
 
-Every daily list records a short code for the settings it used: `default@1` when you changed nothing,
+Every daily list records a short code for the settings it used: `default@2` when you changed nothing
+(your own capital and broker don't count),
 otherwise a code such as `b1d996bb` that stands for your changes. The Excel tracker's Summary sheet
 splits the results by that code, so after a change you can see whether the new
 settings did better or worse.

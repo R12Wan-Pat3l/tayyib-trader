@@ -725,8 +725,13 @@ function linksEl(links) {
   if (!ok.length) return null;
   return el("div", { cls:"manual" }, el("span", { cls:"lbl", text:"Check announcements yourself:" }),
     ok.map(function (x) {
+      var cp = null;
+      if (x.copy) {                                   // "Copy ISIN": BSE's search takes it; there is no ISIN link
+        cp = el("button", { cls:"link slim copy-isin", type:"button", text:"Copy ISIN", title:"Copy " + x.copy + " to paste into BSE's search" });
+        cp.addEventListener("click", function () { copyText(x.copy, cp); });
+      }
       return el("span", { cls:"ml" }, el("a", { href:x.url, target:"_blank", rel:"noopener noreferrer", text:x.label + " ↗" }),
-        x.hint ? el("span", { cls:"small muted", text:"(" + x.hint + ")" }) : null);
+        x.hint ? el("span", { cls:"small muted", text:"(" + x.hint + ")" }) : null, cp);
     }));
 }
 function whyGroups(box, groups, links) {
@@ -1078,7 +1083,8 @@ function renderHalal(panel, d) {
         el("div", null, el("dt", { text:"Debt / total assets" }), el("dd", { text:"under " + L.max_debt_to_assets_pct + "%" })),
         el("div", null, el("dt", { text:"Non-compliant income" }), el("dd", { text:"under " + L.max_noncompliant_income_pct + "% (incl. assumed " + L.noncompliant_investment_return_pct + "%)" })),
         el("div", null, el("dt", { text:"Cash + receivables / assets" }), el("dd", { text:"under " + L.max_cash_receivables_to_assets_pct + "%" })),
-        el("div", null, el("dt", { text:"List built" }), el("dd", { text:d.updated + (d.age_text ? " (" + d.age_text + ")" : "") }))),
+        el("div", null, el("dt", { text:"List built" }), el("dd", { text:d.updated + (d.age_text ? " (" + d.age_text + ")" : "") })),
+        d.parent_list ? el("div", null, el("dt", { text:"Nifty 500 list" }), el("dd", { cls:d.parent_list.stale ? "k-warn" : null, text:d.parent_list.text })) : null),
       el("p", { cls:"small muted", style:"margin-top:14px", text:"Near limit = from " + d.near_limit_pct + "% of a limit up to it; at or over the limit = over limit. Method " + d.method +
         ", source " + d.source + ". Review and excluded stocks are listed for their status only: they are never picks." }))));
   var q = el("input", { type:"search", id:"hq", placeholder:"Symbol, company or industry" });

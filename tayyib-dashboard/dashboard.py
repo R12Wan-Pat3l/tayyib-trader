@@ -621,8 +621,26 @@ def api_halal(q):
     return {"updated": text(uni.get("updated")), "source": text(uni.get("source")), "method": text(uni.get("method")),
             "limits": limits, "list_thresholds": uni.get("thresholds"), "near_limit_pct": near,
             "banner": tc.halal_banner(cfg, uni), "counts": counts, "stocks": stocks, "donut": donut(counts),
-            "age_days": tc.universe_age_days(uni),
+            "age_days": tc.universe_age_days(uni), "parent_list": parent_list_view(uni.get("parent_list")),
             "age_text": None if tc.universe_age_days(uni) is None else tc.plural(tc.universe_age_days(uni), "day") + " ago"}
+
+
+def parent_list_view(p):
+    """Where the Nifty 500 list of the last build came from, with its age now. None for older builds."""
+    if not p:
+        return None
+    age = None
+    try:
+        age = (tc.today_ist() - tc.parse_date(p["date"])).days if p.get("date") else None
+    except (TypeError, ValueError):
+        pass
+    old = "" if age is None else " (%s old)" % tc.plural(age, "day")
+    text_ = {"download": "downloaded %s%s" % (text(p.get("date")), old),
+             "cache": "the saved copy of %s%s: the download was refused" % (text(p.get("date")), old),
+             "user_file": "your ind_nifty500list.csv of %s%s: the download was refused" % (text(p.get("date")), old),
+             "file": "your file %s" % os.path.basename(p.get("url") or "")}.get(p.get("kind"), UNKNOWN)
+    return {"kind": p.get("kind"), "date": p.get("date"), "age_days": age, "text": text_,
+            "stale": p.get("kind") in ("cache", "user_file") or (age is not None and age > 45)}
 
 
 def api_tickets(q):

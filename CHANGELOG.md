@@ -22,6 +22,12 @@ Honest requests, and clear about what it could not check. No decision changes (s
   NEWS section and under each top pick in the daily `.md`. The stock's NSE company page, and BSE: its page
   when the scrip code is known, otherwise BSE's search with the ISIN to type in. They open in a new tab;
   the tool never reads them.
+- **Copy ISIN** button next to the BSE search link ("Copied ✓"), on the cards, the tickets and the Why panel.
+- **Nifty 500 list without a browser disguise:** niftyindices.com now gets the honest user agent too. Every
+  good download is kept in `trader/cache/`. If the download is refused, the halal build uses that copy
+  (and says how old it is: build notes, daily notes, the dashboard's Halal tab), then an
+  `ind_nifty500list.csv` you saved in your data folder, and otherwise stops and tells you how to download
+  it. It never builds from a partial or made-up list, and your existing halal list is kept.
 - FAQ: "Why do news checks often say UNKNOWN?". TECHNICAL: an audit of every request and its headers.
 
 ## v0.1.8 (2026-11-05)

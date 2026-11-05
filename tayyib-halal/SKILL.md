@@ -33,6 +33,11 @@ python3 "${CLAUDE_SKILL_DIR}/halal.py" compare trusted.csv --accept-income-revie
 python3 "${CLAUDE_SKILL_DIR}/halal.py" override ABC --status excluded --note "scholar: hotel income"
 ```
 
+The Nifty 500 list is downloaded from niftyindices.com with the tool's own honest user agent (never a
+browser disguise). If that is refused, `build` uses the last good copy in `trader/cache/` (and says how
+old it is), then an `ind_nifty500list.csv` the user saved in their data folder; with neither it stops and
+says how to download it. Tell the user exactly that message; never build from a partial list or from memory.
+
 ## How it decides
 
 1. **Business screen.** Excluded: interest-based finance (the Nifty "Financial Services" industry:

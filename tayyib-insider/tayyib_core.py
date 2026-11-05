@@ -860,10 +860,6 @@ def fetch_json(url, fixture=None, **kw):
         raise FetchError("%s did not return JSON" % url)
 
 
-# Still sent by tayyib-halal to niftyindices.com (reported in v0.1.9, decision pending). Never for NSE or BSE.
-BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
-
 # What we are, honestly. NSE and BSE get only this: no browser user agent, no browser-fingerprint headers,
 # no homepage cookie warm-up. If they refuse automated access, the check is UNKNOWN (v0.1.9 decision:
 # no bot-check circumvention anywhere in the project).
@@ -935,14 +931,15 @@ def manual_links(sym, rec=None):
     is known locally (rec["bse_code"]), otherwise BSE's Get Quote search with the ISIN to type in."""
     rec = rec or {}
     sym = normalize_symbol(sym)
-    out = [{"label": "NSE company page", "url": NSE_QUOTE_URL % urllib.parse.quote(sym, safe=""), "hint": None}]
+    out = [{"label": "NSE company page", "url": NSE_QUOTE_URL % urllib.parse.quote(sym, safe=""), "hint": None,
+            "copy": None}]
     code = str(rec.get("bse_code") or "").strip()
     if code.isdigit():
-        out.append({"label": "BSE company page", "url": BSE_QUOTE_URL % code, "hint": None})
+        out.append({"label": "BSE company page", "url": BSE_QUOTE_URL % code, "hint": None, "copy": None})
     else:
         isin = rec.get("isin")
-        out.append({"label": "BSE search", "url": BSE_SEARCH_URL,
-                    "hint": ("search for ISIN %s" % isin) if isin else ("search for %s" % sym)})
+        out.append({"label": "BSE search", "url": BSE_SEARCH_URL,                 # copy: the "Copy ISIN" button
+                    "hint": ("search for ISIN %s" % isin) if isin else ("search for %s" % sym), "copy": isin or None})
     return out
 
 

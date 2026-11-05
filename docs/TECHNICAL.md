@@ -17,7 +17,18 @@ For developers and anyone who wants to run the scripts directly. For the plain-w
 | BSE | nothing fetches BSE | (links only, opened by the user) |
 | Yahoo Finance charts and fundamentals | `tc.fetch` | `User-Agent: tayyib-trader/0.1 (+https://github.com/...)` (the default `user_agent`), `Accept: */*`, `Accept-Encoding: gzip` |
 | Google News RSS, Moneycontrol / ET / Livemint RSS | `tc.fetch` | the same as Yahoo |
-| niftyindices.com Nifty 500 list | tayyib-halal `build` | **a browser user agent** (`tc.BROWSER_UA`): reported in v0.1.9, unchanged, decision pending |
+| niftyindices.com Nifty 500 list | tayyib-halal `build` | `tc.fetch`'s honest default (since the v0.1.9 review; `BROWSER_UA` is gone from the code) |
+
+**Nifty 500 list fallbacks (`halal.load_parent`):** a successful download (a CSV with a Symbol column and
+rows, every row with a symbol) is kept as `trader/cache/parent_list.csv` with `parent_list.json`
+`{url, downloaded, rows}` (temp file + replace). If the download is refused or is not a constituents list:
+(a) that last good copy, with its age; (b) the user's `ind_nifty500list.csv` in the data folder (its
+file date); (c) otherwise `halal.py build` exits 1 with "Could not get the Nifty 500 list (...) and there
+is no saved copy. Download it yourself: ..." and writes nothing. A broken cache or user file is skipped
+and named, never partly used. The universe records `parent_list{kind (download / cache / user_file /
+file), url, date, age_days, note}`; the build prints the note (`notes[]` in `--json`), tayyib-daily adds
+it to the list's notes after a rebuild, and the dashboard's Halal tab shows "Nifty 500 list: downloaded
+2026-11-05 (0 days old)" or "the saved copy of 2026-10-01 (35 days old): the download was refused".
 
 NSE refusals: after the first refusal or timeout in a run, `NSESession` does not ask again (one polite
 attempt per run); each later call fails with "not tried: NSE refused automated access earlier in this
@@ -105,7 +116,8 @@ What `daily` does:
   (`bse_code` in the universe record; none is today), otherwise BSE's Get Quote search
   `https://www.bseindia.com/getquote.aspx` with "search for ISIN ..." (BSE has no verified URL that takes an
   ISIN, so none is guessed). In the `.md` under each top pick; in the dashboard on top-pick cards, ticket
-  cards and the Why drawer's NEWS section (`target="_blank" rel="noopener noreferrer"`, and the page
+  cards and the Why drawer's NEWS section, with a **Copy ISIN** button next to the BSE search link (the
+link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank" rel="noopener noreferrer"`, and the page
   accepts only `https://www|m.nseindia.com|bseindia.com/` URLs). The tool never fetches them; the daily
   JSON rows are unchanged.
 - It then risk-checks the whole orders file, so its statuses always match a plain `check.py`.

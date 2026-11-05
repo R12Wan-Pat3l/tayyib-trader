@@ -110,8 +110,9 @@ def main(argv=None):
             c = b.get("counts_with_overrides") or b["counts"]
             notes.append("rebuilt the halal list (%s): %d compliant, %d review, %d excluded, %d unknown"
                          % (why, c["compliant"], c["review"], c["excluded"], c["unknown"]))
+            notes += b.get("notes") or []                # where the Nifty 500 list came from (and its age)
         except RuntimeError as e:
-            notes.append("halal list rebuild failed, using the existing list: %s" % str(e)[:120])
+            notes.append("halal list rebuild failed, using the existing list: %s" % str(e)[:600])
         uni = tc.load_universe()
         age = tc.universe_age_days(uni)
     if not uni.get("stocks"):

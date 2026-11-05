@@ -23,8 +23,91 @@ def load_rows(src, fixture):
     if src and os.path.exists(src):
         with open(src, "r", encoding="utf-8-sig") as f:
             return tc.read_index_csv(f.read())
-    body = tc.fetch(src, fixture=fixture, headers={"User-Agent": tc.BROWSER_UA})
+    body = tc.fetch(src, fixture=fixture)                       # the honest user agent, like every fetch
     return tc.read_index_csv(body.decode("utf-8-sig", "replace"))
+
+
+PARENT_CACHE = os.path.join("cache", "parent_list.csv")      # the last good download, kept after each one
+PARENT_META = os.path.join("cache", "parent_list.json")
+USER_FILE = "ind_nifty500list.csv"                           # downloaded by the user into the data folder
+
+
+class NoParentList(Exception):
+    pass
+
+
+def _rows_or_none(text):
+    """A usable constituents list, or None. Never a partial one: every row needs a symbol."""
+    try:
+        rows = tc.read_index_csv(text)
+    except Exception:                                         # a broken file is not a list
+        return None
+    return rows if rows and all(r["symbol"] for r in rows) else None
+
+
+def _age(date_iso):
+    try:
+        return (tc.today_ist() - tc.parse_date(date_iso)).days
+    except (TypeError, ValueError):
+        return None
+
+
+def load_parent(src, fixture):
+    """The list to self-screen -> (rows, info). Order: download (honest user agent) and keep a copy in
+    trader/cache/; if refused, (a) that last good copy, (b) the user's own ind_nifty500list.csv in the data
+    folder; otherwise NoParentList. info = {kind, url, date, age_days, note}."""
+    if src and os.path.exists(src):                           # an explicit local file (--parent FILE)
+        rows = _rows_or_none(open(src, encoding="utf-8-sig").read())
+        if rows is None:
+            raise NoParentList("%s has no Symbol column or no rows: not a constituents list" % src)
+        return rows, {"kind": "file", "url": src, "date": None, "age_days": None,
+                      "note": "Nifty 500 list from your file %s" % os.path.basename(src)}
+    why = None
+    try:
+        body = tc.fetch(src, fixture=fixture)
+        text = body.decode("utf-8-sig", "replace")
+        rows = _rows_or_none(text)
+        if rows is not None:
+            today = tc.today_ist().isoformat()
+            os.makedirs(os.path.join(tc.data_dir(), "cache"), exist_ok=True)
+            tmp = os.path.join(tc.data_dir(), PARENT_CACHE + ".tmp")
+            with open(tmp, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+            os.replace(tmp, os.path.join(tc.data_dir(), PARENT_CACHE))
+            tc.write_json(PARENT_META, {"url": src, "downloaded": today, "rows": len(rows)})
+            return rows, {"kind": "download", "url": src, "date": today, "age_days": 0,
+                          "note": "Nifty 500 list downloaded today from %s" % _host(src)}
+        why = "%s did not send a constituents list" % _host(src)
+    except tc.FetchError as e:
+        why = tc.fetch_reason(e, _host(src))
+    cache = os.path.join(tc.data_dir(), PARENT_CACHE)
+    if os.path.exists(cache):
+        rows = _rows_or_none(open(cache, encoding="utf-8").read())
+        meta = tc.read_json(PARENT_META, {}) or {}
+        if rows is not None and meta.get("downloaded"):
+            age = _age(meta["downloaded"])
+            return rows, {"kind": "cache", "url": meta.get("url"), "date": meta["downloaded"], "age_days": age,
+                          "note": "%s: using the copy downloaded on %s (%s old)" % (
+                              why, meta["downloaded"], tc.plural(age, "day"))}
+    mine = os.path.join(tc.data_dir(), USER_FILE)
+    if os.path.exists(mine):
+        rows = _rows_or_none(open(mine, encoding="utf-8-sig").read())
+        if rows is not None:
+            date = tc.dt.datetime.fromtimestamp(os.path.getmtime(mine), tc.IST).date().isoformat()
+            age = _age(date)
+            return rows, {"kind": "user_file", "url": mine, "date": date, "age_days": age,
+                          "note": "%s: using your %s (saved %s, %s old)" % (why, USER_FILE, date,
+                                                                             tc.plural(age, "day"))}
+        why += "; your %s is not a constituents list (no Symbol column or no rows)" % USER_FILE
+    raise NoParentList(
+        "Could not get the Nifty 500 list (%s) and there is no saved copy. Download it yourself: on "
+        "niftyindices.com open Nifty 500 and download the index constituents CSV (ind_nifty500list.csv), save it "
+        "as %s, then run the build again. Nothing was changed." % (why, os.path.join(tc.data_dir(), USER_FILE)))
+
+
+def _host(url):
+    m = tc.re.match(r"https?://(?:www\.)?([^/]+)", url or "")
+    return m.group(1) if m else (url or "the source")
 
 
 def cmd_build(a, cfg):
@@ -39,7 +122,10 @@ def cmd_build(a, cfg):
             stocks[r["symbol"]] = dict(r, status=status, reasons=reasons, source=source)
     else:
         src = a.parent or cfg["halal"]["parent_list_url"]
-        rows = load_rows(src, "index/nifty500.csv")
+        try:
+            rows, parent = load_parent(src, "index/nifty500.csv")
+        except NoParentList as e:
+            tc.die(str(e))                                    # never a made-up or partial list
         source = "self-screened (TASIS-style) from %s" % os.path.basename(src)
         for n, r in enumerate(rows[: a.limit or None]):
             st, why = tc.business_screen(r["symbol"], r["name"], r["industry"])
@@ -71,6 +157,8 @@ def cmd_build(a, cfg):
            "method": "TASIS-style" if h["method"] == "tasis" else "custom",
            "thresholds": {k: h[k] for k in tc.TASIS_HALAL},
            "loosened": cfg.get("_halal_loosened"), "stocks": stocks}
+    if not a.official:
+        uni["parent_list"] = parent
     tc.write_json("halal_universe.json", uni)
     counts = {s: sum(1 for x in stocks.values() if x["status"] == s) for s in tc.STATUSES}
     eff = {s: 0 for s in tc.STATUSES}                 # what every other skill uses: overrides applied
@@ -78,7 +166,8 @@ def cmd_build(a, cfg):
         eff[tc.halal_status(sym, uni)["status"]] += 1
     n_ov = len([k for k in (tc.read_json("halal_overrides.json", {}) or {}) if k in stocks])
     out = {"written": "trader/halal_universe.json", "source": source, "counts": counts,
-           "counts_with_overrides": eff, "overrides": n_ov, "fetch_errors": errors}
+           "counts_with_overrides": eff, "overrides": n_ov, "fetch_errors": errors,
+           "notes": [parent["note"]] if not a.official else []}
     banner = tc.halal_banner(cfg, uni)
     if banner:
         out = dict({"banner": banner}, **out)
@@ -89,6 +178,8 @@ def cmd_build(a, cfg):
     if banner:
         print(banner)
     print("Halal universe built: %d stocks from %s" % (len(stocks), source))
+    for n in out["notes"]:
+        print("  " + n)
     print("  %-10s %8s %18s" % ("", "screen", "after overrides"))
     for s in tc.STATUSES:
         print("  %-10s %8d %18d" % (s, counts[s], eff[s]))

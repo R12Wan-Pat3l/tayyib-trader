@@ -88,10 +88,11 @@ class HonestRequests(unittest.TestCase):
             for line in text.splitlines():
                 if re.search(r"nseindia|bseindia", line) and "BROWSER_UA" in line:
                     self.fail("browser user agent sent to an exchange: %s: %s" % (path, line))
-        # the only browser user agent left is tayyib-halal's niftyindices download (reported, decision pending)
+        # no browser user agent anywhere any more (niftyindices too, since the v0.1.9 review)
         users = sorted(os.path.relpath(p, ROOT) for p in PY if os.sep + "tests" + os.sep not in p
-                       and not p.endswith("tayyib_core.py") and "BROWSER_UA" in open(p, encoding="utf-8").read())
-        self.assertEqual(users, [os.path.join("tayyib-halal", "halal.py")])
+                       and re.search(r"BROWSER_UA|Mozilla/", open(p, encoding="utf-8").read()))
+        self.assertEqual(users, [])
+        self.assertFalse(hasattr(tc, "BROWSER_UA"))
 
     def test_fetch_reason(self):
         R = tc.fetch_reason
@@ -179,14 +180,24 @@ class ManualLinks(OfflineCase):
     def test_link_format(self):
         L = tc.manual_links("ALFA", {"isin": "INE000A01019"})
         self.assertEqual(L, [{"label": "NSE company page", "url": "https://www.nseindia.com/get-quotes/equity?symbol=ALFA",
-                              "hint": None},
+                              "hint": None, "copy": None},
                              {"label": "BSE search", "url": "https://www.bseindia.com/getquote.aspx",
-                              "hint": "search for ISIN INE000A01019"}])
+                              "hint": "search for ISIN INE000A01019", "copy": "INE000A01019"}])
         self.assertEqual(tc.manual_links("M&M", {})[0]["url"], "https://www.nseindia.com/get-quotes/equity?symbol=M%26M")
         self.assertEqual(tc.manual_links("ALFA", {"bse_code": "500325"})[1],     # a scrip code we already have
                          {"label": "BSE company page", "url": "https://m.bseindia.com/StockReach.aspx?scripcd=500325",
-                          "hint": None})
+                          "hint": None, "copy": None})
         self.assertEqual(tc.manual_links("alfa.ns")[1]["hint"], "search for ALFA")   # no ISIN: never a guessed one
+        self.assertIsNone(tc.manual_links("alfa.ns")[1]["copy"])                      # nothing to copy
+
+    def test_copy_isin_button(self):
+        page = open(os.path.join(ROOT, "tayyib-dashboard", "index.html"), encoding="utf-8").read()
+        body = page[page.index("function linksEl"):page.index("function whyGroups")]
+        self.assertIn('text:"Copy ISIN"', body)
+        self.assertIn("copyText(x.copy, cp)", body)                  # the shared Copy helper: says "Copied ✓"
+        self.assertIn('btn.textContent = "Copied ✓"', page)
+        self.assertNotIn("postJSON", body)
+        self.assertNotIn("request(", body)
 
     def test_links_in_daily_md_dashboard_and_page(self):
         self.build_universe()
@@ -221,6 +232,106 @@ class ManualLinks(OfflineCase):
         for f in ("dashboard.py", "actions.py"):
             self.assertNotRegex(open(os.path.join(ROOT, "tayyib-dashboard", f), encoding="utf-8").read(),
                                 r"nseindia|bseindia")
+
+
+class NiftyListFallbacks(OfflineCase):
+    """niftyindices.com gets the honest user agent; if it refuses: (a) the last good cached copy, (b) the user's
+    own ind_nifty500list.csv, (c) stop with a clear message. Never an invented or partial list."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp(prefix="tayyib-fix19-")
+        self.refused = os.path.join(self.tmp, "f")                   # fixtures without the Nifty 500 download
+        shutil.copytree(FIX, self.refused)
+        os.remove(os.path.join(self.refused, "index", "nifty500.csv"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def build(self, fixtures, ok=True):
+        env = dict(os.environ, TAYYIB_DIR=self.dir, TAYYIB_FIXTURES=fixtures, TAYYIB_NOW=NOW)
+        p = subprocess.run([sys.executable, os.path.join(ROOT, "tayyib-halal", "halal.py"), "--json", "build"],
+                           capture_output=True, encoding="utf-8", env=env, cwd=self.dir)
+        if ok:
+            self.assertEqual(p.returncode, 0, p.stderr)
+            return json.loads(p.stdout)
+        return p
+
+    def test_download_keeps_a_copy(self):
+        out = self.build(FIX)
+        self.assertEqual(out["notes"], ["Nifty 500 list downloaded today from niftyindices.com"])
+        cache = os.path.join(self.dir, "cache", "parent_list.csv")
+        self.assertEqual(open(cache, encoding="utf-8").read(),
+                         open(os.path.join(FIX, "index", "nifty500.csv"), encoding="utf-8-sig").read())
+        meta = self.read(os.path.join("cache", "parent_list.json"))
+        self.assertEqual(meta["downloaded"], tc.today_ist().isoformat())
+        self.assertEqual(self.read("halal_universe.json")["parent_list"]["kind"], "download")
+
+    def test_refused_uses_the_last_good_copy(self):
+        first = self.build(FIX)
+        meta_path = os.path.join(self.dir, "cache", "parent_list.json")
+        meta = self.read(os.path.join("cache", "parent_list.json"))
+        meta["downloaded"] = "2026-10-01"                              # an older copy: its age is shown
+        json.dump(meta, open(meta_path, "w"))
+        out = self.build(self.refused)
+        self.assertEqual(out["notes"], ["niftyindices.com could not be reached: using the copy downloaded on "
+                                        "2026-10-01 (29 days old)"])
+        uni = self.read("halal_universe.json")
+        self.assertEqual(uni["parent_list"]["kind"], "cache")
+        self.assertEqual(out["counts"], first["counts"])                # the same list, screened the same way
+        view = DASH.api_halal({})["parent_list"]
+        self.assertEqual(view["kind"], "cache")
+        self.assertTrue(view["stale"])
+        self.assertIn("the saved copy of 2026-10-01", view["text"])
+        self.assertIn("days old", view["text"])
+
+    def test_refused_without_a_copy_uses_the_users_file(self):
+        shutil.copy(os.path.join(FIX, "index", "nifty500.csv"), os.path.join(self.dir, "ind_nifty500list.csv"))
+        out = self.build(self.refused)
+        self.assertEqual(len(out["notes"]), 1)
+        self.assertTrue(out["notes"][0].startswith("niftyindices.com could not be reached: using your "
+                                                   "ind_nifty500list.csv (saved "), out["notes"])
+        self.assertEqual(self.read("halal_universe.json")["parent_list"]["kind"], "user_file")
+        self.assertIn("ind_nifty500list.csv", DASH.api_halal({})["parent_list"]["text"])
+
+    def test_refused_with_nothing_stops_and_changes_nothing(self):
+        p = self.build(self.refused, ok=False)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("Could not get the Nifty 500 list (niftyindices.com could not be reached) and there is no "
+                      "saved copy. Download it yourself", p.stderr + p.stdout)
+        self.assertIn(os.path.join(self.dir, "ind_nifty500list.csv"), p.stderr + p.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "halal_universe.json")))
+        # an existing universe is never replaced by a partial or empty one
+        self.write("halal_universe.json", {"updated": "2026-10-01", "stocks": {"X": {"status": "compliant"}}})
+        before = open(os.path.join(self.dir, "halal_universe.json"), "rb").read()
+        self.build(self.refused, ok=False)
+        self.assertEqual(open(os.path.join(self.dir, "halal_universe.json"), "rb").read(), before)
+
+    def test_a_broken_file_is_not_a_list(self):
+        with open(os.path.join(self.dir, "ind_nifty500list.csv"), "w", encoding="utf-8") as f:
+            f.write("<html>Access denied</html>\n")
+        os.makedirs(os.path.join(self.dir, "cache"))
+        with open(os.path.join(self.dir, "cache", "parent_list.csv"), "w", encoding="utf-8") as f:
+            f.write("Company Name,Industry,Symbol,Series,ISIN Code\n")          # a header and no rows
+        self.write(os.path.join("cache", "parent_list.json"), {"downloaded": "2026-10-01"})
+        p = self.build(self.refused, ok=False)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("your ind_nifty500list.csv is not a constituents list", p.stderr + p.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "halal_universe.json")))
+
+    def test_honest_user_agent_for_niftyindices(self):
+        src = open(os.path.join(ROOT, "tayyib-halal", "halal.py"), encoding="utf-8").read()
+        self.assertNotIn("User-Agent", src)                            # tc.fetch's own honest default
+        sent = []
+
+        def urlopen(req, timeout=None):
+            sent.append(req)
+            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b""))
+        H = _load("tayyib_halal_v019", os.path.join(ROOT, "tayyib-halal", "halal.py"))
+        with mock.patch.object(H.tc, "fixtures_dir", lambda: None), \
+                mock.patch.object(urllib.request, "urlopen", urlopen):
+            with self.assertRaises(H.NoParentList):
+                H.load_parent("https://niftyindices.com/IndexConstituent/ind_nifty500list.csv", "index/nifty500.csv")
+        ua = dict((k.lower(), v) for k, v in sent[0].header_items())["user-agent"]
+        self.assertTrue(ua.startswith("tayyib-trader/"), ua)
 
 
 class NoDecisionChange(unittest.TestCase):

@@ -130,8 +130,10 @@ over MCP (stdio), none of which place orders.
 - **No bot-check circumvention (v0.1.9):** the project never imitates a browser or works around a site's
   bot checks. NSE and BSE get only the honest user agent (`tayyib-trader/<version> (+github URL)`), no
   browser headers, no cookie warm-up; a refusal is UNKNOWN, with a banner and "Check announcements
-  yourself" links (opened by the user, never fetched). niftyindices.com still gets a browser user agent from
-  tayyib-halal: reported, decision pending.
+  yourself" links (opened by the user, never fetched), with a Copy ISIN button for BSE's search.
+  niftyindices.com gets the honest user agent too; if refused, the halal build uses the last good cached
+  copy (age shown), then the user's own `ind_nifty500list.csv`, else stops with instructions. Never a
+  made-up or partial list.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 

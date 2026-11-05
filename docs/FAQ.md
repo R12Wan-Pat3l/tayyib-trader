@@ -163,6 +163,14 @@ guesses. Check anything important in your broker app.
 The tool always says who it is when it asks (`tayyib-trader/<version>` with a link to this project). It
 never pretends to be a web browser to get past a site's checks.
 
+**If niftyindices.com refuses the Nifty 500 list:** every successful download is kept in
+`trader\cache\`. If the download is refused, the halal build uses that saved copy and says how old it is
+(in the build notes, the daily notes and the dashboard's Halal tab). With no saved copy, it uses an
+`ind_nifty500list.csv` you downloaded yourself into your data folder (`tayyib-live`). With neither, it
+stops and tells you how to get it: on niftyindices.com open Nifty 500 and download the index constituents
+CSV, save it as `ind_nifty500list.csv` in your data folder, and run it again. It never builds a list from
+part of a file or from memory, and your existing halal list stays as it was.
+
 ### Why do news checks often say UNKNOWN?
 Because NSE (and BSE) usually refuse automated requests for company announcements, and we don't get around
 that: the tool asks honestly, and if the exchange says no, the check is **UNKNOWN**, not "no news". A
@@ -176,8 +184,8 @@ What you see:
 - in each stock's **Why?**, the NEWS lines name the sources that answered (Google News, the RSS feeds) and
   the one that failed;
 - **Check announcements yourself** links on every top pick, every ticket and in the Why panel: the stock's
-  NSE company page and BSE (the BSE link opens BSE's search; type the ISIN shown next to it). They open in
-  your browser; the tool never reads those pages.
+  NSE company page and BSE (the BSE link opens BSE's search: press **Copy ISIN** next to it and paste it
+  there). They open in your browser; the tool never reads those pages.
 
 Before you buy, open those links and look at the last few days of announcements and any board meeting
 coming up. A read-only broker API may give us announcements and results dates later.

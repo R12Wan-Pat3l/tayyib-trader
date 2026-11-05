@@ -132,6 +132,7 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     uni = tc.load_universe()
 
     if a.symbols:

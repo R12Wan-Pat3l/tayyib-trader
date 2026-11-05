@@ -30,8 +30,9 @@ def find_signal(sym, bars, setup, cfg, lookback=6, mode=None):
     ind = tc.indicators(bars)
     names = [setup] if setup else list(tc.SWING_SETUPS if mode == "swing" else tc.DELIVERY_SETUPS
                                        if mode == "delivery" else tc.SWING_SETUPS + tc.DELIVERY_SETUPS)
-    for i in range(len(bars) - 1, max(len(bars) - 1 - lookback, 200), -1):
-        sigs = [x for x in (tc.detect(n, bars, ind, i, cfg["tick_size"]) for n in names) if x]
+    names = tc.enabled_setups(cfg, names)
+    for i in range(len(bars) - 1, max(len(bars) - 1 - lookback, cfg["scanner"]["warmup_bars"]), -1):
+        sigs = [x for x in (tc.detect(n, bars, ind, i, cfg["tick_size"], cfg) for n in names) if x]
         if sigs:
             s = max(sigs, key=lambda x: x["score"])
             s["symbol"] = sym
@@ -114,6 +115,7 @@ def main(argv=None):
     w.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     if a.cmd == "check":
         out = []
         for s in tc.parse_symbols(a.symbols):

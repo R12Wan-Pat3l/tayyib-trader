@@ -30,7 +30,7 @@ def signal_for(sym, setup, cfg, mode=None):
         best["other_setups"] = sorted({c["setup"] for c in hits} - {best["setup"]})
         return best, None
     bars, _ = tc.get_daily_bars(sym, use_cache=False)
-    sigs = tc.detect_all(bars, mode or "all", setups=[setup] if setup else None, tick=cfg["tick_size"])
+    sigs = tc.detect_all(bars, mode or "all", setups=[setup] if setup else None, tick=cfg["tick_size"], cfg=cfg)
     if sigs:
         sigs[0]["symbol"] = sym
         return sigs[0], None
@@ -55,6 +55,7 @@ def main(argv=None):
     rm.add_argument("symbol")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     store = tc.read_json("plan.json", {"plans": {}}) or {"plans": {}}
 
     if a.cmd == "show":
@@ -73,7 +74,8 @@ def main(argv=None):
 
     out = []
     for sym in tc.parse_symbols(a.symbols):
-        if tc.halal_status(sym)["status"] != "compliant" and not cfg["halal"]["allow_review"]:
+        st = tc.halal_status(sym)["status"]
+        if not (st == "compliant" or (st == "review" and cfg["halal"]["allow_review"])):
             out.append({"symbol": sym, "error": "not halal-compliant"})
             continue
         sig, ent = signal_for(sym, a.setup, cfg, a.mode)

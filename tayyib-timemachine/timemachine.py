@@ -94,10 +94,10 @@ def monte_carlo(bars, plan, cfg, n, seed, lookback=500):
 def history(bars, plan, cfg):
     ind = tc.indicators(bars)
     m = cfg["modes"][plan["mode"]]
-    trades, i = [], 200
+    trades, i = [], (cfg.get("scanner") or {}).get("warmup_bars", 200)
     last_i = len(bars) - 2
     while i < last_i:
-        sig = tc.detect(plan["setup"], bars, ind, i, cfg["tick_size"])
+        sig = tc.detect(plan["setup"], bars, ind, i, cfg["tick_size"], cfg)
         if not sig:
             i += 1
             continue
@@ -179,6 +179,7 @@ def main(argv=None):
     r.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     plans = (tc.read_json("plan.json", {}) or {}).get("plans", {})
     syms = tc.parse_symbols(a.symbols) if a.symbols else list(plans)
     if not syms:

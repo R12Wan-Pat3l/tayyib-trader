@@ -40,6 +40,7 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
 
     allowed, uni = universe_symbols(cfg, a.include_review)
     skipped = []
@@ -63,19 +64,21 @@ def main(argv=None):
         except tc.FetchError as e:
             errors.append({"symbol": s, "error": str(e)})
             continue
-        if len(bars) < 210:
+        if len(bars) < cfg["scanner"]["min_history_bars"]:
             skipped.append({"symbol": s, "reason": "only %d days of history" % len(bars)})
             continue
-        ok, why = tc.liquidity_ok(bars, cfg)
+        ok, why, liq_why = tc.liquidity_check(bars, cfg)
         if not ok:
             skipped.append({"symbol": s, "reason": why})
             continue
-        for sig in tc.detect_all(bars, a.mode, setups=setups, tick=cfg["tick_size"]):
+        for sig in tc.detect_all(bars, a.mode, setups=setups, tick=cfg["tick_size"], cfg=cfg):
             if sig["score"] < a.min_score:
                 continue
             rec = tc.halal_status(s, uni)
             sig.update(symbol=s, name=rec.get("name", ""), industry=rec.get("industry", ""),
                        halal=rec["status"])
+            # recorded now, when halal status and liquidity decided that this stock is scanned at all
+            sig["why"] = tc.halal_why(rec, uni) + liq_why + sig.get("why", [])
             try:
                 pl = tc.plan_trade(sig, cfg)
             except ValueError:
@@ -94,6 +97,11 @@ def main(argv=None):
     out = {"asof": tc.now_ist().isoformat(timespec="minutes"), "mode": a.mode,
            "universe_updated": uni.get("updated"), "scanned": len(syms),
            "candidates": cands, "skipped": skipped, "errors": errors}
+    off = [n for n in tc.SWING_SETUPS + tc.DELIVERY_SETUPS if n not in tc.enabled_setups(cfg, [n])]
+    if off:
+        out["setups_disabled"] = off
+    if cfg.get("_notes"):
+        out["config_notes"] = tc.config_notes(cfg)
     tc.write_json("scan.json", out)
     if a.json:
         return tc.print_json(out)

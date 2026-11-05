@@ -32,11 +32,25 @@ COLUMNS = [("date", "List date"), ("symbol", "Stock"), ("name", "Company"), ("mo
            ("target", "Target"), ("qty", "Qty"), ("risk_rs", "Risk Rs"), ("valid_until", "Buy valid until"),
            ("expectancy_r", "Time machine R"), ("status", "Status"), ("filled", "Bought on"),
            ("fill", "Buy price"), ("exited", "Exit on"), ("exit", "Exit price"), ("days", "Days held"),
-           ("r", "Result R"), ("pnl_rs", "P&L Rs"), ("last", "Last close"), ("checked", "Checked")]
+           ("r", "Result R"), ("pnl_rs", "P&L Rs"), ("last", "Last close"), ("checked", "Checked"),
+           ("settings_hash", "Settings")]
+PRE = "pre-0.1.5"          # rows recorded before settings were tracked
 
 
 def load():
-    return tc.read_json("tracker.json", {"rows": []}) or {"rows": []}
+    store = tc.read_json("tracker.json", {"rows": []}) or {"rows": []}
+    store.setdefault("rows", [])
+    store.setdefault("settings", {})
+    for r in store["rows"]:
+        r.setdefault("settings_hash", PRE)
+    return store
+
+
+def save(store):
+    """tracker.json: the rows, what each settings hash changed from the defaults, and the summary."""
+    store["summary"] = summary(store["rows"])
+    store["settings_split"] = settings_split(store)
+    tc.write_json("tracker.json", store)
 
 
 def key(r):
@@ -47,6 +61,11 @@ def add_from_daily(store, date):
     d = tc.read_json(os.path.join("daily", date + ".json"))
     if not d:
         return 0, "no daily list for %s" % date
+    st = d.get("settings") or {}
+    h = st.get("hash") or PRE
+    if st.get("hash"):
+        store.setdefault("settings", {}).setdefault(h, {
+            "first_seen": d["date"], "differs_from_default": st.get("differs_from_default") or []})
     have = {key(r) for r in store["rows"]}
     n = 0
     for r in d.get("rows", []):
@@ -56,7 +75,7 @@ def add_from_daily(store, date):
                "setup": r["setup"], "check": r.get("risk"), "entry": r["entry"], "stop": r["stop"],
                "target": r["target"], "qty": r.get("qty"), "risk_rs": r.get("loss_at_stop_rs"),
                "valid_until": r.get("valid_until"), "max_hold_days": r.get("max_hold_days"),
-               "expectancy_r": r.get("expectancy_r"), "status": "WAITING"}
+               "expectancy_r": r.get("expectancy_r"), "status": "WAITING", "settings_hash": h}
         if key(row) not in have:
             store["rows"].append(row)
             have.add(key(row))
@@ -102,9 +121,37 @@ def summary(rows):
                 "total_r": round(sum(rs), 2) if rs else None,
                 "pnl_rs": round(sum(r.get("pnl_rs") or 0 for r in closed), 2)}
     out = {"all": stats(rows)}
-    for field in ("check", "mode", "setup"):
-        for v in sorted({r.get(field) or "-" for r in rows}):
-            out["%s: %s" % (field, v)] = stats([r for r in rows if (r.get(field) or "-") == v])
+    for field in ("check", "mode", "setup", "settings_hash"):
+        for v in sorted({r.get(field) or (PRE if field == "settings_hash" else "-") for r in rows}):
+            label = "settings" if field == "settings_hash" else field
+            out["%s: %s" % (label, v)] = stats(
+                [r for r in rows if (r.get(field) or (PRE if field == "settings_hash" else "-")) == v])
+    return out
+
+
+def settings_label(store, h):
+    """What a settings hash changed from the defaults, in words."""
+    if h == PRE:
+        return "recorded before v0.1.5: settings not known"
+    info = (store.get("settings") or {}).get(h)
+    if info is None:
+        return "UNKNOWN: not in tracker.json"
+    d = info.get("differs_from_default") or []
+    if not d:
+        return "all defaults"
+    return "; ".join("%s %s (default %s)" % (x["key"], tc._fmt_val(x["value"]), tc._fmt_val(x["default"]))
+                     for x in d)
+
+
+def settings_split(store):
+    """{hash: {differs, first_seen, stats}} so results can be compared settings by settings."""
+    rows = store["rows"]
+    out = {}
+    for h in sorted({r.get("settings_hash") or PRE for r in rows}):
+        info = (store.get("settings") or {}).get(h) or {}
+        out[h] = {"differs": settings_label(store, h), "first_seen": info.get("first_seen"),
+                  "differs_from_default": info.get("differs_from_default"),
+                  "stats": summary([r for r in rows if (r.get("settings_hash") or PRE) == h])["all"]}
     return out
 
 
@@ -200,23 +247,28 @@ def write_xlsx(path, sheets):
 def export(store):
     rows = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)
     table = [[label for _, label in COLUMNS]] + [[r.get(k) for k, _ in COLUMNS] for r in rows]
-    widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11]
+    widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11, 11]
     summ = summary(store["rows"])
     sheads = ["Group", "Listed", "Bought (triggered)", "Closed", "Open", "Waiting", "Not triggered",
-              "Target", "Stop", "Breakeven", "Time exit", "Win rate %", "Avg R", "Total R", "P&L Rs"]
+              "Target", "Stop", "Breakeven", "Time exit", "Win rate %", "Avg R", "Total R", "P&L Rs",
+              "Settings vs defaults"]
     srows = [sheads] + [[g, s["listed"], s["triggered"], s["closed"], s["open"], s["waiting"],
                          s["not_triggered"], s["target"], s["stop"], s["breakeven"], s["time_exit"],
-                         s["win_rate_pct"], s["avg_r"], s["total_r"], s["pnl_rs"]] for g, s in summ.items()]
+                         s["win_rate_pct"], s["avg_r"], s["total_r"], s["pnl_rs"],
+                         settings_label(store, g[len("settings: "):]) if g.startswith("settings: ") else None]
+                        for g, s in summ.items()]
     note = [["How to read this"],
             ["Paper record of every stock the daily list showed. Nothing was bought."],
             ["Bought = the price reached 'Buy above' within its valid days (a buy-stop would have filled)."],
             ["Result R = profit or loss in units of the planned risk, after Indian charges (+2R = twice the risk)."],
             ["A day that touched both the stop and the target counts as the stop (conservative)."],
             ["Compare 'check: PASS' with 'check: BLOCK' in the Summary to see whether the risk check helped."],
+            ["'settings: abcd1234' rows split the results by the settings each list was made with; the last "
+             "column says what differed from the defaults. pre-0.1.5 = recorded before settings were tracked."],
             ["Results from a few weeks are noise. Judge after 30+ closed trades."],
             [tc.DISCLAIMER]]
     xlsx = write_xlsx(tc.path("tracker.xlsx"), [("Tracker", table, widths),
-                                                 ("Summary", srows, [22] + [12] * 14),
+                                                 ("Summary", srows, [22] + [12] * 14 + [70]),
                                                  ("Read me", note, [110])])
     with open(tc.path("tracker.csv"), "w", encoding="utf-8-sig", newline="") as f:
         csv.writer(f).writerows(table)
@@ -236,19 +288,20 @@ def main(argv=None):
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     store = load()
 
     if a.cmd == "add":
         date = a.from_daily or tc.today_ist().isoformat()
         n, err = add_from_daily(store, date)
-        tc.write_json("tracker.json", store)
+        save(store)
         if a.json:
             return tc.print_json({"added": n, "error": err})
         print(err or "recorded %d stock(s) from the %s list" % (n, date))
         return
     if a.cmd == "update":
         n, errors = update(store, cfg)
-        tc.write_json("tracker.json", store)
+        save(store)
         if a.json:
             return tc.print_json({"checked": n, "errors": errors})
         print("followed %d unfinished row(s) on the latest prices" % n)
@@ -263,8 +316,9 @@ def main(argv=None):
         return
     summ = summary(store["rows"])
     recent = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)[:15]
+    split = settings_split(store)
     if a.json:
-        return tc.print_json({"summary": summ, "recent": recent})
+        return tc.print_json({"summary": summ, "recent": recent, "settings_split": split})
     s = summ["all"]
     print("Tracker: %d listed, %d bought, %d closed (%d target, %d stop, %d breakeven, %d time), %d open, "
           "%d waiting, %d not triggered" % (s["listed"], s["triggered"], s["closed"], s["target"], s["stop"],
@@ -275,6 +329,13 @@ def main(argv=None):
     for g, v in summ.items():
         if g != "all" and v["closed"]:
             print("  %-22s %3d closed, win %5s%%, avg %+.2fR" % (g, v["closed"], v["win_rate_pct"], v["avg_r"]))
+    if len(split) > 1 or PRE not in split:
+        print("By settings:")
+        for h, v in split.items():
+            st = v["stats"]
+            print("  %-10s %3d listed, %3d closed, win %5s%%, avg %s  (%s)"
+                  % (h, st["listed"], st["closed"], "-" if st["win_rate_pct"] is None else st["win_rate_pct"],
+                     "-" if st["avg_r"] is None else "%+.2fR" % st["avg_r"], v["differs"]))
     print("Recent:")
     for r in recent:
         res = "" if r.get("r") is None else " %+.2fR" % r["r"]

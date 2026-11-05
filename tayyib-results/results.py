@@ -75,6 +75,7 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     sym = tc.normalize_symbol(a.symbol)
     errors = []
     try:

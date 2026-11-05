@@ -20,11 +20,22 @@ analyses, plans and checks. It never places an order.
 5. Do not invent prices, news or ratios. If a data source fails, say which one. If a script cannot
    run at all, say so and stop: never give halal status, setups or levels from memory.
 6. Python: use `python3`; on Windows, if it opens the Microsoft Store, use `py`.
+7. Settings are validated (`tc.validate_config`). Read out every `CONFIG: ...` note: an invalid or
+   unknown setting was ignored and its default used. Never add a config key, flag or code path that
+   enables intraday, F&O, short selling, margin/MTF, non-compliant stocks or order placement.
+8. Halal thresholds: stricter than TASIS is fine. Looser (debt > 25%, non-compliant income > 3%,
+   cash + receivables > 90%, assumed return < 8%, or `allow_review`) only with a `halal.loosen_note`
+   naming the user's scholar or source; never fill that note in yourself. If an output starts with
+   "Halal thresholds are looser than TASIS (your setting): ...", say that line first.
+9. "Why was X picked?": answer from the row's `why[]` in `trader/daily/DATE.json`, quoting the values
+   and limits it recorded. Say UNKNOWN where it says UNKNOWN. Never invent reasons, and never show a
+   missing value as 0.
 
 ## Today's list in one command
 
 ```bash
 python3 tayyib-daily/daily.py          # after 3:30 PM IST: halal setups with entry, stop, target, qty, PASS/WARN
+python3 tayyib-daily/daily.py --risk-preview   # what the risk settings mean in rupees (runs nothing else)
 ```
 
 ## The pipeline (one trade)
@@ -59,3 +70,7 @@ placement. See the README for client configuration.
 - Edit `core/tayyib_core.py`, then `python3 tools/sync_core.py` (each skill folder carries a copy).
 - Tests: `python3 -m unittest discover -s tests -v` (offline, synthetic fixtures).
 - Standard library only. Python 3.8+. No new dependencies.
+- New settings go in `DEFAULT_CONFIG` *and* `DEFAULT_CONFIG_DOCS` (a test fails otherwise). With the
+  defaults, decisions must stay identical: `tests/test_v015.py` compares them with the v0.1.4 baseline
+  (`tests/baseline.py`). Never regenerate that baseline to make a test pass.
+- Record `why[]` items where the decision is made (`tc.why_item`), never recompute them afterwards.

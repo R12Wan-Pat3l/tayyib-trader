@@ -15,8 +15,10 @@
     "swing": {"max_stop_pct": 10.0, "target_r": 2.0, "max_hold_days": 20},
     "delivery": {"max_stop_pct": 15.0, "target_r": 3.0, "max_hold_days": 250}
   },
+  "daily": {"top": 10, "picks": 3, "min_expectancy_r": null},
   "halal": {
-    "require_compliant": true,
+    "method": "tasis",
+    "loosen_note": "",
     "allow_review": false,
     "list_max_age_days": 120,
     "auto_rebuild_days": 30,

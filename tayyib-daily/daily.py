@@ -66,16 +66,33 @@ def short_verdict(v):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--mode", choices=("swing", "delivery", "all"), default="all")
-    p.add_argument("--top", type=int, default=10, help="plan at most N stocks (best scores first)")
+    p.add_argument("--top", type=int, default=None, help="plan at most N stocks, best scores first "
+                   "(default: daily.top in config, 10)")
     p.add_argument("--runs", type=int, default=3000, help="time-machine simulations per stock")
     p.add_argument("--no-news", action="store_true", help="skip the news step (faster)")
-    p.add_argument("--picks", type=int, default=3, help="how many top PASS stocks to highlight")
+    p.add_argument("--picks", type=int, default=None, help="how many top PASS stocks to highlight "
+                   "(default: daily.picks in config, 3)")
     p.add_argument("--no-rebuild", action="store_true", help="never rebuild the halal list automatically")
     p.add_argument("--no-track", action="store_true", help="do not record the list in the Excel tracker")
+    p.add_argument("--risk-preview", action="store_true",
+                   help="show what your risk settings mean in rupees (losing streaks, which limit sets the "
+                        "quantity) and stop; runs nothing else")
+    p.add_argument("--stop-pct", type=float, action="append",
+                   help="with --risk-preview: a sample stop distance in %% (repeat for more)")
+    p.add_argument("--entry", type=float, default=1000.0, help="with --risk-preview: a sample entry price")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
-    notes = []
+    if a.risk_preview:
+        rp = tc.risk_preview(cfg, a.stop_pct or (2, 3, 5, 8, 10, 15), a.entry)
+        rp["config_notes"] = tc.config_notes(cfg)
+        if a.json:
+            return tc.print_json(rp)
+        return print(render_risk_preview(rp))
+    a.top = cfg["daily"]["top"] if a.top is None else a.top
+    a.picks = cfg["daily"]["picks"] if a.picks is None else a.picks
+    cfg["daily"]["top"], cfg["daily"]["picks"] = a.top, a.picks      # the snapshot records what was used
+    notes = tc.config_notes(cfg)
 
     # 1. halal universe: built on first run, rebuilt automatically once it is a month old
     uni = tc.load_universe()
@@ -121,6 +138,7 @@ def main(argv=None):
         notes.append("%d price downloads failed (first: %s)" % (len(scan["errors"]), scan["errors"][0]["error"][:80]))
 
     rows, results = [], {}
+    filtered, mn = {}, cfg["daily"].get("min_expectancy_r")
     if picks:
         # 3. news (feeds HALAL-WATCH and results warnings into the risk check)
         if not a.no_news:
@@ -138,6 +156,13 @@ def main(argv=None):
         # Size best expectancy first: the risk check fills limits (positions, heat, cash) in file order.
         exp = lambda s: ((tm["results"].get(s) or {}).get("monte_carlo") or {}).get("expectancy_r") or -9
         syms = sorted(syms, key=lambda s: -exp(s))
+        if mn is not None:
+            raw = lambda s: ((tm["results"].get(s) or {}).get("monte_carlo") or {}).get("expectancy_r")
+            filtered = {s: raw(s) for s in syms if raw(s) is None or raw(s) < mn}
+            syms = [s for s in syms if s not in filtered]
+            if filtered:
+                notes.append("not sized: %s (time-machine expectancy under daily.min_expectancy_r %s)"
+                             % (", ".join(sorted(filtered)), tc._fmt_val(mn)))
         # Today's list replaces earlier UNPLACED tickets; placed orders are never touched.
         store = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
         stale = [o for o in store["orders"] if o.get("status") != "PLACED" and o["symbol"] not in syms]
@@ -146,13 +171,14 @@ def main(argv=None):
             tc.write_json("orders.json", store)
             notes.append("removed %d earlier unplaced ticket(s) not on today's list: %s"
                          % (len(stale), ", ".join(o["id"] for o in stale)))
-        sized = {o["symbol"]: o for o in run("tayyib-budget", "size.py", ",".join(syms), "--write")}
+        sized = ({o["symbol"]: o for o in run("tayyib-budget", "size.py", ",".join(syms), "--write")}
+                 if syms else {})
         swaps = ["%s with %s" % (o["replaced"], o["id"]) for o in sized.values()
                  if o.get("replaced") and o["replaced"] != o.get("id")]
         if swaps:
             notes.append("replaced " + "; ".join(swaps))
         # Risk-check the WHOLE file, exactly like a plain check.py, so the statuses here match it.
-        by_id = {r["id"]: r for r in run("tayyib-risk", "check.py")}
+        by_id = {r["id"]: r for r in run("tayyib-risk", "check.py")} if syms else {}
         risk = {s: by_id.get(o.get("id")) for s, o in sized.items() if o.get("id")}
         plans = (tc.read_json("plan.json", {}) or {}).get("plans", {})
         for c in picks:
@@ -162,6 +188,9 @@ def main(argv=None):
             if r:
                 reasons = ["BLOCK: " + x for x in (r.get("block") or [])] + \
                           ["WARN: " + x for x in sorted(r.get("warn") or [], key=lambda w: "HALAL-WATCH" not in w)]
+            elif s in filtered:
+                reasons = ["FILTERED: time-machine expectancy %s under daily.min_expectancy_r %s"
+                           % ("UNKNOWN" if filtered[s] is None else "%+.2fR" % filtered[s], tc._fmt_val(mn))]
             else:
                 reasons = ["NOT SIZED: " + (o.get("error") or "no plan")]
             reason = reasons[0] if reasons else ""
@@ -176,19 +205,25 @@ def main(argv=None):
                 "rr_net": o.get("reward_risk_net"),
                 "expectancy_r": (sim.get("monte_carlo") or {}).get("expectancy_r"),
                 "past_trades": (sim.get("history") or {}).get("trades"),
-                "verdict": sim.get("verdict"), "risk": r.get("status") if r else "NOT SIZED",
+                "verdict": sim.get("verdict"),
+                "risk": r.get("status") if r else ("FILTERED" if s in filtered else "NOT SIZED"),
                 "reason": reason, "reasons": reasons, "order_id": o.get("id"),
             }
+            row["why"] = build_why(c, pl, o, r, sim, reasons, mn if s in filtered else None,
+                                   filtered.get(s))
             rows.append(row)
             results[s] = {"plan": pl, "order": o, "risk": r, "sim": sim}
-    order = {"PASS": 0, "WARN": 1, "BLOCK": 2, "NOT SIZED": 3}
+    order = {"PASS": 0, "WARN": 1, "BLOCK": 2, "FILTERED": 3, "NOT SIZED": 4}
     rows.sort(key=lambda x: (order.get(x["risk"], 4), -(x["expectancy_r"] or -9)))
 
     today = tc.today_ist().isoformat()
-    out = {"date": today, "asof": tc.now_ist().isoformat(timespec="minutes"), "mode": a.mode,
+    banner = tc.halal_banner(cfg, uni)
+    out = {"banner": banner} if banner else {}
+    out.update({"date": today, "asof": tc.now_ist().isoformat(timespec="minutes"), "mode": a.mode,
            "capital": cfg["capital"], "risk_per_trade_pct": cfg["max_risk_per_trade_pct"], "broker": cfg["broker"],
            "universe_updated": uni.get("updated"), "scanned": scan["scanned"], "rows": rows, "notes": notes,
-           "top_picks": [r["symbol"] for r in rows if r["risk"] == "PASS"][: max(a.picks, 0)]}
+           "top_picks": [r["symbol"] for r in rows if r["risk"] == "PASS"][: max(a.picks, 0)],
+           "settings": tc.settings_snapshot(cfg)})
     tc.write_json(os.path.join("daily", today + ".json"), out)
     # Paper tracker: record today's list, follow every earlier one on the latest prices, write Excel.
     out["tracker"] = None
@@ -216,7 +251,7 @@ def fmt(x, d=2):
 
 
 def render_md(out):
-    L = ["# Halal trade list, %s" % out["date"], "",
+    L = ([out["banner"], ""] if out.get("banner") else []) + ["# Halal trade list, %s" % out["date"], "",
          "Capital %s, risk %s%% a trade, %s. Scanned %d halal-compliant stocks (list of %s)."
          % (tc.fmt_rs(out["capital"], 0), out["risk_per_trade_pct"], out["broker"], out["scanned"],
             out["universe_updated"]), ""]
@@ -228,6 +263,7 @@ def render_md(out):
             L.append("- **%s** (%s %s): buy above %s, stop %s, target %s, %s shares, risk %s"
                      % (r["symbol"], r["mode"], r["setup"], fmt(r["entry"]), fmt(r["stop"]), fmt(r["target"]),
                         r["qty"], tc.fmt_rs(r["loss_at_stop_rs"], 0)))
+            L += why_md(r.get("why") or [])
         L.append("")
     elif rows:
         L += ["No stock passed every check today. Look at the reasons below; no trade is also a decision.", ""]
@@ -279,6 +315,127 @@ def render_md(out):
         L.append("Note: " + n)
     L += ["", tc.DISCLAIMER]
     return "\n".join(L) + "\n"
+
+
+def _placeholder(group, why):
+    return tc.why_item(group, "not checked", None, None, None, None, None, why)
+
+
+def build_why(c, pl, o, r, sim, reasons, min_exp=None, exp_value=None):
+    """why[] for one daily row, put together from what each step recorded when it decided:
+    the scanner (HALAL, LIQUIDITY, SETUP), the exit plan (PLAN), the risk check (HALAL at check
+    time, NEWS, PLAN net R:R, HISTORY, RISK). Nothing is recomputed here."""
+    sw, rw = c.get("why") or [], (r or {}).get("why") or []
+    pick = lambda items, g: [dict(x) for x in items if x.get("group") == g]
+    first = reasons[0] if reasons else ""
+    why = pick(sw, "HALAL") + pick(rw, "HALAL") + pick(sw, "LIQUIDITY") + pick(sw, "SETUP")
+    if not sw:
+        why.append(_placeholder("SETUP", "UNKNOWN: the scan did not record its checks (scan.json from before "
+                                         "v0.1.5)"))
+    why += pick(rw, "NEWS") if r else [_placeholder("NEWS", "the risk check did not run: " + first)]
+    why += [dict(x) for x in (pl or {}).get("why") or []] or [_placeholder("PLAN", "no plan")]
+    if r:
+        why += pick(rw, "PLAN") + pick(rw, "HISTORY")
+    else:
+        mc, hs = (sim or {}).get("monte_carlo") or {}, (sim or {}).get("history") or {}
+        why.append(tc.why_item("HISTORY", "time-machine expectancy after charges", mc.get("expectancy_r"),
+                               min_exp, ">=" if min_exp is not None else None,
+                               (False if exp_value is None or exp_value < min_exp else True)
+                               if min_exp is not None else None, "R",
+                               "daily.min_expectancy_r: not sized" if min_exp is not None
+                               else "not checked: " + first))
+        why.append(tc.why_item("HISTORY", "past trades of this setup on this stock", hs.get("trades"), 8, ">=",
+                               None, "trades", "not checked: " + first))
+    if o and o.get("qty"):
+        why.append(tc.why_item("RISK", "quantity set by", o.get("binding_limit"), None, None, True, None,
+                               "%d shares; risk budget %s" % (o["qty"], tc.fmt_rs(o.get("budget_rs"), 0))))
+    if r:
+        why += pick(rw, "RISK")
+        if not any(x["check"] == "result" for x in why):
+            why.append(tc.why_item("RISK", "result", r.get("status"), None, None, r.get("status") == "PASS",
+                                   None, first or "every check passed"))
+    else:
+        why.append(tc.why_item("RISK", "result", "FILTERED" if min_exp is not None else "NOT SIZED", None, None,
+                               False, None, first))
+    for g in tc.WHY_GROUPS:
+        if not any(x["group"] == g for x in why):
+            why.append(_placeholder(g, "UNKNOWN: nothing was recorded for this group"))
+    rank = {g: k for k, g in enumerate(tc.WHY_GROUPS)}
+    return sorted(why, key=lambda x: rank.get(x["group"], 99))
+
+
+OPS = {"<": "<", "<=": "<=", ">": ">", ">=": ">=", "==": "="}
+
+
+def why_value(v, unit):
+    if v is None:
+        return "UNKNOWN"
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, (int, float)):
+        if unit == "Rs":
+            return tc.fmt_rs(v, 0 if abs(v) >= 1000 else 2)
+        if unit == "%":
+            return "%.2f%%" % v
+        if unit == "R":
+            return "%.2fR" % v
+        if isinstance(v, int):
+            return str(v)
+        return "%.2f" % v
+    return str(v)
+
+
+def why_text(it, with_note=False):
+    s = "%s %s" % (it["check"], why_value(it["value"], it.get("unit")))
+    if it.get("op") and it.get("limit") is not None:
+        s += " %s %s" % (OPS.get(it["op"], it["op"]), why_value(it["limit"], it.get("unit")))
+    if it.get("ok") is False:
+        s += " (no)"
+    note = it.get("note") or ""
+    if note.startswith("UNKNOWN: "):
+        note = note[len("UNKNOWN: "):]
+    if note and (with_note or it.get("ok") is not True):
+        s += " (%s)" % note
+    return s
+
+
+def why_md(why):
+    """A compact Why: block for the daily .md: one line per group. The full list is in the .json."""
+    L = ["  - Why:"]
+    for g in tc.WHY_GROUPS:
+        items = [x for x in why if x["group"] == g]
+        if not items:
+            continue
+        if g == "SETUP":
+            items = [x for x in items if x["check"] != "score"]
+        if g == "RISK":
+            items = [x for x in items if x["ok"] is not True or x["check"] in ("result", "quantity set by")]
+        L.append("    - %s: %s" % (g, "; ".join(why_text(x, with_note=x["check"] in ("result",) or
+                                                         x["value"] is None) for x in items)))
+    return L
+
+
+def render_risk_preview(rp):
+    L = ["Risk preview: capital %s, risk %s%% a trade = %s lost when a stop is hit (charges included in "
+         "tayyib-budget)." % (tc.fmt_rs(rp["capital"], 0), tc._fmt_val(rp["risk_per_trade_pct"]),
+                              tc.fmt_rs(rp["risk_per_trade_rs"], 0)),
+         "Losses in a row, each one %.2f%% of what is left:" % rp["effective_risk_pct"]]
+    for x in rp["losing_streaks"]:
+        L.append("  %2d losses: down %.2f%%, %s left (%s lost)" % (x["losses"], x["drawdown_pct"],
+                                                                  tc.fmt_rs(x["capital_left_rs"], 0),
+                                                                  tc.fmt_rs(x["lost_rs"], 0)))
+    L.append("Max position %s%% = %s. %s" % (tc._fmt_val(rp["max_position_pct"]), tc.fmt_rs(rp["max_position_rs"], 0),
+                                            rp["explain"]))
+    L.append("  %6s %10s %14s %5s %9s %12s %12s" % ("stop%", "qty(risk)", "qty(position)", "qty", "binding",
+                                                   "position", "loss at stop"))
+    for x in rp["samples"]:
+        L.append("  %6.1f %10d %14d %5d %9s %12s %12s" % (x["stop_pct"], x["qty_by_risk"], x["qty_by_position"],
+                                                         x["qty"], x["binding"], tc.fmt_rs(x["position_rs"], 0),
+                                                         tc.fmt_rs(x["loss_at_stop_rs"], 0)))
+    L.append("(sample entry %s) %s" % (tc.fmt_rs(rp["samples"][0]["entry"] if rp["samples"] else 0, 0), rp["note"]))
+    for n in rp.get("config_notes") or []:
+        L.append(n)
+    return "\n".join(L)
 
 
 if __name__ == "__main__":

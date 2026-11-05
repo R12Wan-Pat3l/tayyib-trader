@@ -68,7 +68,9 @@ with that reason. The annual report's "Other income" note shows the real figure.
 such stocks against their FY26 annual reports, all 9 were under 3%.
 
 Other methods use different limits. AAOIFI, for example, allows up to 5% non-compliant income and
-measures debt against market value. You can change the thresholds in your config.
+measures debt against market value. The tool does not offer an AAOIFI option: the free data it reads
+has no share count, so it cannot compute market value, and it will not guess. You can make the
+thresholds stricter in your config, or looser with a note (see below).
 
 ### What do compliant, review, excluded and unknown mean?
 | status | meaning | can it be traded? |
@@ -98,6 +100,20 @@ side. That rose to 94.8% after checking 8 of the differences in their annual rep
 
 Overrides are kept when the list is rebuilt. To undo one: "clear the override for SYMBOL". It works
 the other way too: you can exclude a stock that the screen passes.
+
+### Can I loosen the halal thresholds?
+Only with a named source. The defaults are TASIS (the method behind the NSE Shariah indices):
+- **Stricter** limits (for example debt under 20%) are always allowed. No note is needed.
+- **Looser** limits are anything above TASIS: debt over 25%, non-compliant income over 3%, cash and
+  receivables over 90%, an assumed return under 8%, or letting `review` stocks through. These need a
+  `loosen_note` in your config saying who allows it: your scholar, or the published method you follow.
+- **Without the note**, the tool refuses: it reports an error and keeps the TASIS limit.
+- **With the note**, it uses your limits. Every daily list and every halal list output then starts with
+  "Halal thresholds are looser than TASIS (your setting): <your note>". That line stays until the
+  list is rebuilt with TASIS limits, so you can never forget the list was made with your limits.
+
+This is not the tool's ruling either way: it keeps the decision, and the responsibility for it, with
+you and your scholar, in writing.
 
 ### How often is the halal list updated?
 Company accounts change only once a quarter, so a daily rebuild would add nothing. The daily list
@@ -156,6 +172,24 @@ Every day it looks at every compliant stock that trades at least Rs 2 crore a da
 The best one per stock is planned, tested and sized. With "all" modes, it alternates swing and delivery
 ideas. Rows are ranked PASS first, then by time-machine expectancy. The top 3 PASS rows are shown as
 **today's top picks**. A setup is a chart pattern, not a prediction.
+
+### Why was this stock picked?
+Every row of the daily list carries its reasons, recorded at the moment each check was made, with the
+number measured and the limit it was compared with:
+- **HALAL:** status, any override of yours, the three ratios (debt, reported interest and the assumed
+  8% part, cash + receivables) against their limits, and the date of the accounts.
+- **LIQUIDITY:** the price and the average daily traded value.
+- **SETUP:** each chart condition, for example "1.2% under the 20-day high (limit 3%)".
+- **NEWS:** HALAL-WATCH or results headlines. UNKNOWN if the news step didn't run or its sources failed.
+  The date of the next results is always UNKNOWN: no free source gives it.
+- **PLAN:** stop % against its cap, the target in R, net reward:risk against your minimum.
+- **HISTORY:** the time machine's expectancy and how many past trades it is based on ("too few" under 8).
+- **RISK:** each limit (loss at stop, position, cash, open positions, total risk, industry) and the final
+  PASS / WARN / BLOCK with its reason.
+
+Under each top pick, the daily list shows a short **Why:** block. The full list is in
+`trader/daily/DATE.json`, or ask Claude **"why was SYMBOL picked?"**. Anything the tool did not have is
+shown as UNKNOWN, never as zero.
 
 ### What do PASS, WARN and BLOCK mean?
 - **PASS:** within all your limits and rules.

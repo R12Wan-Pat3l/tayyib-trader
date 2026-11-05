@@ -7,7 +7,7 @@ description: >-
   time-machine verdict and PASS / WARN / BLOCK. Saves trader/daily/DATE.md. Use when the user says
   "today's list", "daily list", "what should I trade today", "give me halal stocks with entry and
   exit", "run my daily", or after 3:30 PM IST on a trading day.
-argument-hint: "[--mode swing|delivery|all] [--top 10] [--picks 3] [--no-news] [--no-rebuild]"
+argument-hint: "[--mode swing|delivery|all] [--top 10] [--picks 3] [--no-news] [--no-rebuild] [--risk-preview]"
 ---
 
 # tayyib-daily
@@ -22,6 +22,7 @@ argument-hint: "[--mode swing|delivery|all] [--top 10] [--picks 3] [--no-news] [
 python3 "${CLAUDE_SKILL_DIR}/daily.py"                     # swing + delivery, best 10 stocks
 python3 "${CLAUDE_SKILL_DIR}/daily.py" --mode swing --top 5
 python3 "${CLAUDE_SKILL_DIR}/daily.py" --no-news           # faster
+python3 "${CLAUDE_SKILL_DIR}/daily.py" --risk-preview      # what the risk settings mean in rupees; runs nothing else
 ```
 
 It needs the other tayyib skills next to it (as in the plugin or the repo). On the first run it builds
@@ -47,6 +48,12 @@ How to present it:
 - For any row the user wants, show `tayyib-broker show SYMBOL` and ask: "Do you want to place this
   order?" They place it themselves. Then record the fill with `ticket.py placed`.
 - If it ran during market hours, say that the levels can still move until the close.
+- If the output starts with "Halal thresholds are looser than TASIS (your setting): ...", say that
+  line first, word for word.
+- Read out every "CONFIG: ..." note: a setting was invalid or unknown and its default was used.
+- "Why was X picked?": answer from that row's `why[]` in `trader/daily/DATE.json` (or the Why: block
+  under a top pick). Quote the values and limits it recorded; say UNKNOWN where it says UNKNOWN. Never
+  add reasons it does not contain.
 
 ## Rules this skill never bends
 

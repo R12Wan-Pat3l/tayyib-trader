@@ -50,7 +50,9 @@ class Safety(OfflineCase):
     def test_review_needs_permission(self):
         self.run_script(H, "override", "CHRL", "--status", "review", as_json=False)
         self.assertEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
-        self.write("config.json", {"halal": {"allow_review": True}})
+        self.write("config.json", {"halal": {"allow_review": True}})          # loosening without a note: refused
+        self.assertEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
+        self.write("config.json", {"halal": {"allow_review": True, "loosen_note": "my scholar, 2026-11"}})
         self.assertNotEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
 
     def test_expired_plan_blocked(self):

@@ -114,6 +114,65 @@ On an NSE holiday there is no new price data, so it repeats the previous day's l
 
 ---
 
+## Changing your settings
+
+Your settings live in `tayyib-live\trader\config.json`. Ask Claude, for example: **"set my risk per
+trade to 0.5%"** or **"turn off the squeeze setup"**. Anything you don't set keeps its default.
+
+**Risk per trade is not the stop.** They are two different things:
+- The **stop** is how far the price may fall before you sell (for example 5% under your buy price).
+  The plan sets it from the chart.
+- **Risk per trade** is how much *money* you lose if that stop is hit (1% = Rs 1,000 on Rs 1 lakh).
+  The tool picks the number of shares so the loss at the stop is that amount.
+
+So a wider stop means *fewer shares*, not a bigger loss. With 1% risk on Rs 1 lakh:
+- a 10% stop buys about Rs 10,000 of a stock: if the stop is hit, you lose Rs 1,000;
+- a 5% stop buys about Rs 20,000: still Rs 1,000;
+- a 2% stop would allow Rs 50,000, but the 20% max position caps it at Rs 20,000, so you risk only Rs 400.
+
+**Losing streaks happen.** Ask **"show my risk preview"** to see what your numbers mean. With 1% risk:
+
+| losses in a row | your capital is down |
+|---|---|
+| 3 | 2.97% |
+| 5 | 4.90% |
+| 10 | 9.56% |
+
+At 2% risk, 10 losses in a row cost 18.3%; at 3% (the highest allowed) 26.3%. Pick a risk you could
+live with after ten losses.
+
+**What you can change, and the safe ranges:**
+
+| setting | default | allowed |
+|---|---|---|
+| risk per trade | 1% | 0.25% to 3% |
+| max in one stock | 20% | 5% to 40% |
+| max open trades | 6 | 1 to 20 |
+| max total risk (heat) | 6% | 1% to 15% |
+| least reward:risk | 1.5 | 1 to 5 |
+| swing stop at most | 10% | 2% to 10% |
+| delivery stop at most | 15% | 3% to 15% |
+| least daily traded value | Rs 2 crore | at least Rs 50 lakh |
+| each setup | on | on or off, with its own thresholds |
+
+If a value is outside its range, or a name is misspelt, the tool uses the default for that one setting
+and tells you, in a line that starts with `CONFIG:` at the bottom of the daily list. Nothing changes
+silently.
+
+**What you cannot change:** delivery (CNC) only, no intraday, no F&O, no short selling, no margin, and
+only halal-compliant stocks. These are rules in the code, not settings.
+
+**Halal thresholds.** You may make them stricter (for example debt under 20%) at any time. To make them
+*looser* than TASIS, you must write down who says so (your scholar or the method you follow) in
+`loosen_note`; without it the tool refuses and keeps the TASIS limits. With it, every daily list starts
+with a line saying the thresholds are looser than TASIS, and why. See the [FAQ](FAQ.md#can-i-loosen-the-halal-thresholds).
+
+Every daily list records a short code for the settings it used (for example `cf8b2136`). The Excel
+tracker's Summary sheet splits the results by that code, so after a change you can see whether the new
+settings did better or worse.
+
+---
+
 ## Before real money
 
 Let the Excel tracker run for 4 to 6 weeks: it follows every pick for you, without any money. Check the

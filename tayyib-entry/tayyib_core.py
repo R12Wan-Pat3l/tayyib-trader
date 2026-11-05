@@ -6,7 +6,7 @@ folder so each skill still works when its folder is copied on its own.
 Do not edit the copies inside the skill folders: edit this file and sync.
 
 What lives here:
-  config + the trader/ folder   load_config, read_json, write_json
+  config + the trader/ folder   load_config, validate_config, settings_snapshot, risk_preview
   time (IST, NSE sessions)      now_ist, is_trading_day, add_trading_days
   network + offline fixtures    fetch, fetch_json, NSESession
   prices                        get_daily_bars (Yahoo Finance, .NS / .BO)
@@ -20,9 +20,11 @@ What lives here:
 """
 from __future__ import annotations
 
+import copy
 import csv
 import datetime as dt
 import gzip
+import hashlib
 import http.cookiejar
 import io
 import json
@@ -36,7 +38,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 # ---------------------------------------------------------------------------
@@ -91,6 +93,42 @@ DEFAULT_CONFIG = {
     "min_price": 20,
     "min_turnover_rs": 20000000,        # 20-day avg traded value, Rs 2 crore
     "holidays": [],                     # "YYYY-MM-DD" NSE trading holidays
+    # setup detection, liquidity window and ranking (v0.1.5: moved here from the code, same values)
+    "scanner": {
+        "warmup_bars": 200,             # no signal before this many bars of history
+        "min_history_bars": 210,        # the scanner skips stocks with less history
+        "liquidity_days": 20,           # window for the average traded value
+        "setups": {
+            "breakout": {"enabled": True, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
+                         "high_lookback_days": 20, "max_distance_to_high_pct": 3.0,
+                         "volume_fast_days": 5, "volume_slow_days": 20, "volume_dry_ratio": 0.9,
+                         "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 5, "valid_days": 3,
+                         "min_score": 0},
+            "pullback": {"enabled": True, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
+                         "ema_length": 20, "touch_band_pct": 1.0, "max_close_below_ema_pct": 1.5,
+                         "rsi_length": 14, "rsi_min": 35, "rsi_max": 58,
+                         "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 3,
+                         "invalidation_buffer_pct": 0.2, "valid_days": 3, "min_score": 0},
+            "oversold": {"enabled": True, "trend_slow_ma": 200, "rsi_length": 14, "rsi_below": 35,
+                         "rsi_lookback_days": 4, "require_green_day": True,
+                         "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 6, "valid_days": 3,
+                         "min_score": 0},
+            "squeeze": {"enabled": True, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
+                        "recent_days": 10, "prior_days": 30, "max_range_ratio": 0.5,
+                        "max_recent_range_pct": 8.0, "trigger_buffer_pct": 0.2, "valid_days": 3,
+                        "min_score": 0},
+            "trend": {"enabled": True, "fast_ma": 50, "slow_ma": 200, "slope_days": 20,
+                      "high_lookback_days": 252, "min_pct_of_high": 85.0, "return_lookback_days": 126,
+                      "min_return_pct": 0.0, "invalidation_lookback_days": 20, "ma_buffer_pct": 3.0,
+                      "trigger_buffer_pct": 0.2, "valid_days": 5, "min_score": 0},
+        },
+    },
+    # tayyib-daily (its --top / --picks flags still override these)
+    "daily": {
+        "top": 10,                      # plan at most N stocks
+        "picks": 3,                     # highlight the best N PASS stocks
+        "min_expectancy_r": None,       # skip stocks whose time-machine expectancy is lower (null = no filter)
+    },
     # trade styles
     "modes": {
         "swing": {"atr_mult_cap": 3.0, "atr_fallback": 2.0, "min_stop_atr": 0.75,
@@ -118,8 +156,10 @@ DEFAULT_CONFIG = {
     },
     # halal
     "halal": {
-        "require_compliant": True,      # BLOCK anything not 'compliant'
-        "allow_review": False,          # treat 'review' as BLOCK unless true
+        "method": "tasis",              # "tasis" or "custom" (thresholds that differ from TASIS)
+        "loosen_note": "",              # REQUIRED to loosen any threshold: your source or scholar
+        "require_compliant": True,      # locked: a hard rule, cannot be switched off
+        "allow_review": False,          # treat 'review' as BLOCK unless true (loosening: needs loosen_note)
         "list_max_age_days": 120,       # warn when the list is older
         "auto_rebuild_days": 30,        # tayyib-daily rebuilds the list when older (0 = never)
         "max_debt_to_assets_pct": 25.0,         # TASIS
@@ -154,10 +194,431 @@ def deep_merge(base, over):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Config documentation and validation. DEFAULT_CONFIG_DOCS is what a settings UI renders:
+# key (dotted) -> {description, min, max, unit, type, ...}. Every user value is checked
+# against it; an invalid value falls back to its default for that key only and is reported.
+# Hard rules (CNC only, no shorting, no F&O, no margin, compliant stocks only) have no key.
+# ---------------------------------------------------------------------------
+
+def _doc(description, min=None, max=None, unit=None, type="number", **kw):
+    d = {"description": description, "min": min, "max": max, "unit": unit, "type": type}
+    d.update(kw)
+    return d
+
+
+TASIS_HALAL = {"max_debt_to_assets_pct": 25.0, "max_noncompliant_income_pct": 3.0,
+               "max_cash_receivables_to_assets_pct": 90.0, "noncompliant_investment_return_pct": 8.0}
+
+DEFAULT_CONFIG_DOCS = {
+    "capital": _doc("Your trading capital in rupees: sizing and every % limit use it", 1000, 1e10, "Rs"),
+    "max_risk_per_trade_pct": _doc("Most you lose on one trade if its stop is hit, incl. charges, as % of "
+                                   "capital. Not the stop distance", 0.25, 3, "%"),
+    "max_risk_per_trade_rs": _doc("Optional rupee cap on the loss per trade (null = none)", 1, 1e8, "Rs",
+                                  nullable=True),
+    "max_position_pct": _doc("Most of your capital in any one stock", 5, 40, "%"),
+    "max_open_positions": _doc("Most open positions plus approved tickets at once", 1, 20, "positions",
+                               type="int"),
+    "max_portfolio_heat_pct": _doc("Most total loss if every open stop were hit at once, as % of capital",
+                                   1, 15, "%"),
+    "max_positions_per_industry": _doc("Most positions in one industry", 1, 20, "positions", type="int"),
+    "min_reward_risk": _doc("Least net reward:risk a plan must offer after charges", 1, 5, "R"),
+    "cash_available": _doc("Cash you can use (null = capital minus open positions)", 0, 1e10, "Rs",
+                           nullable=True),
+    "exchange": _doc("Exchange for tickets", type="enum", choices=["NSE", "BSE"]),
+    "tick_size": _doc("Price step for rounding entries, stops and targets", 0.01, 1, "Rs"),
+    "min_price": _doc("Skip stocks priced under this", 1, 100000, "Rs"),
+    "min_turnover_rs": _doc("Skip stocks whose average daily traded value is under this (at least Rs 50 lakh)",
+                            5000000, 1e11, "Rs"),
+    "holidays": _doc("NSE trading holidays, YYYY-MM-DD (used for plan dates)", type="dates"),
+    "scanner.warmup_bars": _doc("No setup is armed before this many bars of history", 60, 400, "bars",
+                                type="int"),
+    "scanner.min_history_bars": _doc("The scanner skips stocks with less history than this", 60, 500, "bars",
+                                     type="int"),
+    "scanner.liquidity_days": _doc("Days averaged for the traded-value (liquidity) filter", 5, 60, "days",
+                                   type="int"),
+    "modes.swing.atr_mult_cap": _doc("Swing: a structure stop wider than this many ATR is replaced", 1, 6, "ATR"),
+    "modes.swing.atr_fallback": _doc("Swing: the ATR stop used when the structure stop is too wide", 0.5, 5,
+                                     "ATR"),
+    "modes.swing.min_stop_atr": _doc("Swing: the stop is never closer than this many ATR", 0.25, 3, "ATR"),
+    "modes.swing.max_stop_pct": _doc("Swing: the stop is never further below the entry than this", 2, 10, "%"),
+    "modes.swing.target_r": _doc("Swing: target as a multiple of the risk", 1, 6, "R"),
+    "modes.swing.max_hold_days": _doc("Swing: time stop, in trading sessions", 1, 60, "sessions", type="int"),
+    "modes.delivery.max_stop_pct": _doc("Delivery: the stop is never further below the entry than this", 3, 15,
+                                        "%"),
+    "modes.delivery.min_stop_atr": _doc("Delivery: the stop is never closer than this many ATR", 0.5, 5, "ATR"),
+    "modes.delivery.target_r": _doc("Delivery: review level as a multiple of the risk", 1, 10, "R"),
+    "modes.delivery.max_hold_days": _doc("Delivery: time stop, in trading sessions", 20, 750, "sessions",
+                                         type="int"),
+    "broker": _doc("Broker whose charges are used", type="enum", choices=["zerodha", "groww", "custom"]),
+    "charges.stt_pct": _doc("STT on delivery, each side", 0, 1, "%"),
+    "charges.exchange_txn_pct": _doc("Exchange transaction charge", 0, 0.1, "%"),
+    "charges.sebi_fee_pct": _doc("SEBI turnover fee", 0, 0.01, "%"),
+    "charges.ipft_pct": _doc("NSE investor protection fund charge", 0, 0.01, "%"),
+    "charges.stamp_duty_buy_pct": _doc("Stamp duty on the buy", 0, 0.1, "%"),
+    "charges.gst_pct": _doc("GST on brokerage + exchange + SEBI charges", 0, 30, "%"),
+    "halal.method": _doc("'tasis' (the NSE Shariah index method) or 'custom' (your own thresholds)",
+                         type="enum", choices=["tasis", "custom"]),
+    "halal.loosen_note": _doc("Your source or scholar. Required for any threshold looser than TASIS",
+                              type="string"),
+    "halal.require_compliant": _doc("Locked: only compliant stocks can pass (a hard rule)", type="locked",
+                                    choices=[True]),
+    "halal.allow_review": _doc("Let 'review' stocks through with a WARN. Loosening: needs halal.loosen_note",
+                               type="bool"),
+    "halal.list_max_age_days": _doc("Warn when the halal list is older than this", 7, 365, "days", type="int"),
+    "halal.auto_rebuild_days": _doc("tayyib-daily rebuilds the halal list when older (0 = never)", 0, 365, "days",
+                                    type="int"),
+    "halal.max_debt_to_assets_pct": _doc("Debt / total assets must be under this (TASIS 25; higher needs "
+                                         "loosen_note)", 1, 50, "%"),
+    "halal.max_noncompliant_income_pct": _doc("Non-compliant income / total income must be under this (TASIS 3; "
+                                              "higher needs loosen_note)", 0.1, 10, "%"),
+    "halal.max_cash_receivables_to_assets_pct": _doc("(Cash + receivables) / total assets must be under this "
+                                                     "(TASIS 90; higher needs loosen_note)", 10, 100, "%"),
+    "halal.noncompliant_investment_return_pct": _doc("Return assumed on short-term investments for the income "
+                                                     "test (TASIS 8; lower needs loosen_note)", 0, 20, "%"),
+    "halal.list_url": _doc("Optional CSV URL of an official Shariah list", type="string", nullable=True),
+    "halal.parent_list_url": _doc("The index list that is self-screened", type="string"),
+    "news.feeds": _doc("RSS feeds read for market news: name -> URL", type="map"),
+    "news.google_news": _doc("Search Google News India per stock", type="bool"),
+    "news.nse_announcements": _doc("Read NSE corporate announcements per stock", type="bool"),
+    "user_agent": _doc("User agent for data requests", type="string"),
+    "daily.top": _doc("tayyib-daily plans at most this many stocks (--top overrides)", 1, 50, "stocks",
+                      type="int"),
+    "daily.picks": _doc("tayyib-daily highlights this many PASS stocks (--picks overrides)", 0, 20, "stocks",
+                        type="int"),
+    "daily.min_expectancy_r": _doc("Skip stocks whose time-machine expectancy is under this (null = no filter)",
+                                   -2, 2, "R", nullable=True),
+}
+for _b in ("zerodha", "groww", "custom"):
+    DEFAULT_CONFIG_DOCS.update({
+        "brokers.%s.brokerage_pct" % _b: _doc("%s: brokerage as %% of each order" % _b, 0, 2, "%"),
+        "brokers.%s.brokerage_min" % _b: _doc("%s: minimum brokerage per order" % _b, 0, 100, "Rs"),
+        "brokers.%s.brokerage_cap" % _b: _doc("%s: maximum brokerage per order (0 = none)" % _b, 0, 1000, "Rs"),
+        "brokers.%s.dp_charge_per_sell" % _b: _doc("%s: depository charge per sell" % _b, 0, 100, "Rs"),
+    })
+_TREND_DOCS = (("trend_fast_ma", "uptrend: fast moving average length", 5, 150, "days"),
+               ("trend_slow_ma", "uptrend: slow moving average length", 50, 300, "days"),
+               ("trend_slope_days", "uptrend: the fast average must be higher than this many days ago", 1, 60,
+                "days"))
+_SETUP_DOCS = {
+    "breakout": _TREND_DOCS + (
+        ("high_lookback_days", "the recent high is the highest high of this many days", 5, 120, "days"),
+        ("max_distance_to_high_pct", "the close must be within this % under that high", 0.5, 10, "%"),
+        ("volume_fast_days", "volume dry-up: short average length", 2, 20, "days"),
+        ("volume_slow_days", "volume dry-up: long average length", 5, 60, "days"),
+        ("volume_dry_ratio", "score bonus when short / long volume average is under this", 0.3, 1.5, "ratio"),
+        ("invalidation_lookback_days", "stop structure: lowest low of this many days", 2, 30, "days")),
+    "pullback": _TREND_DOCS + (
+        ("ema_length", "the pullback average (EMA) length", 5, 100, "days"),
+        ("touch_band_pct", "the day's low must come within this % above the EMA", 0, 5, "%"),
+        ("max_close_below_ema_pct", "the close may be at most this % under the EMA", 0, 5, "%"),
+        ("rsi_length", "RSI length", 2, 50, "days"),
+        ("rsi_min", "RSI must be at least this", 0, 100, "RSI"),
+        ("rsi_max", "RSI must be at most this", 0, 100, "RSI"),
+        ("invalidation_lookback_days", "stop structure: lowest low of this many days", 2, 30, "days"),
+        ("invalidation_buffer_pct", "stop structure sits this % under that low", 0, 5, "%")),
+    "oversold": (
+        ("trend_slow_ma", "the close must be above this moving average", 50, 300, "days"),
+        ("rsi_length", "RSI length", 2, 50, "days"),
+        ("rsi_below", "RSI must have dipped under this", 5, 50, "RSI"),
+        ("rsi_lookback_days", "the RSI dip counts within this many days", 1, 20, "days"),
+        ("require_green_day", "the signal day must close above its open", None, None, None, "bool"),
+        ("invalidation_lookback_days", "stop structure: lowest low of this many days", 2, 30, "days")),
+    "squeeze": _TREND_DOCS + (
+        ("recent_days", "the recent (tight) range: this many days", 3, 40, "days"),
+        ("prior_days", "the earlier range it is compared with: this many days", 10, 120, "days"),
+        ("max_range_ratio", "the recent range must be under this fraction of the earlier range", 0.1, 0.9,
+         "ratio"),
+        ("max_recent_range_pct", "the recent range must be under this % of the price", 1, 30, "%")),
+    "trend": (
+        ("fast_ma", "fast moving average length", 5, 150, "days"),
+        ("slow_ma", "slow (long-term) moving average length", 50, 300, "days"),
+        ("slope_days", "the slow average must be higher than this many days ago", 1, 120, "days"),
+        ("high_lookback_days", "the 52-week high: highest high of this many days", 60, 400, "days"),
+        ("min_pct_of_high", "the close must be at least this % of that high", 50, 100, "%"),
+        ("return_lookback_days", "return measured over this many days", 20, 260, "days"),
+        ("min_return_pct", "that return must be above this", -50, 200, "%"),
+        ("invalidation_lookback_days", "stop structure: lowest low of this many days", 5, 60, "days"),
+        ("ma_buffer_pct", "or this % under the slow average, whichever is higher", 0, 10, "%")),
+}
+for _s, _rows in _SETUP_DOCS.items():
+    _pre = "scanner.setups.%s." % _s
+    DEFAULT_CONFIG_DOCS[_pre + "enabled"] = _doc("%s setup on (true) or off (false)" % _s, type="bool")
+    for _r in _rows:
+        _k, _desc, _mn, _mx, _u = _r[:5]
+        _t = _r[5] if len(_r) > 5 else ("int" if _u == "days" else "number")
+        DEFAULT_CONFIG_DOCS[_pre + _k] = _doc(_desc, _mn, _mx, _u, type=_t)
+    DEFAULT_CONFIG_DOCS[_pre + "trigger_buffer_pct"] = _doc("the buy-stop trigger sits this % above the level",
+                                                            0, 2, "%")
+    DEFAULT_CONFIG_DOCS[_pre + "valid_days"] = _doc("the trigger stays valid this many sessions", 1, 20,
+                                                    "sessions", type="int")
+    DEFAULT_CONFIG_DOCS[_pre + "min_score"] = _doc("ignore signals scoring under this", 0, 200, "score")
+
+# words in an unknown key that ask for something the hard rules forbid: the warning says so
+_HARD_RULE_WORDS = {"intraday", "mis", "nrml", "short", "shorting", "shorts", "fno", "f&o", "futures", "future",
+                    "options", "option", "derivative", "derivatives", "margin", "mtf", "leverage", "product",
+                    "excluded", "unknown", "noncompliant", "non", "orders", "order", "autotrade", "auto"}
+
+
+def _fmt_val(v):
+    if isinstance(v, float) and v == int(v) and abs(v) < 1e15:
+        return str(int(v))
+    return json.dumps(v, ensure_ascii=False, default=str)
+
+
+def _expect(doc):
+    t = doc["type"]
+    if t in ("number", "int"):
+        return "range %s–%s" % (_fmt_val(doc["min"]), _fmt_val(doc["max"]))
+    if t in ("enum", "locked"):
+        return "one of %s" % ", ".join(_fmt_val(c) for c in doc["choices"])
+    return {"bool": "true or false", "string": "text", "dates": "a list of YYYY-MM-DD dates",
+            "map": "an object of name: URL text"}.get(t, t)
+
+
+def _check_value(doc, v):
+    """-> (ok, cleaned value)."""
+    t = doc["type"]
+    if v is None:
+        return bool(doc.get("nullable")), v
+    if t in ("number", "int"):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            return False, v
+        if t == "int":
+            if v != int(v):
+                return False, v
+            v = int(v)
+        lo, hi = doc.get("min"), doc.get("max")
+        return (lo is None or v >= lo) and (hi is None or v <= hi), v
+    if t == "bool":
+        return isinstance(v, bool), v
+    if t in ("enum", "locked"):
+        return any(v == c and type(v) == type(c) for c in doc["choices"]), v
+    if t == "string":
+        return isinstance(v, str), v
+    if t == "dates":
+        if not isinstance(v, list):
+            return False, v
+        for x in v:
+            try:
+                dt.datetime.strptime(x, "%Y-%m-%d")
+            except (TypeError, ValueError):
+                return False, v
+        return True, v
+    if t == "map":
+        return isinstance(v, dict) and all(isinstance(x, str) for x in v.values()), v
+    return False, v
+
+
+def _clean_user(user, defaults, prefix, notes):
+    """Walk the user's config against the defaults and the docs -> a cleaned overlay."""
+    out = {}
+    for k, v in user.items():
+        key = prefix + str(k)
+        doc = DEFAULT_CONFIG_DOCS.get(key)
+        dflt = defaults.get(k) if isinstance(defaults, dict) else None
+        if doc is None and isinstance(dflt, dict):
+            if not isinstance(v, dict):
+                notes.append("CONFIG: %s = %s invalid (expected an object of settings), using the defaults"
+                             % (key, _fmt_val(v)))
+                continue
+            out[k] = _clean_user(v, dflt, key + ".", notes)
+            continue
+        if doc is None:
+            words = set(re.split(r"[._\- ]+", key.lower()))
+            if words & _HARD_RULE_WORDS:
+                notes.append("CONFIG: unknown key %s ignored: delivery (CNC) only, no intraday, F&O, short "
+                             "selling or margin, compliant stocks only, and no order placement are hard rules, "
+                             "not settings" % key)
+            else:
+                notes.append("CONFIG: unknown key %s ignored" % key)
+            continue
+        ok, cv = _check_value(doc, v)
+        if ok:
+            out[k] = cv
+        elif doc["type"] == "locked":
+            notes.append("CONFIG: %s = %s ignored: it is a hard rule and stays %s"
+                         % (key, _fmt_val(v), _fmt_val(dflt)))
+        else:
+            notes.append("CONFIG: %s = %s invalid (%s), using default %s"
+                         % (key, _fmt_val(v), _expect(doc), _fmt_val(dflt)))
+    return out
+
+
+def _halal_policy(cfg, notes):
+    """TASIS thresholds unless the user sets their own. Stricter: free. Looser (or allow_review):
+    only with a non-empty halal.loosen_note, otherwise an error and the TASIS value."""
+    h = cfg["halal"]
+    note = (h.get("loosen_note") or "").strip()
+    looser = [k for k, tv in TASIS_HALAL.items()
+              if (h[k] < tv if k == "noncompliant_investment_return_pct" else h[k] > tv)]
+    if h.get("allow_review"):
+        looser.append("allow_review")
+    if looser and not note:
+        for k in looser:
+            dv = DEFAULT_CONFIG["halal"][k]
+            notes.append("CONFIG ERROR: halal.%s = %s is looser than TASIS (%s) and needs halal.loosen_note "
+                         "(your source or scholar), using %s" % (k, _fmt_val(h[k]), _fmt_val(dv), _fmt_val(dv)))
+            h[k] = dv
+        looser = []
+    differs = [k for k in TASIS_HALAL if h[k] != TASIS_HALAL[k]]
+    if differs and h.get("method") == "tasis":
+        notes.append("CONFIG: halal thresholds differ from TASIS (%s): halal.method is custom"
+                     % ", ".join("%s %s" % (k, _fmt_val(h[k])) for k in differs))
+        h["method"] = "custom"
+    cfg["_halal_loosened"] = note if looser else None
+    cfg["_halal_looser_keys"] = looser
+
+
+def validate_config(user, defaults=None):
+    """Validate a user config (the contents of config.json) -> (cfg, notes).
+
+    cfg is the defaults overlaid with every valid user value; an invalid value falls back to its
+    default for that key only. notes lists every fallback, unknown key and halal-policy error as
+    "CONFIG: ..." text; cfg["_notes"] carries the same list for scripts to report."""
+    defaults = copy.deepcopy(defaults or DEFAULT_CONFIG)
+    notes = []
+    if not isinstance(user, dict):
+        notes.append("CONFIG: config.json is not an object of settings: using the defaults")
+        user = {}
+    cfg = deep_merge(defaults, _clean_user(user, defaults, "", notes))
+    _halal_policy(cfg, notes)
+    cfg["_notes"] = notes
+    return cfg, notes
+
+
 def load_config():
-    """Defaults, overlaid with trader/config.json if it exists."""
-    user = read_json("config.json", {}) or {}
-    return deep_merge(DEFAULT_CONFIG, user)
+    """Defaults, overlaid with the valid values of trader/config.json (see validate_config)."""
+    try:
+        user = read_json("config.json", {})
+    except ValueError as e:
+        cfg, _ = validate_config({})
+        cfg["_notes"].append("CONFIG: config.json could not be read (%s): using the defaults" % e)
+        return cfg
+    return validate_config({} if user is None else user)[0]
+
+
+def config_notes(cfg):
+    return list((cfg or {}).get("_notes") or [])
+
+
+def report_config(cfg):
+    """Print each config note to stderr (never stdout, so --json output stays clean)."""
+    for n in config_notes(cfg):
+        sys.stderr.write(n + "\n")
+
+
+def halal_banner(cfg, universe=None):
+    """The line every daily list and halal list output starts with when thresholds are looser than
+    TASIS, in the config now or in the halal list as it was built. None otherwise."""
+    note = (cfg or {}).get("_halal_loosened")
+    if note:
+        return "Halal thresholds are looser than TASIS (your setting): %s" % note
+    built = (universe or {}).get("loosened")
+    if built:
+        return ("Halal thresholds are looser than TASIS (your setting): %s (the halal list was built with "
+                "them; rebuild it to drop them)" % built)
+    return None
+
+
+# Keys that change no decision; every other key is part of the settings snapshot.
+SETTINGS_EXCLUDE = ("user_agent", "news.feeds", "halal.list_url", "halal.parent_list_url", "halal.loosen_note")
+
+
+def _decision_values(cfg):
+    vals = copy.deepcopy({k: v for k, v in cfg.items() if not str(k).startswith("_")})
+    for dotted in SETTINGS_EXCLUDE:
+        ks = dotted.split(".")
+        d = vals
+        for k in ks[:-1]:
+            d = d.get(k) if isinstance(d, dict) else None
+        if isinstance(d, dict):
+            d.pop(ks[-1], None)
+    return vals
+
+
+def _leaves(d, prefix=""):
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, dict) and v:
+            out.update(_leaves(v, prefix + str(k) + "."))
+        else:
+            out[prefix + str(k)] = v
+    return out
+
+
+def settings_snapshot(cfg):
+    """-> {hash, values, differs_from_default[]}. hash: the first 8 hex characters of the sha1 of
+    the canonical JSON (sorted keys, no spaces) of every decision-affecting setting."""
+    vals = _decision_values(cfg)
+    canon = json.dumps(vals, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    base, mine = _leaves(_decision_values(validate_config({})[0])), _leaves(vals)
+    differs = [{"key": k, "value": mine.get(k), "default": base.get(k)}
+               for k in sorted(set(base) | set(mine)) if mine.get(k) != base.get(k)]
+    return {"hash": hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8], "values": vals,
+            "differs_from_default": differs}
+
+
+def risk_preview(cfg, stops_pct=(2, 3, 5, 8, 10, 15), entry=1000.0):
+    """What the risk settings mean in rupees: the drawdown after 3, 5 and 10 losses in a row (each
+    loss is the risk % of what is left), the rupee loss per trade, and which limit sets the quantity
+    for sample stop distances: risk % or max position %. Charges are left out."""
+    cap = float(cfg["capital"])
+    budget = cap * cfg["max_risk_per_trade_pct"] / 100.0
+    if cfg.get("max_risk_per_trade_rs"):
+        budget = min(budget, float(cfg["max_risk_per_trade_rs"]))
+    r = budget / cap
+    max_pos = cap * cfg["max_position_pct"] / 100.0
+    streaks = []
+    for n in (3, 5, 10):
+        left = cap * (1 - r) ** n
+        streaks.append({"losses": n, "drawdown_pct": round((1 - (1 - r) ** n) * 100, 2),
+                        "capital_left_rs": round(left, 2), "lost_rs": round(cap - left, 2),
+                        "simple_sum_pct": round(n * r * 100, 2)})
+    samples = []
+    for sp in stops_pct:
+        sp = float(sp)
+        per_share = entry * sp / 100.0
+        q_risk = int(budget // per_share) if per_share > 0 else 0
+        q_pos = int(max_pos // entry)
+        q = min(q_risk, q_pos)
+        samples.append({"stop_pct": sp, "entry": entry, "qty_by_risk": q_risk, "qty_by_position": q_pos,
+                        "qty": q, "binding": "risk" if q_risk < q_pos else "position" if q_pos < q_risk else "both",
+                        "position_rs": round(q * entry, 2), "position_pct": round(q * entry / cap * 100, 2),
+                        "loss_at_stop_rs": round(q * per_share, 2)})
+    cross = budget / max_pos * 100 if max_pos else None
+    return {"capital": cap, "risk_per_trade_pct": cfg["max_risk_per_trade_pct"],
+            "risk_per_trade_rs": round(budget, 2), "effective_risk_pct": round(r * 100, 4),
+            "max_position_pct": cfg["max_position_pct"], "max_position_rs": round(max_pos, 2),
+            "losing_streaks": streaks, "binding_stop_pct": None if cross is None else round(cross, 2),
+            "samples": samples,
+            "explain": ("Risk per trade is what you lose when a stop is hit, not how far away the stop is. "
+                        "Stops wider than %.2f%% are sized by the risk (%s at the stop); stops tighter than that "
+                        "hit the %s%% max position first, so the loss at the stop is smaller."
+                        % (cross or 0, fmt_rs(budget, 0), _fmt_val(cfg["max_position_pct"]))),
+            "note": "Before charges (STT, stamp duty, GST, DP charge). tayyib-budget includes them, so its "
+                    "quantities can be a share or two lower."}
+
+
+# ---------------------------------------------------------------------------
+# why[]: the checks behind each decision, recorded when the decision is made
+# ---------------------------------------------------------------------------
+
+WHY_GROUPS = ("HALAL", "LIQUIDITY", "SETUP", "NEWS", "PLAN", "HISTORY", "RISK")
+
+
+def why_item(group, check, value=None, limit=None, op=None, ok=None, unit=None, note=None):
+    """One reason. ok is True / False, or None when the input was missing (never a made-up 0)."""
+    return {"group": group, "check": check, "value": value, "limit": limit, "op": op, "ok": ok,
+            "unit": unit, "note": note}
+
+
+def cmp_op(value, op, limit):
+    """value op limit -> True / False, or None when either side is missing."""
+    if value is None or limit is None:
+        return None
+    return {"<": value < limit, "<=": value <= limit, ">": value > limit, ">=": value >= limit,
+            "==": value == limit}[op]
 
 
 # ---------------------------------------------------------------------------
@@ -465,11 +926,21 @@ def indicators(bars):
     closes = [b["close"] for b in bars]
     vols = [float(b["volume"]) for b in bars]
     return {
-        "close": closes,
+        "close": closes, "volume": vols,
         "sma20": sma(closes, 20), "sma50": sma(closes, 50), "sma200": sma(closes, 200),
         "ema20": ema(closes, 20), "rsi14": rsi(closes, 14), "atr14": atr(bars, 14),
         "vol20": sma(vols, 20), "vol5": sma(vols, 5),
     }
+
+
+def series(ind, kind, n):
+    """A moving average ('sma', 'ema', 'vol' = volume SMA) or 'rsi' series of any length,
+    computed once and kept in `ind` (the default lengths are already there)."""
+    key = "%s%d" % (kind, n)
+    if key not in ind:
+        fn = {"sma": sma, "ema": ema, "rsi": rsi, "vol": sma}[kind]
+        ind[key] = fn(ind["volume"] if kind == "vol" else ind["close"], n)
+    return ind[key]
 
 
 # ---------------------------------------------------------------------------
@@ -503,58 +974,152 @@ def _ok(*xs):
     return all(x is not None for x in xs)
 
 
-def detect(setup, bars, ind, i, tick=0.05):
-    """Return a signal dict if `setup` is armed at the close of bar i."""
-    if i < 200 or i >= len(bars):
+def setup_params(cfg, setup):
+    """The thresholds for one setup: cfg["scanner"]["setups"][setup] over the defaults."""
+    base = DEFAULT_CONFIG["scanner"]["setups"].get(setup) or {}
+    mine = (((cfg or {}).get("scanner") or {}).get("setups") or {}).get(setup) or {}
+    return deep_merge(base, mine)
+
+
+def _factor(pct, sign=1):
+    """1 + pct/100 (or 1 - pct/100), rounded to 12 places so 0.2 gives exactly 1.002, the literal
+    the code used before v0.1.5."""
+    return round(1 + sign * pct / 100.0, 12)
+
+
+def _uptrend(p, ind, i, c, S):
+    """close > fast MA > slow MA, and the fast MA higher than slope_days ago -> (ok, why[])."""
+    f, sl, d = p["trend_fast_ma"], p["trend_slow_ma"], p["trend_slope_days"]
+    fv, sv = S("sma", f), S("sma", sl)
+    if fv is None or sv is None:
+        return None, []
+    prev = S("sma", f, i - d) or fv
+    ok = c > fv > sv and fv > prev
+    return ok, [why_item("SETUP", "close above the %d-day average" % f, c, fv, ">", c > fv, "Rs"),
+                why_item("SETUP", "%d-day average above the %d-day" % (f, sl), fv, sv, ">", fv > sv, "Rs"),
+                why_item("SETUP", "%d-day average rising (vs %d days ago)" % (f, d), fv, prev, ">", fv > prev,
+                         "Rs")]
+
+
+def detect(setup, bars, ind, i, tick=0.05, cfg=None):
+    """Return a signal dict if `setup` is armed at the close of bar i.
+
+    Thresholds come from cfg["scanner"]["setups"][setup] (the defaults when cfg is None). The
+    signal's why[] lists every condition the setup tested, with the value measured and the
+    threshold used, recorded here when the decision is made."""
+    sc = (cfg or DEFAULT_CONFIG).get("scanner") or DEFAULT_CONFIG["scanner"]
+    if i < sc.get("warmup_bars", 200) or i >= len(bars):
         return None
+    p = setup_params(cfg, setup)
     c = ind["close"][i]
-    s50, s200, e20 = ind["sma50"][i], ind["sma200"][i], ind["ema20"][i]
-    a, r = ind["atr14"][i], ind["rsi14"][i]
-    if not _ok(s50, s200, e20, a, r):
+    a = ind["atr14"][i]
+    if a is None or not p:
         return None
     hi = lambda k0, k1: max(b["high"] for b in bars[k0:k1 + 1])
     lo = lambda k0, k1: min(b["low"] for b in bars[k0:k1 + 1])
-    uptrend = c > s50 > s200 and s50 > (ind["sma50"][i - 10] or s50)
-    sig = None
-    if setup == "breakout" and uptrend:
-        h20 = hi(i - 19, i)
+    S = lambda kind, n, k=i: series(ind, kind, n)[k]
+    sig, w = None, []
+    if setup in ("breakout", "pullback", "squeeze"):
+        up, w = _uptrend(p, ind, i, c, S)
+        if not up:
+            return None
+        slow = S("sma", p["trend_slow_ma"])
+    if setup == "breakout":
+        H, maxd = p["high_lookback_days"], p["max_distance_to_high_pct"]
+        h20 = hi(i - H + 1, i)
         dist = (h20 - c) / c
-        if 0 <= dist <= 0.03:
-            dry = (ind["vol5"][i] or 1) / (ind["vol20"][i] or 1)
-            score = 50 + (3 - dist * 100) * 6 + min(20, (c / s200 - 1) * 60) + (10 if dry < 0.9 else 0)
-            sig = {"trigger": h20 * 1.002, "invalidation": lo(i - 4, i),
-                   "score": score, "notes": "20-day high %.2f, %.1f%% away, volume %s"
-                   % (h20, dist * 100, "drying up" if dry < 0.9 else "normal")}
-    elif setup == "pullback" and uptrend:
+        if 0 <= dist <= maxd / 100.0:
+            vf, vs = S("vol", p["volume_fast_days"]), S("vol", p["volume_slow_days"])
+            dry = (vf or 1) / (vs or 1)
+            bonus = dry < p["volume_dry_ratio"]
+            score = 50 + (maxd - dist * 100) * 6 + min(20, (c / slow - 1) * 60) + (10 if bonus else 0)
+            L = p["invalidation_lookback_days"]
+            sig = {"trigger": h20 * _factor(p["trigger_buffer_pct"]), "invalidation": lo(i - L + 1, i),
+                   "score": score, "notes": "%d-day high %.2f, %.1f%% away, volume %s"
+                   % (H, h20, dist * 100, "drying up" if bonus else "normal")}
+            w += [why_item("SETUP", "distance under the %d-day high" % H, dist * 100, maxd, "<=", True, "%",
+                           "%d-day high %.2f" % (H, h20)),
+                  why_item("SETUP", "volume %d-day / %d-day average" % (p["volume_fast_days"], p["volume_slow_days"]),
+                           dry, p["volume_dry_ratio"], "<", bonus, "ratio",
+                           "score bonus only (+10), not required")]
+    elif setup == "pullback":
+        e20, r = S("ema", p["ema_length"]), S("rsi", p["rsi_length"])
+        if e20 is None or r is None:
+            return None
         b = bars[i]
-        if b["low"] <= e20 * 1.01 and c >= e20 * 0.985 and 35 <= r <= 58:
-            score = 55 + (58 - r) + min(20, (c / s200 - 1) * 60)
-            sig = {"trigger": b["high"] * 1.002, "invalidation": lo(i - 2, i) * 0.998,
-                   "score": score, "notes": "touched the 20 EMA %.2f, RSI %.0f" % (e20, r)}
-    elif setup == "oversold" and c > s200:
-        rmin = min(x for x in ind["rsi14"][i - 3:i + 1] if x is not None)
-        if rmin < 35 and bars[i]["close"] > bars[i]["open"]:
-            score = 45 + (35 - rmin) * 2 + min(15, (c / s200 - 1) * 40)
-            sig = {"trigger": bars[i]["high"] * 1.002, "invalidation": lo(i - 5, i),
+        touch, below = e20 * _factor(p["touch_band_pct"]), e20 * _factor(p["max_close_below_ema_pct"], -1)
+        if b["low"] <= touch and c >= below and p["rsi_min"] <= r <= p["rsi_max"]:
+            score = 55 + (p["rsi_max"] - r) + min(20, (c / slow - 1) * 60)
+            L = p["invalidation_lookback_days"]
+            sig = {"trigger": b["high"] * _factor(p["trigger_buffer_pct"]),
+                   "invalidation": lo(i - L + 1, i) * _factor(p["invalidation_buffer_pct"], -1),
+                   "score": score, "notes": "touched the %d EMA %.2f, RSI %.0f" % (p["ema_length"], e20, r)}
+            w += [why_item("SETUP", "day's low within %s%% of the %d EMA" % (_fmt_val(p["touch_band_pct"]),
+                                                                            p["ema_length"]),
+                           b["low"], touch, "<=", True, "Rs", "%d EMA %.2f" % (p["ema_length"], e20)),
+                  why_item("SETUP", "close at most %s%% under the %d EMA" % (_fmt_val(p["max_close_below_ema_pct"]),
+                                                                            p["ema_length"]),
+                           c, below, ">=", True, "Rs"),
+                  why_item("SETUP", "RSI(%d) at least" % p["rsi_length"], r, p["rsi_min"], ">=", True, "RSI"),
+                  why_item("SETUP", "RSI(%d) at most" % p["rsi_length"], r, p["rsi_max"], "<=", True, "RSI")]
+    elif setup == "oversold":
+        slow = S("sma", p["trend_slow_ma"])
+        if slow is None or not c > slow:
+            return None
+        N = p["rsi_lookback_days"]
+        vals = [x for x in series(ind, "rsi", p["rsi_length"])[i - N + 1:i + 1] if x is not None]
+        if not vals:
+            return None
+        rmin = min(vals)
+        green = bars[i]["close"] > bars[i]["open"]
+        if rmin < p["rsi_below"] and (green or not p["require_green_day"]):
+            score = 45 + (p["rsi_below"] - rmin) * 2 + min(15, (c / slow - 1) * 40)
+            L = p["invalidation_lookback_days"]
+            sig = {"trigger": bars[i]["high"] * _factor(p["trigger_buffer_pct"]), "invalidation": lo(i - L + 1, i),
                    "score": score, "notes": "RSI low %.0f, green close above the 200-day" % rmin}
-    elif setup == "squeeze" and uptrend:
-        r10 = hi(i - 9, i) - lo(i - 9, i)
-        rp = hi(i - 39, i - 10) - lo(i - 39, i - 10)
-        if rp > 0 and r10 < 0.5 * rp and r10 / c < 0.08:
-            score = 50 + (0.5 - r10 / rp) * 80 + min(15, (c / s200 - 1) * 40)
-            sig = {"trigger": hi(i - 9, i) * 1.002, "invalidation": lo(i - 9, i),
-                   "score": score, "notes": "10-day range %.1f%% vs prior %.1f%%"
-                   % (r10 / c * 100, rp / c * 100)}
+            w = [why_item("SETUP", "close above the %d-day average" % p["trend_slow_ma"], c, slow, ">", True, "Rs"),
+                 why_item("SETUP", "lowest RSI(%d) of the last %d days" % (p["rsi_length"], N), rmin, p["rsi_below"],
+                          "<", True, "RSI"),
+                 why_item("SETUP", "green day (close above open)", bars[i]["close"], bars[i]["open"], ">", green, "Rs",
+                          None if p["require_green_day"] else "not required (require_green_day is false)")]
+    elif setup == "squeeze":
+        R, P = p["recent_days"], p["prior_days"]
+        r10 = hi(i - R + 1, i) - lo(i - R + 1, i)
+        rp = hi(i - R - P + 1, i - R) - lo(i - R - P + 1, i - R)
+        ratio, maxr = p["max_range_ratio"], p["max_recent_range_pct"]
+        if rp > 0 and r10 < ratio * rp and r10 / c < maxr / 100.0:
+            score = 50 + (ratio - r10 / rp) * 80 + min(15, (c / slow - 1) * 40)
+            sig = {"trigger": hi(i - R + 1, i) * _factor(p["trigger_buffer_pct"]), "invalidation": lo(i - R + 1, i),
+                   "score": score, "notes": "%d-day range %.1f%% vs prior %.1f%%"
+                   % (R, r10 / c * 100, rp / c * 100)}
+            w += [why_item("SETUP", "%d-day range / prior %d-day range" % (R, P), r10 / rp, ratio, "<", True, "ratio"),
+                  why_item("SETUP", "%d-day range as %% of price" % R, r10 / c * 100, maxr, "<", True, "%")]
     elif setup == "trend":
-        s200_prev = ind["sma200"][i - 20]
-        if i >= 251 and s200_prev and c > s200 and s50 > s200 and s200 > s200_prev:
-            h52 = hi(i - 251, i)
-            ret6 = c / ind["close"][i - 126] - 1
-            if c >= 0.85 * h52 and ret6 > 0:
-                score = 50 + (c / h52 - 0.85) * 200 + min(20, ret6 * 50)
-                sig = {"trigger": bars[i]["high"] * 1.002, "invalidation": max(lo(i - 19, i), s200 * 0.97),
+        sl, f, d = p["slow_ma"], p["fast_ma"], p["slope_days"]
+        s200, s50 = S("sma", sl), S("sma", f)
+        if s200 is None or s50 is None:
+            return None
+        s200_prev = S("sma", sl, i - d)
+        L = p["high_lookback_days"]
+        if i >= L - 1 and s200_prev and c > s200 and s50 > s200 and s200 > s200_prev:
+            h52 = hi(i - L + 1, i)
+            RL = p["return_lookback_days"]
+            ret6 = c / ind["close"][i - RL] - 1
+            mp = p["min_pct_of_high"] / 100.0
+            if c >= mp * h52 and ret6 > p["min_return_pct"] / 100.0:
+                score = 50 + (c / h52 - mp) * 200 + min(20, ret6 * 50)
+                IL = p["invalidation_lookback_days"]
+                sig = {"trigger": bars[i]["high"] * _factor(p["trigger_buffer_pct"]),
+                       "invalidation": max(lo(i - IL + 1, i), s200 * _factor(p["ma_buffer_pct"], -1)),
                        "score": score, "notes": "%.1f%% below the 52-week high, 6-month return %.1f%%"
                        % ((1 - c / h52) * 100, ret6 * 100)}
+                w = [why_item("SETUP", "close above the %d-day average" % sl, c, s200, ">", True, "Rs"),
+                     why_item("SETUP", "%d-day average above the %d-day" % (f, sl), s50, s200, ">", True, "Rs"),
+                     why_item("SETUP", "%d-day average rising (vs %d days ago)" % (sl, d), s200, s200_prev, ">", True,
+                              "Rs"),
+                     why_item("SETUP", "close as %% of the %d-day high" % L, c / h52 * 100, p["min_pct_of_high"], ">=",
+                              True, "%", "%d-day high %.2f" % (L, h52)),
+                     why_item("SETUP", "%d-day return" % RL, ret6 * 100, p["min_return_pct"], ">", True, "%")]
     if not sig:
         return None
     sig.update({
@@ -562,34 +1127,56 @@ def detect(setup, bars, ind, i, tick=0.05):
         "trigger": round_tick(sig["trigger"], tick, "up"),
         "invalidation": round_tick(sig["invalidation"], tick, "down"),
         "atr": round(a, 2), "score": round(sig["score"], 1),
-        "valid_days": 5 if setup == "trend" else 3,
+        "valid_days": p["valid_days"],
         "mode": "delivery" if setup in DELIVERY_SETUPS else "swing",
     })
     if sig["invalidation"] >= sig["trigger"]:
         return None
+    if sig["score"] < p["min_score"]:
+        return None
+    sig["why"] = w + [
+        why_item("SETUP", "score", sig["score"], p["min_score"], ">=", True, "score"),
+        why_item("SETUP", "stop structure (invalidation) under the trigger", sig["invalidation"], sig["trigger"], "<",
+                 True, "Rs", "buy-stop trigger %.2f, valid %d sessions" % (sig["trigger"], sig["valid_days"]))]
     return sig
 
 
-def detect_all(bars, mode="swing", i=None, setups=None, tick=0.05):
+def enabled_setups(cfg, names):
+    return [n for n in names if setup_params(cfg, n).get("enabled", True)]
+
+
+def detect_all(bars, mode="swing", i=None, setups=None, tick=0.05, cfg=None):
     ind = indicators(bars)
     i = len(bars) - 1 if i is None else i
     names = setups or (SWING_SETUPS if mode == "swing" else DELIVERY_SETUPS if mode == "delivery"
                        else SWING_SETUPS + DELIVERY_SETUPS)
-    out = [s for s in (detect(n, bars, ind, i, tick) for n in names) if s]
+    names = enabled_setups(cfg, names)
+    out = [s for s in (detect(n, bars, ind, i, tick, cfg) for n in names) if s]
     return sorted(out, key=lambda s: -s["score"])
 
 
-def liquidity_ok(bars, cfg):
-    ind_v = sma([float(b["volume"]) for b in bars], 20)[-1]
+def liquidity_check(bars, cfg):
+    """Price and average traded value -> (ok, text, why[])."""
+    n = ((cfg.get("scanner") or {}).get("liquidity_days") or 20)
+    ind_v = sma([float(b["volume"]) for b in bars], n)[-1] if bars else None
     if ind_v is None:
-        return False, "less than 20 days of data"
+        return False, "less than %d days of data" % n, [
+            why_item("LIQUIDITY", "days of price data", len(bars), n, ">=", False, "days")]
     c = bars[-1]["close"]
     turnover = ind_v * c
+    w = [why_item("LIQUIDITY", "price (last close)", c, cfg["min_price"], ">=", not c < cfg["min_price"], "Rs"),
+         why_item("LIQUIDITY", "%d-day average traded value" % n, turnover, cfg["min_turnover_rs"], ">=",
+                  not turnover < cfg["min_turnover_rs"], "Rs")]
     if c < cfg["min_price"]:
-        return False, "price %.2f under min_price %s" % (c, cfg["min_price"])
+        return False, "price %.2f under min_price %s" % (c, cfg["min_price"]), w
     if turnover < cfg["min_turnover_rs"]:
-        return False, "20-day avg turnover %s under %s" % (fmt_rs(turnover, 0), fmt_rs(cfg["min_turnover_rs"], 0))
-    return True, "avg turnover %s" % fmt_rs(turnover, 0)
+        return False, "%d-day avg turnover %s under %s" % (n, fmt_rs(turnover, 0), fmt_rs(cfg["min_turnover_rs"], 0)), w
+    return True, "avg turnover %s" % fmt_rs(turnover, 0), w
+
+
+def liquidity_ok(bars, cfg):
+    ok, why, _ = liquidity_check(bars, cfg)
+    return ok, why
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +1222,19 @@ def plan_trade(sig, cfg, entry=None):
         "risk_per_share": risk, "max_hold_days": m["max_hold_days"],
         "product": "CNC",
     }
+    stop_pct = (entry - stop) / entry * 100
+    cap = m.get("max_stop_pct")
+    in_atr = risk / a if a else None
+    plan["why"] = [
+        why_item("PLAN", "stop distance under the entry", stop_pct, cap, "<=",
+                 cmp_op(round(stop_pct, 6), "<=", cap), "%", "stop %.2f: %s" % (stop, method)),
+        why_item("PLAN", "stop distance in ATR", in_atr, m["min_stop_atr"], ">=",
+                 cmp_op(None if in_atr is None else round(in_atr, 6), ">=", m["min_stop_atr"]), "ATR",
+                 "ATR %.2f; the %% cap wins when both apply" % a),
+        why_item("PLAN", "target", m["target_r"], None, None, True, "R",
+                 "target %.2f = entry %.2f + %sR x risk %.2f" % (target, entry, _fmt_val(m["target_r"]), risk)),
+        why_item("PLAN", "time stop", m["max_hold_days"], None, None, True, "sessions"),
+    ]
     if mode == "swing":
         plan["trail"] = ["at +1R move the stop to entry (breakeven)",
                          "at +1.5R trail the stop under the 20-day EMA, checked on closing basis",
@@ -933,7 +1533,60 @@ def financial_screen(f, cfg):
     else:
         status = "compliant"
         reasons = ["all three TASIS-style ratios within limits"] + reasons
-    return {"status": status, "ratios": ratios, "reasons": reasons, "as_of": as_of}
+    return {"status": status, "ratios": ratios, "reasons": reasons, "as_of": as_of,
+            "why": _ratio_why(ratios, h, "the screen")}
+
+
+_RATIO_CHECKS = (("debt / total assets", "debt_to_assets_pct", "max_debt_to_assets_pct", None),
+                 ("reported interest / total income", "interest_income_pct", "max_noncompliant_income_pct",
+                  "interest the company reported"),
+                 ("non-compliant income (reported + assumed return)", "noncompliant_income_pct",
+                  "max_noncompliant_income_pct", "the TASIS income test"),
+                 ("cash + receivables / total assets", "cash_receivables_to_assets_pct",
+                  "max_cash_receivables_to_assets_pct", None))
+
+
+def _ratio_why(ratios, limits, when):
+    """The halal ratios against the limits they were tested with. A missing ratio is ok=None."""
+    w = []
+    for label, key, lim, note in _RATIO_CHECKS:
+        v, L = ratios.get(key), (limits or {}).get(lim)
+        w.append(why_item("HALAL", label, v, L, "<", None if v is None or L is None else not v >= L, "%",
+                          note if v is not None else "UNKNOWN: not in the data (%s)" % when))
+        if key == "noncompliant_income_pct":
+            rate = (limits or {}).get("noncompliant_investment_return_pct")
+            av = ratios.get("assumed_return_pct")
+            w.append(why_item("HALAL", "of which assumed return on short-term investments", av, None, None,
+                              None if av is None else True, "%",
+                              "assumed %s%% a year" % _fmt_val(rate) if rate is not None
+                              else "assumed rate not recorded in this list (TASIS uses 8%)"))
+    return w
+
+
+def halal_why(rec, universe=None):
+    """HALAL items for one stock, from its halal-list record: status, your override, the ratios
+    and the limits they were tested with when the list was built, and the date of the figures."""
+    uni = universe or {}
+    st = rec.get("status")
+    w = [why_item("HALAL", "halal status", st, "compliant", "==", None if st is None else st == "compliant",
+                  None, "; ".join((rec.get("reasons") or [])[:2]) or None)]
+    ov = rec.get("override")
+    if ov:
+        w.append(why_item("HALAL", "your override", ov.get("status"), None, None, True, None,
+                          "%s (set %s)" % (ov.get("note") or "no note", ov.get("date") or "UNKNOWN")))
+    if rec.get("why"):
+        w += [dict(x) for x in rec["why"]]
+    elif rec.get("ratios"):
+        w += [dict(x, note=(x["note"] or "") + (" " if x["note"] else "") + "(from the ratios and limits stored "
+                     "when the list was built)") for x in _ratio_why(rec["ratios"], uni.get("thresholds"), "list")]
+    else:
+        w.append(why_item("HALAL", "financial ratios", None, None, None, None, "%",
+                          "UNKNOWN: not computed for this stock (%s)" % (rec.get("source") or uni.get("source")
+                                                                         or "no source")))
+    w.append(why_item("HALAL", "figures as of", rec.get("as_of"), None, None, True if rec.get("as_of") else None,
+                      "date", "halal list built %s (%s)" % (uni.get("updated") or "UNKNOWN",
+                                                           uni.get("method") or "TASIS-style")))
+    return w
 
 
 def load_universe():
@@ -952,6 +1605,7 @@ def halal_status(sym, universe=None):
         rec["status"] = ov["status"]
         rec["reasons"] = ["user override: %s" % ov.get("note", "no note")] + list(rec.get("reasons", []))
         rec["source"] = "override"
+        rec["override"] = dict(ov)
     if sym in KNOWN_EXCLUDED and rec.get("source") != "override":
         rec["status"] = "excluded"
         rec["reasons"] = ["core business: %s" % KNOWN_EXCLUDED[sym]]

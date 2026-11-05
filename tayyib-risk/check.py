@@ -19,32 +19,86 @@ import tayyib_core as tc  # noqa: E402
 REQUIRED = ("id", "symbol", "side", "product", "qty", "trigger_price", "stop", "target")
 
 
+def news_why(sym, news, today=None):
+    """NEWS items for one stock from trader/news.json as the risk check reads it: HALAL-WATCH and
+    results headlines, or UNKNOWN (ok=None) when the news step did not run or its sources failed."""
+    W = tc.why_item
+    syms = (news or {}).get("symbols")
+    asof = (news or {}).get("asof")
+    if not news or syms is None or sym not in syms:
+        return [W("NEWS", "news", None, None, None, None, None,
+                  "UNKNOWN: no news fetched for %s (news step skipped or failed)" % sym),
+                W("NEWS", "results due date", None, None, None, None, "date",
+                  "UNKNOWN: no results calendar is fetched")]
+    errs = [e for e in (news.get("errors") or []) if e.startswith(("google %s:" % sym, "nse %s:" % sym))]
+    when = "news of %s" % (asof or "UNKNOWN")
+    if asof and today and asof[:10] < today:
+        when += " (not today's)"
+    out = []
+    for it in syms.get(sym) or []:
+        if it.get("halal_watch"):
+            out.append(W("NEWS", "HALAL-WATCH news", it["title"][:90], None, None, False, None,
+                         "%s: WARN (%s)" % (", ".join(it["halal_watch"]), it.get("published") or "no date")))
+        if "results" in it.get("tags", []):
+            out.append(W("NEWS", "results news in the window", it["title"][:70], None, None, False, None,
+                         "gaps are likely: WARN (%s)" % (it.get("published") or "no date")))
+    if not out:
+        n = len(syms.get(sym) or [])
+        out.append(W("NEWS", "HALAL-WATCH or results news", "none", None, None, None if errs and not n else True,
+                     None, "%d headline%s checked, %s" % (n, "" if n == 1 else "s", when)))
+    if errs:
+        out.append(W("NEWS", "news sources for this stock", "%d failed" % len(errs), None, None, None, None,
+                     "UNKNOWN for those: " + "; ".join(e[:80] for e in errs)))
+    out.append(W("NEWS", "results due date", None, None, None, None, "date",
+                 "UNKNOWN: no results calendar is fetched; results headlines are flagged above"))
+    return out
+
+
 def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, extra_ind=None, extra_value=0.0,
                 sim=None):
-    block, warn, ok = [], [], []
+    """PASS / WARN / BLOCK for one order -> {id, symbol, status, block[], warn[], ok[], why[]}.
+    why[] records every check with the value used and its limit, at the moment it is decided."""
+    W = tc.why_item
+    block, warn, ok, why = [], [], [], []
     missing = [k for k in REQUIRED if o.get(k) in (None, "")]
     if missing:
         return {"id": o.get("id", "?"), "symbol": o.get("symbol", "?"), "status": "BLOCK",
                 "block": ["order is missing %s: re-run tayyib-budget --write" % ", ".join(missing)],
-                "warn": [], "ok": []}
+                "warn": [], "ok": [],
+                "why": [W("RISK", "order fields", ", ".join(missing), None, None, False, None, "missing: BLOCK")]}
     holdings = {}
     for p in positions:
         if p.get("status") == "open":
             holdings[p["symbol"]] = holdings.get(p["symbol"], 0) + p["qty"]
-    block += ["hard rule: " + v for v in tc.guard_order(o, holdings)]
+    hard = tc.guard_order(o, holdings)
+    block += ["hard rule: " + v for v in hard]
+    why.append(W("RISK", "hard rules (CNC, BUY to open, no F&O, no margin)", "; ".join(hard) or "none broken",
+                 None, None, not hard, None, "BLOCK" if hard else None))
 
     h = tc.halal_status(o["symbol"], uni)
     if not uni.get("stocks"):
         block.append("no halal universe: run tayyib-halal build")
+        why.append(W("HALAL", "halal status at the risk check", None, "compliant", "==", None, None,
+                     "UNKNOWN: no halal list: BLOCK"))
     elif h["status"] == "compliant":
         ok.append("halal: compliant (%s)" % h.get("source", ""))
+        why.append(W("HALAL", "halal status at the risk check", "compliant", "compliant", "==", True, None,
+                     h.get("source") or None))
     elif h["status"] == "review" and cfg["halal"]["allow_review"]:
         warn.append("halal: under review, allowed by config: %s" % "; ".join(h.get("reasons", [])[:2]))
-    elif cfg["halal"]["require_compliant"] or h["status"] == "excluded":
+        why.append(W("HALAL", "halal status at the risk check", "review", "compliant", "==", False, None,
+                     "WARN: allowed by halal.allow_review (%s)" % (cfg.get("_halal_loosened") or "no note")))
+    else:
+        # hard rule: anything not compliant is blocked; no config key switches this off
         block.append("halal: %s (%s)" % (h["status"], "; ".join(h.get("reasons", [])[:2])))
+        why.append(W("HALAL", "halal status at the risk check", h["status"], "compliant", "==", False, None,
+                     "BLOCK"))
     age = tc.universe_age_days(uni)
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
         warn.append("halal list is %d days old (max %d): rebuild it" % (age, cfg["halal"]["list_max_age_days"]))
+    why.append(W("RISK", "halal list age", age, cfg["halal"]["list_max_age_days"], "<=",
+                 None if age is None else not age > cfg["halal"]["list_max_age_days"], "days",
+                 "WARN when older" if age is not None else "UNKNOWN: the list has no build date"))
 
     budget = cfg["capital"] * cfg["max_risk_per_trade_pct"] / 100.0
     if cfg.get("max_risk_per_trade_rs"):
@@ -52,49 +106,96 @@ def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, ext
     loss = o.get("loss_at_stop_rs", 0)
     (ok if loss <= budget + 0.01 else block).append(
         "loss at stop %s vs max %s" % (tc.fmt_rs(loss), tc.fmt_rs(budget)))
+    why.append(W("RISK", "loss at the stop incl. charges", o.get("loss_at_stop_rs"), round(budget, 2), "<=",
+                 None if o.get("loss_at_stop_rs") is None else loss <= budget + 0.01, "Rs",
+                 "%s%% of capital%s" % (tc._fmt_val(cfg["max_risk_per_trade_pct"]),
+                                       ", capped at %s" % tc.fmt_rs(cfg["max_risk_per_trade_rs"], 0)
+                                       if cfg.get("max_risk_per_trade_rs") else "")))
     pv = o["qty"] * o["trigger_price"]
     maxpv = cfg["capital"] * cfg["max_position_pct"] / 100.0
     (ok if pv <= maxpv + 0.01 else block).append(
         "position %s vs max %s" % (tc.fmt_rs(pv), tc.fmt_rs(maxpv)))
+    why.append(W("RISK", "position size", pv, maxpv, "<=", pv <= maxpv + 0.01, "Rs",
+                 "%s%% of capital max" % tc._fmt_val(cfg["max_position_pct"])))
     open_pos = [p for p in positions if p.get("status") == "open"]
     invested = sum(p["qty"] * p["entry"] for p in open_pos)
     cash = cfg["cash_available"] if cfg.get("cash_available") is not None else cfg["capital"] - invested
     cash -= extra_value
     need = pv + o.get("buy_charges_rs", 0)
     (ok if need <= cash + 0.01 else block).append("needs %s, cash %s" % (tc.fmt_rs(need), tc.fmt_rs(cash)))
+    why.append(W("RISK", "cash needed (after earlier tickets)", need, cash, "<=", need <= cash + 0.01, "Rs"))
     n = len(open_pos) + extra_count
     (ok if n < cfg["max_open_positions"] else block).append(
         "open positions %d (max %d)" % (n, cfg["max_open_positions"]))
+    why.append(W("RISK", "open positions + approved tickets before this one", n, cfg["max_open_positions"], "<",
+                 n < cfg["max_open_positions"], "positions"))
     heat = sum(max(0.0, (p["entry"] - p["stop"]) * p["qty"]) for p in open_pos) + extra_heat
     heat_new = (heat + loss) / cfg["capital"] * 100
     (ok if heat_new <= cfg["max_portfolio_heat_pct"] + 1e-9 else block).append(
         "portfolio heat %.2f%% after this trade (max %.1f%%)" % (heat_new, cfg["max_portfolio_heat_pct"]))
+    why.append(W("RISK", "portfolio heat after this trade", heat_new, cfg["max_portfolio_heat_pct"], "<=",
+                 heat_new <= cfg["max_portfolio_heat_pct"] + 1e-9, "%", "total loss if every open stop is hit"))
     ind = h.get("industry") or ""
     if ind:
         same = sum(1 for p in open_pos if tc.halal_status(p["symbol"], uni).get("industry") == ind)
         same += (extra_ind or {}).get(ind, 0)
         (ok if same < cfg["max_positions_per_industry"] else block).append(
             "%d open in %s (max %d)" % (same, ind, cfg["max_positions_per_industry"]))
+        why.append(W("RISK", "positions in %s before this one" % ind, same, cfg["max_positions_per_industry"], "<",
+                     same < cfg["max_positions_per_industry"], "positions"))
+    else:
+        why.append(W("RISK", "positions in the same industry", None, cfg["max_positions_per_industry"], "<", None,
+                     "positions", "UNKNOWN: no industry in the halal list, so this limit was not checked"))
     rr = o.get("reward_risk_net") or 0
     (ok if rr >= cfg["min_reward_risk"] else block).append(
         "net reward:risk %.2f (min %.1f)" % (rr, cfg["min_reward_risk"]))
+    why.append(W("PLAN", "net reward:risk after charges", o.get("reward_risk_net"), cfg["min_reward_risk"], ">=",
+                 None if o.get("reward_risk_net") is None else rr >= cfg["min_reward_risk"], "R"))
     vu = o.get("valid_until")
     if vu and tc.today_ist() > tc.parse_date(vu):
         block.append("plan expired on %s: re-scan" % vu)
+    why.append(W("RISK", "plan valid until", vu, tc.today_ist().isoformat(), ">=",
+                 None if not vu else not tc.today_ist() > tc.parse_date(vu), "date",
+                 None if vu else "UNKNOWN: the order has no expiry date"))
     if o["symbol"] in holdings:
         warn.append("already holding %d %s: this adds to it" % (holdings[o["symbol"]], o["symbol"]))
+        why.append(W("RISK", "already holding", holdings[o["symbol"]], None, None, False, "shares", "WARN"))
     res = ((sim or {}).get("results") or {}).get(o["symbol"]) or {}
+    same_setup = (res.get("plan") or {}).get("setup") == o.get("setup")
     exp = (res.get("monte_carlo") or {}).get("expectancy_r")
-    if exp is not None and exp < 0 and (res.get("plan") or {}).get("setup") == o.get("setup"):
+    if exp is not None and exp < 0 and same_setup:
         warn.append("time machine expectancy is negative (%+.2fR after charges): the past says this plan loses "
                     "on average" % exp)
+    hist = res.get("history") or {}
+    used = exp if same_setup else None
+    why.append(W("HISTORY", "time-machine expectancy after charges", used, 0, ">=",
+                 None if used is None else not used < 0, "R",
+                 ("WARN when negative" if used is not None else
+                  "UNKNOWN: no time-machine result for this plan" if not res else
+                  "UNKNOWN: the time-machine result is for another setup (%s)" % (res.get("plan") or {}).get("setup"))))
+    nt = hist.get("trades") if same_setup else None
+    why.append(W("HISTORY", "past trades of this setup on this stock", nt, 8, ">=",
+                 None if nt is None else nt >= 8, "trades",
+                 None if nt is None else ("too few to trust (under 8): information only" if nt < 8 else
+                                          "past expectancy %+.2fR" % hist["expectancy_r"]
+                                          if hist.get("expectancy_r") is not None else None)))
     for it in (news.get("symbols", {}) or {}).get(o["symbol"], []):
         if it.get("halal_watch"):
             warn.append("HALAL-WATCH news: %s (%s)" % (it["title"][:90], ", ".join(it["halal_watch"])))
         if "results" in it.get("tags", []):
             warn.append("results news in the window: gaps are likely (%s)" % it["title"][:70])
+    why += news_why(o["symbol"], news, tc.today_ist().isoformat())
     status = "BLOCK" if block else ("WARN" if warn else "PASS")
-    return {"id": o["id"], "symbol": o["symbol"], "status": status, "block": block, "warn": warn, "ok": ok}
+    return {"id": o["id"], "symbol": o["symbol"], "status": status, "block": block, "warn": warn, "ok": ok,
+            "why": why}
+
+
+def result_why(r):
+    """The final RISK item: the status and the first reason, the same one tayyib-daily shows."""
+    first = (r.get("block") or [None])[0] or \
+        (sorted(r.get("warn") or [], key=lambda w: "HALAL-WATCH" not in w) or [None])[0]
+    return tc.why_item("RISK", "result", r["status"], None, None, r["status"] == "PASS", None,
+                       first or "every check passed")
 
 
 def base_id(oid):
@@ -109,6 +210,7 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     store = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
     positions = (tc.read_json("positions.json", {}) or {}).get("positions", [])
     uni = tc.load_universe()
@@ -127,6 +229,9 @@ def main(argv=None):
             r["block"].append("this signal (%s) is already placed: a second ticket would double the risk "
                               "on one trade" % base_id(o["id"]))
             r["status"] = "BLOCK"
+            r.setdefault("why", []).append(tc.why_item("RISK", "second ticket for a placed signal", base_id(o["id"]),
+                                                       None, None, False, None, "BLOCK"))
+        r.setdefault("why", []).append(result_why(r))
         requested = not want or o.get("symbol") in want or str(o.get("id", "")).upper() in want
         if requested:
             o["status"] = r["status"]

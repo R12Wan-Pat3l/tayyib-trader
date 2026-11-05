@@ -70,6 +70,7 @@ def main(argv=None):
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     if a.capital:
         cfg["capital"] = a.capital
     if a.risk_pct:

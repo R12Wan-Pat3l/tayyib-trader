@@ -1,5 +1,37 @@
 # Changelog
 
+## v0.1.5 (2026-11-05)
+
+Groundwork for the dashboard. With the default settings every decision is identical to v0.1.4: same
+stocks, setups, entries, stops, targets, quantities and verdicts. A baseline captured before the
+change (2,986 signals across all fixtures, plus five full daily runs) proves it.
+
+- **Thresholds in config.** Every setup threshold (distances to highs and averages, RSI levels, range
+  widths, moving-average lengths, lookbacks, minimum scores) is now `scanner.setups.<name>`, each with
+  `enabled`. There are also `scanner.liquidity_days`, `daily.top`, `daily.picks` (the `--top` /
+  `--picks` flags still win) and `daily.min_expectancy_r` (default off; skipped rows show `FILTERED`).
+- **Validated settings.** Every value is checked against `DEFAULT_CONFIG_DOCS` (a description, range
+  and unit for each, ready for a settings screen). An invalid value falls back to its default for that
+  key only and is reported: `CONFIG: <key> = <value> invalid (range a–b), using default <d>`. Unknown
+  keys are reported and ignored. No key can enable intraday, F&O, shorting, margin or non-compliant
+  stocks: `halal.require_compliant` is now locked, and the exit planner no longer plans an excluded or
+  unknown stock when `allow_review` is on.
+- **Halal loosening policy.** Stricter than TASIS: allowed. Looser (debt > 25%, income > 3%, cash +
+  receivables > 90%, assumed return < 8%, or `allow_review`) needs `halal.loosen_note` (your scholar or
+  source), or the tool reports an error and keeps TASIS. With the note, every daily list and halal list
+  output starts with "Halal thresholds are looser than TASIS (your setting): <note>". There is no
+  AAOIFI preset: it needs market value, which our data cannot give.
+- **Why this stock.** Every daily row has `why[]` (HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK),
+  with each check's value and limit as recorded when it was decided. Missing input is UNKNOWN, never 0.
+  The daily `.md` shows a compact **Why:** block under each top pick. See the [FAQ](docs/FAQ.md).
+- **Settings snapshot.** The daily `.json` records `settings` (a hash plus what differs from the
+  defaults). Each tracker row records its `settings_hash` (older rows: `pre-0.1.5`), and the tracker
+  report, `tracker.json` and the Excel Summary sheet split results by settings.
+- **Risk preview.** `daily.py --risk-preview` shows the loss per trade, the drawdown after 3, 5 and 10
+  losses in a row, and whether risk % or max position % sets the quantity for sample stops.
+- Docs: "Changing your settings" in the [User guide](docs/USER_GUIDE.md), new FAQ answers, and the
+  Technical guide, AGENTS.md and the project brief updated. 157 tests (42 new).
+
 ## v0.1.4 (2026-11-04)
 
 - New skill `tayyib-tracker`: a paper record in **Excel**. Every stock each daily list shows (PASS,

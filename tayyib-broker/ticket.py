@@ -95,6 +95,7 @@ def main(argv=None):
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     orders, pos = load()
 
     if a.cmd == "show":

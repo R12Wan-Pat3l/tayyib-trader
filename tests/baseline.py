@@ -145,6 +145,33 @@ def capture():
     return {"sweep": sweep(), "pipeline": pipeline()}
 
 
+# keys v0.1.5 adds to v0.1.4 records; nothing else may appear, and nothing may change or go missing
+NEW_KEYS = frozenset(("why", "override"))
+
+
+def diff(base, cur, path="", out=None, new_keys=NEW_KEYS):
+    """Every place `cur` differs from `base`: a changed or missing value, or a key that is not an
+    allowed v0.1.5 addition. -> list of 'path: what' strings (empty means identical)."""
+    out = [] if out is None else out
+    if isinstance(base, dict) and isinstance(cur, dict):
+        for k in base:
+            if k not in cur:
+                out.append("%s.%s: missing" % (path, k))
+            else:
+                diff(base[k], cur[k], "%s.%s" % (path, k), out, new_keys)
+        for k in cur:
+            if k not in base and k not in new_keys:
+                out.append("%s.%s: unexpected new key" % (path, k))
+    elif isinstance(base, list) and isinstance(cur, list):
+        if len(base) != len(cur):
+            out.append("%s: %d items, was %d" % (path, len(cur), len(base)))
+        for k, (x, y) in enumerate(zip(base, cur)):
+            diff(x, y, "%s[%d]" % (path, k), out, new_keys)
+    elif base != cur or type(base) != type(cur):
+        out.append("%s: %r, was %r" % (path, cur, base))
+    return out
+
+
 def canonical(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
 

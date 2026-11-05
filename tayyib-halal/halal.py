@@ -52,7 +52,7 @@ def cmd_build(a, cfg):
             else:
                 try:
                     fs = tc.financial_screen(tc.fetch_fundamentals(r["symbol"]), cfg)
-                    rec["ratios"], rec["as_of"] = fs["ratios"], fs["as_of"]
+                    rec["ratios"], rec["as_of"], rec["why"] = fs["ratios"], fs["as_of"], fs["why"]
                     rec["reasons"] += fs["reasons"]
                     rec["status"] = fs["status"] if fs["status"] != "compliant" or st == "pass" else "review"
                 except tc.FetchError as e:
@@ -65,10 +65,10 @@ def cmd_build(a, cfg):
             if not a.json and (n + 1) % 50 == 0:
                 sys.stderr.write("  screened %d/%d\n" % (n + 1, len(rows)))
     h = cfg["halal"]
-    uni = {"updated": tc.today_ist().isoformat(), "source": source, "method": "TASIS-style",
-           "thresholds": {k: h[k] for k in ("max_debt_to_assets_pct", "max_noncompliant_income_pct",
-                                            "max_cash_receivables_to_assets_pct")},
-           "stocks": stocks}
+    uni = {"updated": tc.today_ist().isoformat(), "source": source,
+           "method": "TASIS-style" if h["method"] == "tasis" else "custom",
+           "thresholds": {k: h[k] for k in tc.TASIS_HALAL},
+           "loosened": cfg.get("_halal_loosened"), "stocks": stocks}
     tc.write_json("halal_universe.json", uni)
     counts = {s: sum(1 for x in stocks.values() if x["status"] == s) for s in tc.STATUSES}
     eff = {s: 0 for s in tc.STATUSES}                 # what every other skill uses: overrides applied
@@ -77,8 +77,15 @@ def cmd_build(a, cfg):
     n_ov = len([k for k in (tc.read_json("halal_overrides.json", {}) or {}) if k in stocks])
     out = {"written": "trader/halal_universe.json", "source": source, "counts": counts,
            "counts_with_overrides": eff, "overrides": n_ov, "fetch_errors": errors}
+    banner = tc.halal_banner(cfg, uni)
+    if banner:
+        out = dict({"banner": banner}, **out)
+    if cfg.get("_notes"):
+        out["config_notes"] = tc.config_notes(cfg)
     if a.json:
         return tc.print_json(out)
+    if banner:
+        print(banner)
     print("Halal universe built: %d stocks from %s" % (len(stocks), source))
     print("  %-10s %8s %18s" % ("", "screen", "after overrides"))
     for s in tc.STATUSES:
@@ -130,8 +137,11 @@ def cmd_check(a, cfg):
                 rec["status"] = "excluded"
             rec["source"] = "live check (not saved)"
         out.append(rec)
+    banner = tc.halal_banner(cfg, uni)
     if a.json:
-        return tc.print_json(out)
+        return tc.print_json({"banner": banner, "stocks": out} if banner else out)
+    if banner:
+        print(banner)
     for rec in out:
         show(rec, cfg)
     age = tc.universe_age_days(uni)
@@ -144,8 +154,11 @@ def cmd_list(a, cfg):
     rows = [tc.halal_status(s, uni) for s in sorted(uni.get("stocks", {}))]
     if a.status:
         rows = [r for r in rows if r["status"] == a.status]
+    banner = tc.halal_banner(cfg, uni)
     if a.json:
-        return tc.print_json(rows)
+        return tc.print_json({"banner": banner, "stocks": rows} if banner else rows)
+    if banner:
+        print(banner)
     print("%d stocks (%s), updated %s, source: %s" % (len(rows), a.status or "all",
                                                      uni.get("updated"), uni.get("source")))
     for r in rows:
@@ -193,8 +206,13 @@ def cmd_compare(a, cfg):
            "agreement_pct": round(len(agree) / covered * 100, 1) if covered else None,
            "we_say_compliant_they_do_not": we_looser, "they_say_compliant_we_block": we_stricter,
            "not_in_our_universe": not_in_ours, "agree": len(agree)}
+    banner = tc.halal_banner(cfg, uni)
+    if banner:
+        out = dict({"banner": banner}, **out)
     if getattr(a, "json", False):
         return tc.print_json(out)
+    if banner:
+        print(banner)
     print("Compared with %s: %d symbols, %d also in our universe, agreement %s%%"
           % (os.path.basename(a.file), len(theirs), covered, out["agreement_pct"]))
     print("\n1. WE SAY COMPLIANT, THEY DO NOT (%d): check these first; they could let a non-halal trade through"
@@ -275,6 +293,7 @@ def main(argv=None):
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     cfg = tc.load_config()
+    tc.report_config(cfg)
     {"build": cmd_build, "check": cmd_check, "list": cmd_list, "override": cmd_override,
      "compare": cmd_compare}[a.cmd](a, cfg)
 

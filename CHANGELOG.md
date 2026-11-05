@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.1.7 (2026-11-05)
+
+Fixes from the live check of the pipeline, and a read-only dashboard.
+
+### Added
+
+- **New skill `tayyib-dashboard`: your dashboard in the browser.** Ask "show my dashboard" (or run
+  `py tayyib-dashboard/dashboard.py`) and it opens `http://127.0.0.1:8765/` with four tabs:
+  - **Today:** banners and staleness, top-pick cards, the full table (sort, filter by check and mode), and
+    a **Why?** panel per row with ✓ / ✗ / UNKNOWN for every check. Capped stops and near-limit halal ratios
+    are marked.
+  - **Results:** every tracked pick with a labelled verdict (TARGET = right, STOP = wrong, NOT TRIGGERED =
+    no trade), a price chart with the entry, stop and target, the summary by check, mode, setup and
+    settings label (the same numbers as the Excel Summary), and the equity curve. Until 30 trades have
+    closed it says "still noise: don't judge yet".
+  - **Halal:** search, status filter, ratio bars against the limits, your overrides.
+  - **Tickets:** unplaced tickets with Copy buttons for the Kite and Groww steps, and your positions.
+- It is **read-only**: it runs on 127.0.0.1 only and answers GET only. It checks the Host header, sends
+  no CORS headers, serves a fixed list of files and writes nothing. It cannot place, change or cancel an
+  order. Every row and ticket is re-checked against the current halal list: a stock that is no longer
+  compliant shows "halal status changed since this list: re-check" and no prices. Works offline, light
+  and dark, and status is never shown by colour alone.
+- Design system made with UI/UX Pro Max at development time: `design-system/tayyib/MASTER.md`.
+
+### Behaviour change: ranking (default@1 → default@2)
+
+- **Ranking on thin evidence.** A time-machine expectancy from one or two past trades no longer decides
+  the order. Inside each PASS / WARN / BLOCK group, stocks with at least `daily.min_past_trades_for_rank`
+  (new, default **8**) past trades of their setup come first, best expectancy first; the rest follow by
+  setup score. The same order sets which tickets are sized first, so it also decides which ones your
+  position, cash and total-risk limits block, and which are the top picks. The expectancy is still shown,
+  labelled "information only (n trades)".
+- On the 2026-11-05 live list, the top picks change from LAURUSLABS, ETERNAL, WELSPUNLIV to SAILIFE,
+  ETERNAL, SHYAMMETL. LAURUSLABS (+2.47R from 2 past trades) is now sized after two other healthcare
+  stocks and is BLOCKed by the 2-per-industry limit.
+- `DEFAULTS_VERSION` is now 2, so lists made with the defaults are labelled `default@2`. Earlier lists keep
+  `default@1` in the tracker, so the two can be compared.
+- Set `daily.min_past_trades_for_rank` to 0 for the old order. A test proves that with 0 every decision is
+  the same as v0.1.4.
+
+### Changed
+
+- **News source-failure banner.** When NSE announcements or Google News fail for any of today's stocks,
+  the daily list (`.md` and `banners[]` in the `.json`) starts with one line, for example "NSE announcements
+  unavailable today: HALAL-WATCH and results checks are incomplete for 10 of 10 stocks." Each row's NEWS
+  reasons stay UNKNOWN. No verdict changes (tested).
+- **More in why[]** (display only, no decision changes, tested):
+  - **PLAN:** when the % cap set the stop, "chart invalidation Rs X (Y% away); stop capped at Z%"
+    (`stop_capped: true`, also on the daily row).
+  - **SETUP context:** % above the 200-day average and the 126-day return (information, not conditions).
+  - **HALAL near limit:** a ratio at or above `halal.near_limit_pct` (new, default 90) of its limit is
+    flagged `near_limit`, and the halal list records `near_limit[]` per stock.
+- The past-trades check in HISTORY uses the new setting instead of a fixed 8.
+- The Kite / Groww steps moved into the core (`tc.broker_steps`), so `ticket.py` and the dashboard show the
+  same text.
+
+### Removed
+
+- **`halal.list_url`.** It was documented but never used. If your config still has it you will see
+  `CONFIG: halal.list_url removed: it was never used`; nothing else changes. Any future import of an
+  official Shariah list may only compare with the screen or make it stricter, never mark a stock compliant.
+
 ## v0.1.6 (2026-11-05)
 
 - **Fix: crash/garbled text on Windows when output contains ₹ (cp1252); all scripts now print and read

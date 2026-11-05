@@ -54,6 +54,9 @@ python3 tayyib-risk/check.py                        # PASS / WARN / BLOCK
 python3 tayyib-broker/ticket.py show                # the ticket the user places themselves
 ```
 
+Dashboard (read-only, 127.0.0.1 only, GET only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
+Never add a button, endpoint or request that places, modifies or cancels an order, or writes a file.
+
 While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions`.
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.
 Year end: `tayyib-purify/purify.py report --year 2026`.
@@ -74,3 +77,7 @@ placement. See the README for client configuration.
   defaults, decisions must stay identical: `tests/test_v015.py` compares them with the v0.1.4 baseline
   (`tests/baseline.py`). Never regenerate that baseline to make a test pass.
 - Record `why[]` items where the decision is made (`tc.why_item`), never recompute them afterwards.
+- Ranking (default@2): `tc.rank_key` orders the daily list, the sizing order and the top picks. With
+  `daily.min_past_trades_for_rank = 0` the baseline test proves every decision is the v0.1.4 one.
+- A future official Shariah-list import may only compare with the self-screen or make it stricter. It must
+  never mark a stock compliant on its own.

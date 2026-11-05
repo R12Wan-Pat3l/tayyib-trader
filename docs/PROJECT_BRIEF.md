@@ -1,19 +1,20 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-05 (v0.1.6).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-05 (v0.1.7).
 
 ## What it is
 
 A free, open-source (MIT) tool that gives a **daily list of halal (Shariah-screened) NSE stocks**
-with entry, stop-loss, target, quantity and a PASS / WARN / BLOCK risk check. It is built as 15
+with entry, stop-loss, target, quantity and a PASS / WARN / BLOCK risk check. It is built as 16
 Claude Code skills (plain Python 3.8+, standard library only), an MCP server, and a paper-trading
 tracker in Excel. It **never places orders**: the user places them in Zerodha or Groww after an
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.1.6** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5, v0.1.6; v0.1.3 is folded into v0.1.4)
-- Tests: 163 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.1.6** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5, v0.1.6; v0.1.3 is folded into v0.1.4).
+  v0.1.7 is committed, not yet tagged
+- Tests: 192 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -37,6 +38,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | skill | job |
 |---|---|
 | tayyib-daily | one command: today's list, top 3 PASS picks, `trader/daily/DATE.md` + `.json` |
+| tayyib-dashboard | read-only local web page over the `trader/` files (127.0.0.1, GET only): Today, Results, Halal, Tickets |
 | tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json` |
 | tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), plus user overrides; `compare` against a trusted fund list |
 | tayyib-scanner | swing setups (breakout, pullback, oversold, squeeze) and delivery (trend) |
@@ -51,10 +53,10 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 
 | file | contents |
 |---|---|
-| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `settings{hash, label ("default@1" when nothing differs), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
-| `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result` |
+| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (v0.1.7: list-level warnings, e.g. "NSE announcements unavailable today: HALAL-WATCH and results checks are incomplete for N of M stocks."), `settings{hash, label ("default@2" when nothing differs; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
+| `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result`. v0.1.7 flags: HALAL ratio items `near_limit` (at or above `halal.near_limit_pct` = 90% of the limit), PLAN `stop capped` item with `stop_capped: true`, SETUP context items with `op: "info"` (% above the 200-day average, 126-day return) |
 | `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
-| `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[]}}` |
+| `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys at or above 90% of their limit; v0.1.7)}}` |
 | settings for a UI | `tc.DEFAULT_CONFIG_DOCS`: `key -> {description, min, max, unit, type, ...}` for every setting; `tc.validate_config(user) -> (cfg, notes)`; `tc.risk_preview(cfg)` (also `daily.py --risk-preview --json`) |
 | `halal_overrides.json` | `{SYM: {status, note, date}}`: the user's rulings, which always win |
 | `orders.json`, `positions.json` | tickets (status SIZED/PASS/WARN/BLOCK/PLACED) and the trade journal |
@@ -94,6 +96,22 @@ over MCP (stdio), none of which place orders.
   Missing input is `ok: null` and shown as UNKNOWN.
 - **UI design tool:** UI/UX Pro Max (a Claude Code plugin) is a development-time design aid for the
   v0.1.7 dashboard. Nothing from it ships or runs in the tool.
+- **Ranking on thin evidence (v0.1.7, default@2):** inside each PASS / WARN / BLOCK group, rows with at
+  least `daily.min_past_trades_for_rank` (8) past trades rank by time-machine expectancy, the rest after
+  them by setup score. The same key (`tc.rank_key`) sets the sizing order (which decides what position
+  limits block) and the top picks. Expectancy stays visible as "information only (n trades)". With the key
+  at 0 every decision equals v0.1.4 (baseline test). On the 2026-11-05 live list this moved SAILIFE (8 past
+  trades) to the top and LAURUSLABS (+2.47R from 2 trades) from first pick to BLOCK (industry limit).
+- **halal.list_url removed (v0.1.7):** it was never read. A config that still has it gets
+  `CONFIG: halal.list_url removed: it was never used`. **Rule for any future official-list import:** it
+  may only be compared with the self-screen, or make the screen stricter (exclude more). It must never mark
+  a stock compliant on its own.
+- **Dashboard (v0.1.7):** read-only, `127.0.0.1` only, GET / HEAD only (others 405), Host header checked
+  (403), no CORS, whitelisted files, no write call. Python does every calculation; the page only draws.
+  Every row and ticket is re-checked against the current halal universe + overrides; a changed stock
+  shows "halal status changed since this list: re-check" and no levels. Designed with UI/UX Pro Max:
+  `design-system/tayyib/MASTER.md` (plain CSS, offline, system fonts, light + dark, status by label +
+  shape, colour-blind-safe Okabe-Ito hues, en-IN numbers).
 - **Run button: not before v0.1.8.** The v0.1.7 dashboard is read-only. v0.1.8 may add a button that
   runs `tayyib-daily` locally (analysis only); it will never place, modify or cancel an order.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
@@ -110,13 +128,16 @@ over MCP (stdio), none of which place orders.
 
 - **v0.1.5:** settings in config with validation and docs, the halal loosening policy,
   `why[]` on every row, settings hash in the daily list and tracker, `--risk-preview`.
-- **v0.1.6** (this release): fix for Windows: ₹ in output crashed the risk check (cp1252); all
-  scripts now print and read UTF-8.
-- **v0.1.7:** a local, read-only dashboard over the `trader/` JSON files (designed with UI/UX Pro Max
-  at development time): today's list with each row's `why[]`, top picks, the tracker (equity curve,
-  win rate by PASS/WARN/BLOCK and by settings hash), halal status with ratios, tickets with the
-  Kite/Groww steps, and a settings screen rendered from `DEFAULT_CONFIG_DOCS` with the risk preview.
-- **v0.1.8:** a run button for `tayyib-daily` from the dashboard (local, analysis only, no orders).
+- **v0.1.6:** fix for Windows: ₹ in output crashed the risk check (cp1252); all scripts now print and
+  read UTF-8.
+- **v0.1.7** (this release): pipeline fixes from the live check (ranking on thin evidence = default@2,
+  the news source-failure banner, why[] additions: capped stop, setup context, near halal limit;
+  `halal.list_url` removed) and the read-only local dashboard (Today, Results, Halal, Tickets).
+- **v0.1.8:** a settings page (rendered from `DEFAULT_CONFIG_DOCS`, with the risk preview) and a run
+  button for `tayyib-daily` (local, analysis only, never an order). **Note for v0.1.8:** the tracker key is
+  `date|symbol|setup` and keeps the first row; a same-day re-run under different settings (which the run
+  button makes easy) is silently not recorded. Decide how to keep both: e.g. add the settings hash to the
+  key, or record the re-run as a separate row and show the split.
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

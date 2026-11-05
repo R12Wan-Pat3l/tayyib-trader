@@ -77,13 +77,14 @@ class Safety(OfflineCase):
     def test_no_order_placing_code(self):
         import os
         from _util import ROOT
-        banned = ("place_order", "kiteconnect", "/orders/regular", "smartapi", "growwapi")
+        banned = ("place_order", "kiteconnect", "/orders/regular", "smartapi", "growwapi",
+                  "api.kite.trade", "api.groww.in", "groww.in/v1", "groww.in/api")
         for d in os.listdir(ROOT):
             if not d.startswith("tayyib-") and d not in ("core", "mcp"):
                 continue
             for f in os.listdir(os.path.join(ROOT, d)):
-                if f.endswith(".py"):
-                    src = open(os.path.join(ROOT, d, f)).read().lower()
+                if f.endswith((".py", ".html")):                  # incl. the dashboard page
+                    src = open(os.path.join(ROOT, d, f), encoding="utf-8").read().lower()
                     for b in banned:
                         self.assertNotIn(b, src, "%s/%s mentions %s" % (d, f, b))
 

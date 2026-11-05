@@ -282,7 +282,7 @@ def export(store):
             ["Result R = profit or loss in units of the planned risk, after Indian charges (+2R = twice the risk)."],
             ["A day that touched both the stop and the target counts as the stop (conservative)."],
             ["Compare 'check: PASS' with 'check: BLOCK' in the Summary to see whether the risk check helped."],
-            ["'settings: ...' rows split the results by the settings each list was made with: default@1 = all "
+            ["'settings: ...' rows split the results by the settings each list was made with: default@1, default@2 = all "
              "defaults, a code like abcd1234 = your changes (the last column says which). pre-0.1.5 = recorded "
              "before settings were tracked."],
             ["Results from a few weeks are noise. Judge after 30+ closed trades."],

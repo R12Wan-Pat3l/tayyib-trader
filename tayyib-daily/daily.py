@@ -94,6 +94,8 @@ def main(argv=None):
     a.picks = cfg["daily"]["picks"] if a.picks is None else a.picks
     cfg["daily"]["top"], cfg["daily"]["picks"] = a.top, a.picks      # the snapshot records what was used
     notes = tc.config_notes(cfg)
+    banners = []                                  # list-level warnings (a data source failed today)
+    K = cfg["daily"]["min_past_trades_for_rank"]
 
     # 1. halal universe: built on first run, rebuilt automatically once it is a month old
     uni = tc.load_universe()
@@ -147,16 +149,25 @@ def main(argv=None):
                 nw = run("tayyib-news", "news.py", "--symbols", ",".join(syms), "--hours", 72)
                 if nw.get("errors"):
                     notes.append("%d news sources failed (e.g. %s)" % (len(nw["errors"]), nw["errors"][0][:70]))
+                b = source_banner(nw.get("errors") or [], syms)
+                if b:
+                    banners.append(b)
             except RuntimeError as e:
                 notes.append("news step failed: %s" % e)
+                banners.append("News unavailable today (the news step failed): HALAL-WATCH and results checks are "
+                               "incomplete for %d of %d stocks." % (len(syms), len(syms)))
         # 4. plans, one per stock with its own setup and mode
         for c in picks:
             run("tayyib-exit", "exit.py", "plan", c["symbol"], "--setup", c["setup"], "--mode", c["mode"], "--write")
         # 5. time machine, 6. size, 7. risk, all for today's stocks only
         tm = run("tayyib-timemachine", "timemachine.py", "run", ",".join(syms), "--runs", a.runs, "--write")
-        # Size best expectancy first: the risk check fills limits (positions, heat, cash) in file order.
-        exp = lambda s: ((tm["results"].get(s) or {}).get("monte_carlo") or {}).get("expectancy_r") or -9
-        syms = sorted(syms, key=lambda s: -exp(s))
+        # Size in rank order: the risk check fills limits (positions, heat, cash) in file order, so this
+        # decides what gets BLOCKed. The same key orders the list and the top picks (tc.rank_key): best
+        # expectancy first among stocks with >= daily.min_past_trades_for_rank past trades, then by score.
+        res = lambda s: tm["results"].get(s) or {}
+        score = {c["symbol"]: c["score"] for c in picks}
+        syms = sorted(syms, key=lambda s: tc.rank_key((res(s).get("monte_carlo") or {}).get("expectancy_r"),
+                                                      (res(s).get("history") or {}).get("trades"), score.get(s), K))
         if mn is not None:
             raw = lambda s: ((tm["results"].get(s) or {}).get("monte_carlo") or {}).get("expectancy_r")
             filtered = {s: raw(s) for s in syms if raw(s) is None or raw(s) < mn}
@@ -207,19 +218,25 @@ def main(argv=None):
                 "expectancy_r": (sim.get("monte_carlo") or {}).get("expectancy_r"),
                 "past_trades": (sim.get("history") or {}).get("trades"),
                 "verdict": sim.get("verdict"),
+                "ranked_by": "score" if tc.thin_evidence((sim.get("history") or {}).get("trades"), K) else "expectancy",
+                "expectancy_use": tc.expectancy_label((sim.get("monte_carlo") or {}).get("expectancy_r"),
+                                                      (sim.get("history") or {}).get("trades"), K),
+                "stop_capped": any(x.get("stop_capped") for x in (pl.get("why") or [])),
                 "risk": r.get("status") if r else ("FILTERED" if s in filtered else "NOT SIZED"),
                 "reason": reason, "reasons": reasons, "order_id": o.get("id"),
             }
             row["why"] = build_why(c, pl, o, r, sim, reasons, mn if s in filtered else None,
-                                   filtered.get(s))
+                                   filtered.get(s), K)
             rows.append(row)
             results[s] = {"plan": pl, "order": o, "risk": r, "sim": sim}
     order = {"PASS": 0, "WARN": 1, "BLOCK": 2, "FILTERED": 3, "NOT SIZED": 4}
-    rows.sort(key=lambda x: (order.get(x["risk"], 4), -(x["expectancy_r"] or -9)))
+    rows.sort(key=lambda x: (order.get(x["risk"], 4),) + tc.rank_key(x["expectancy_r"], x["past_trades"],
+                                                                     x["score"], K))
 
     today = tc.today_ist().isoformat()
     banner = tc.halal_banner(cfg, uni)
     out = {"banner": banner} if banner else {}
+    out["banners"] = banners
     out.update({"date": today, "asof": tc.now_ist().isoformat(timespec="minutes"), "mode": a.mode,
            "capital": cfg["capital"], "risk_per_trade_pct": cfg["max_risk_per_trade_pct"], "broker": cfg["broker"],
            "universe_updated": uni.get("updated"), "scanned": scan["scanned"], "rows": rows, "notes": notes,
@@ -252,14 +269,17 @@ def fmt(x, d=2):
 
 
 def render_md(out):
-    L = ([out["banner"], ""] if out.get("banner") else []) + ["# Halal trade list, %s" % out["date"], "",
+    banners = ["**%s**" % b for b in out.get("banners") or []] + ([""] if out.get("banners") else [])
+    L = ([out["banner"], ""] if out.get("banner") else []) + banners + ["# Halal trade list, %s" % out["date"], "",
          "Capital %s, risk %s%% a trade, %s. Scanned %d halal-compliant stocks (list of %s)."
          % (tc.fmt_rs(out["capital"], 0), out["risk_per_trade_pct"], out["broker"], out["scanned"],
             out["universe_updated"]), ""]
     rows = out["rows"]
     tops = [r for r in rows if r["symbol"] in out.get("top_picks", [])]
     if tops:
-        L.append("**Today's top picks** (PASS, best time-machine expectancy first):")
+        k = ((out.get("settings") or {}).get("values") or {}).get("daily", {}).get("min_past_trades_for_rank", 8)
+        L.append("**Today's top picks** (PASS; best time-machine expectancy first among stocks with at least %d "
+                 "past trades, then the rest by setup score):" % k)
         for r in tops:
             L.append("- **%s** (%s %s): buy above %s, stop %s, target %s, %s shares, risk %s"
                      % (r["symbol"], r["mode"], r["setup"], fmt(r["entry"]), fmt(r["stop"]), fmt(r["target"]),
@@ -276,7 +296,8 @@ def render_md(out):
         for k, r in enumerate(rows, 1):
             tmx = "-" if r["expectancy_r"] is None else "%+.2fR %s; %s past trade%s%s" % (
                 r["expectancy_r"], short_verdict(r["verdict"]), r["past_trades"],
-                "" if r["past_trades"] == 1 else "s", " (too few)" if (r["past_trades"] or 0) < 8 else "")
+                "" if r["past_trades"] == 1 else "s",
+                ", information only: ranked by score" if r.get("ranked_by") == "score" else "")
             L.append("| %d | %s | %s %s | %s | %s | %s | %s | %s | %s | %s | %s | **%s** |" % (
                 k, r["symbol"], r["mode"], r["setup"], fmt(r["entry"]), fmt(r["stop"]), fmt(r["stop_pct"], 1),
                 fmt(r["target"]), r["qty"] if r["qty"] is not None else "-",
@@ -322,7 +343,23 @@ def _placeholder(group, why):
     return tc.why_item(group, "not checked", None, None, None, None, None, why)
 
 
-def build_why(c, pl, o, r, sim, reasons, min_exp=None, exp_value=None):
+def source_banner(errors, syms):
+    """One list-level line when NSE announcements or Google News failed for any of today's stocks
+    (news.py errors look like "nse SYM: ..." and "google SYM: ...")."""
+    names = (("nse", "NSE announcements"), ("google", "Google News"))
+    failed, hit = set(), []
+    for key, label in names:
+        mine = {e.split(":", 1)[0][len(key) + 1:] for e in errors if e.startswith(key + " ")} & set(syms)
+        if mine:
+            hit.append(label)
+            failed |= mine
+    if not hit:
+        return None
+    return ("%s unavailable today: HALAL-WATCH and results checks are incomplete for %d of %d stocks."
+            % (" and ".join(hit), len(failed), len(syms)))
+
+
+def build_why(c, pl, o, r, sim, reasons, min_exp=None, exp_value=None, min_trades=8):
     """why[] for one daily row, put together from what each step recorded when it decided:
     the scanner (HALAL, LIQUIDITY, SETUP), the exit plan (PLAN), the risk check (HALAL at check
     time, NEWS, PLAN net R:R, HISTORY, RISK). Nothing is recomputed here."""
@@ -345,7 +382,7 @@ def build_why(c, pl, o, r, sim, reasons, min_exp=None, exp_value=None):
                                if min_exp is not None else None, "R",
                                "daily.min_expectancy_r: not sized" if min_exp is not None
                                else "not checked: " + first))
-        why.append(tc.why_item("HISTORY", "past trades of this setup on this stock", hs.get("trades"), 8, ">=",
+        why.append(tc.why_item("HISTORY", "past trades of this setup on this stock", hs.get("trades"), min_trades, ">=",
                                None, "trades", "not checked: " + first))
     if o and o.get("qty"):
         why.append(tc.why_item("RISK", "quantity set by", o.get("binding_limit"), None, None, True, None,

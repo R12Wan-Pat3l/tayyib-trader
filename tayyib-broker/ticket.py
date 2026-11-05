@@ -18,23 +18,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
-STEPS = {
-    "zerodha": [
-        "Kite -> search {sym} (NSE) -> Buy -> choose CNC (Longterm), never MIS.",
-        "Order type SL: trigger {trig:.2f}, price {limit:.2f}, quantity {qty}. Or a GTT single "
-        "trigger at {trig:.2f} with limit {limit:.2f} to wait across sessions.",
-        "After it fills: Holdings -> {sym} -> Create GTT -> OCO: stop-loss trigger {stop:.2f}, "
-        "target trigger {target:.2f}, quantity {qty}.",
-    ],
-    "groww": [
-        "Groww -> search {sym} -> Buy -> Delivery (not Intraday, not MTF).",
-        "Use a Stop Loss order: trigger {trig:.2f}, limit {limit:.2f}, quantity {qty}; or a "
-        "GTT/trigger order at {trig:.2f} if your app offers it.",
-        "After it fills: set a stop-loss sell at {stop:.2f} and a target sell at {target:.2f} "
-        "for {qty} shares (GTT/OCO where available, otherwise an alert and a manual sell).",
-    ],
-}
-STEPS["custom"] = STEPS["zerodha"]
+# The Kite / Groww steps live in the core (tc.BROKER_STEPS) so the dashboard shows the same text.
+STEPS = tc.BROKER_STEPS
 
 
 def load():
@@ -63,9 +48,8 @@ def ticket_text(o):
          % (o["stop"], tc.fmt_rs(o["loss_at_stop_rs"]), o["target"], tc.fmt_rs(o["gain_at_target_rs"])),
          "  time stop: sell by %s if neither hits" % (o.get("time_stop_date") or "-"),
          "  How to place it yourself (%s):" % o.get("broker", "zerodha")]
-    for k, step in enumerate(STEPS.get(o.get("broker", "zerodha"), STEPS["zerodha"]), 1):
-        s.append("    %d. %s" % (k, step.format(sym=o["symbol"], trig=o["trigger_price"], limit=o["limit_price"],
-                                              qty=o["qty"], stop=o["stop"], target=o["target"])))
+    for k, step in enumerate(tc.broker_steps(o), 1):
+        s.append("    %d. %s" % (k, step))
     s.append("  Then tell me: ticket.py placed %s --price <your fill>" % o["id"])
     return "\n".join(s)
 

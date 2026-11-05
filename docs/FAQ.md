@@ -170,8 +170,23 @@ Every day it looks at every compliant stock that trades at least Rs 2 crore a da
 - **Delivery setup:** a long-term uptrend near its 52-week high.
 
 The best one per stock is planned, tested and sized. With "all" modes, it alternates swing and delivery
-ideas. Rows are ranked PASS first, then by time-machine expectancy. The top 3 PASS rows are shown as
-**today's top picks**. A setup is a chart pattern, not a prediction.
+ideas. Rows are ranked PASS first, then WARN, then BLOCK; inside each group, see the next question. The
+top 3 PASS rows are shown as **today's top picks**. A setup is a chart pattern, not a prediction.
+
+### Why is the top pick ranked first?
+Inside PASS (and inside WARN and BLOCK), stocks are ranked in two blocks:
+1. Stocks whose setup has appeared **at least 8 times before** on that stock (the time machine's "past
+   trades"): best time-machine expectancy first.
+2. Then the rest, by **setup score** (how cleanly today's chart fits the setup).
+
+Why: an expectancy from 1 or 2 past trades is mostly luck. Ranking by it put a stock with +2.47R from two
+trades ahead of everything else. Now that number is still shown, labelled "information only (2 trades)",
+but it no longer decides the order. The same order decides which tickets are sized first, so it also
+decides which ones get blocked when you reach your open-positions, cash or total-risk limit.
+
+The 8 is a setting: `daily.min_past_trades_for_rank` (0 to 50). Set it to 0 to get the old order
+(expectancy only, as before v0.1.7). Lists made with the new rule are labelled `default@2` in the
+tracker, so you can compare them with the older `default@1` lists.
 
 ### Why was this stock picked?
 Every row of the daily list carries its reasons, recorded at the moment each check was made, with the

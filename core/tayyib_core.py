@@ -38,11 +38,14 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
-DEFAULTS_VERSION = 1
+#   1  v0.1.5: every threshold moved into config, same values as v0.1.4
+#   2  v0.1.7: daily.min_past_trades_for_rank = 8 (rows with fewer past trades rank by setup score);
+#      0 gives the default@1 order exactly
+DEFAULTS_VERSION = 2
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 
@@ -148,6 +151,7 @@ DEFAULT_CONFIG = {
         "top": 10,                      # plan at most N stocks
         "picks": 3,                     # highlight the best N PASS stocks
         "min_expectancy_r": None,       # skip stocks whose time-machine expectancy is lower (null = no filter)
+        "min_past_trades_for_rank": 8,  # rank by expectancy only with this many past trades, else by score
     },
     # trade styles
     "modes": {
@@ -186,7 +190,7 @@ DEFAULT_CONFIG = {
         "max_noncompliant_income_pct": 3.0,     # TASIS
         "max_cash_receivables_to_assets_pct": 90.0,  # TASIS
         "noncompliant_investment_return_pct": 8.0,
-        "list_url": None,               # optional CSV URL of a Shariah list
+        "near_limit_pct": 90.0,         # display only: flag a ratio at or above this share of its limit
         "parent_list_url": "https://niftyindices.com/IndexConstituent/ind_nifty500list.csv",
     },
     # news
@@ -296,7 +300,8 @@ DEFAULT_CONFIG_DOCS = {
                                                      "(TASIS 90; higher needs loosen_note)", 10, 100, "%"),
     "halal.noncompliant_investment_return_pct": _doc("Return assumed on short-term investments for the income "
                                                      "test (TASIS 8; lower needs loosen_note)", 0, 20, "%"),
-    "halal.list_url": _doc("Optional CSV URL of an official Shariah list", type="string", nullable=True),
+    "halal.near_limit_pct": _doc("Display only: flag a halal ratio at or above this % of its limit (90 = within "
+                                 "10% of the limit)", 50, 100, "%"),
     "halal.parent_list_url": _doc("The index list that is self-screened", type="string"),
     "news.feeds": _doc("RSS feeds read for market news: name -> URL", type="map"),
     "news.google_news": _doc("Search Google News India per stock", type="bool"),
@@ -308,6 +313,10 @@ DEFAULT_CONFIG_DOCS = {
                         type="int"),
     "daily.min_expectancy_r": _doc("Skip stocks whose time-machine expectancy is under this (null = no filter)",
                                    -2, 2, "R", nullable=True),
+    "daily.min_past_trades_for_rank": _doc("Rank by time-machine expectancy only when the stock has at least this "
+                                           "many past trades of the setup; the rest are ranked by setup score, "
+                                           "after them (0 = always by expectancy, the default@1 order)", 0, 50,
+                                           "trades", type="int"),
 }
 for _b in ("zerodha", "groww", "custom"):
     DEFAULT_CONFIG_DOCS.update({
@@ -380,6 +389,10 @@ _HARD_RULE_WORDS = {"intraday", "mis", "nrml", "short", "shorting", "shorts", "f
                     "excluded", "unknown", "noncompliant", "non", "orders", "order", "autotrade", "auto"}
 
 
+# keys that existed once and were dropped: a config that still has one gets this note
+REMOVED_KEYS = {"halal.list_url": "it was never used"}
+
+
 def _fmt_val(v):
     if isinstance(v, float) and v == int(v) and abs(v) < 1e15:
         return str(int(v))
@@ -443,6 +456,9 @@ def _clean_user(user, defaults, prefix, notes):
                              % (key, _fmt_val(v)))
                 continue
             out[k] = _clean_user(v, dflt, key + ".", notes)
+            continue
+        if doc is None and key in REMOVED_KEYS:
+            notes.append("CONFIG: %s removed: %s" % (key, REMOVED_KEYS[key]))
             continue
         if doc is None:
             words = set(re.split(r"[._\- ]+", key.lower()))
@@ -543,8 +559,8 @@ def halal_banner(cfg, universe=None):
 
 # Keys that change no decision; every other key is part of the settings snapshot.
 # display or transport only: user_agent (HTTP header), halal.loosen_note (banner text; the thresholds it
-# allows are recorded as values), halal.list_url (documented but read by no script yet)
-SETTINGS_EXCLUDE = ("user_agent", "halal.list_url", "halal.loosen_note")
+# allows are recorded as values), halal.near_limit_pct (only marks ratios near their limit)
+SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct")
 
 
 def _decision_values(cfg):
@@ -653,6 +669,36 @@ def cmp_op(value, op, limit):
         return None
     return {"<": value < limit, "<=": value <= limit, ">": value > limit, ">=": value >= limit,
             "==": value == limit}[op]
+
+
+# ---------------------------------------------------------------------------
+# Ranking on thin evidence (v0.1.7, default@2). One key orders the daily list inside each
+# PASS / WARN / BLOCK group, the sizing order (which decides what the position limits block) and so
+# the top picks. With daily.min_past_trades_for_rank = 0 it is exactly the default@1 order.
+# ---------------------------------------------------------------------------
+
+def thin_evidence(past_trades, min_trades):
+    """True when a stock has too few past trades of its setup for the expectancy to rank it."""
+    return bool(min_trades) and (past_trades is None or past_trades < min_trades)
+
+
+def rank_key(expectancy_r, past_trades, score, min_trades):
+    """Sort key: rows with at least min_trades past trades first, best expectancy first; then the
+    rest by setup score. (A missing expectancy sorts last, as it always has.)"""
+    if thin_evidence(past_trades, min_trades):
+        return (1, -(score or 0))
+    return (0, -(expectancy_r or -9))
+
+
+def expectancy_label(expectancy_r, past_trades, min_trades):
+    """How the expectancy is used: 'ranked (n trades)' or 'information only (n trades)'."""
+    if expectancy_r is None:
+        return "UNKNOWN"
+    n = "UNKNOWN" if past_trades is None else past_trades
+    s = "" if past_trades == 1 else "s"
+    if thin_evidence(past_trades, min_trades):
+        return "information only (%s trade%s)" % (n, s)
+    return "ranked (%s trade%s)" % (n, s)
 
 
 # ---------------------------------------------------------------------------
@@ -869,8 +915,9 @@ def parse_yahoo_chart(obj):
     return bars, meta
 
 
-def get_daily_bars(sym, range_="2y", exchange="NSE", use_cache=True):
-    """Daily OHLCV for an NSE (or BSE) stock. Cached per day in trader/cache/."""
+def get_daily_bars(sym, range_="2y", exchange="NSE", use_cache=True, save=True):
+    """Daily OHLCV for an NSE (or BSE) stock. Cached per day in trader/cache/ (save=False reads the
+    cache but never writes it: the read-only dashboard)."""
     sym = normalize_symbol(sym)
     cache_name = os.path.join("cache", "bars_%s_%s_%s.json" % (sym, exchange, range_))
     if use_cache and not fixtures_dir():
@@ -881,9 +928,17 @@ def get_daily_bars(sym, range_="2y", exchange="NSE", use_cache=True):
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=1d"
            % (urllib.parse.quote(ysym), range_))
     bars, meta = parse_yahoo_chart(fetch_json(url, fixture="chart/%s.json" % sym))
-    if not fixtures_dir():
+    if save and not fixtures_dir():
         write_json(cache_name, {"fetched": today_ist().isoformat(), "bars": bars, "meta": meta})
     return bars, meta
+
+
+def cached_bars(sym, range_="2y", exchange="NSE"):
+    """The last cached bars for a stock, whatever day they were fetched -> (bars, fetched) or (None, None)."""
+    c = read_json(os.path.join("cache", "bars_%s_%s_%s.json" % (normalize_symbol(sym), exchange, range_)))
+    if c and c.get("bars"):
+        return c["bars"], c.get("fetched")
+    return None, None
 
 
 def last_price(sym, exchange="NSE"):
@@ -1168,6 +1223,13 @@ def detect(setup, bars, ind, i, tick=0.05, cfg=None):
         return None
     if sig["score"] < p["min_score"]:
         return None
+    s200 = S("sma", 200)
+    above = (c / s200 - 1) * 100 if s200 else None
+    ret126 = (c / ind["close"][i - 126] - 1) * 100 if i >= 126 and ind["close"][i - 126] else None
+    w += [why_item("SETUP", "context: close above the 200-day average", above, None, "info",
+                   None if above is None else True, "%", "information only, not a condition"),
+          why_item("SETUP", "context: 126-day return", ret126, None, "info", None if ret126 is None else True, "%",
+                   "information only, not a condition")]
     sig["why"] = w + [
         why_item("SETUP", "score", sig["score"], p["min_score"], ">=", True, "score"),
         why_item("SETUP", "stop structure (invalidation) under the trigger", sig["invalidation"], sig["trigger"], "<",
@@ -1269,6 +1331,13 @@ def plan_trade(sig, cfg, entry=None):
                  "target %.2f = entry %.2f + %sR x risk %.2f" % (target, entry, _fmt_val(m["target_r"]), risk)),
         why_item("PLAN", "time stop", m["max_hold_days"], None, None, True, "sessions"),
     ]
+    if "max" in method and "stop" in method:            # the % cap set the stop, not the chart
+        inv = float(sig["invalidation"])
+        it = why_item("PLAN", "stop capped", inv, stop, None, True, "Rs",
+                      "chart invalidation %s (%.1f%% away); stop capped at %s%%"
+                      % (fmt_rs(inv), (entry - inv) / entry * 100, _fmt_val(m["max_stop_pct"])))
+        it["stop_capped"] = True
+        plan["why"].insert(1, it)
     if mode == "swing":
         plan["trail"] = ["at +1R move the stop to entry (breakeven)",
                          "at +1.5R trail the stop under the 20-day EMA, checked on closing basis",
@@ -1568,7 +1637,7 @@ def financial_screen(f, cfg):
         status = "compliant"
         reasons = ["all three TASIS-style ratios within limits"] + reasons
     return {"status": status, "ratios": ratios, "reasons": reasons, "as_of": as_of,
-            "why": _ratio_why(ratios, h, "the screen")}
+            "why": _ratio_why(ratios, h, "the screen"), "near_limit": near_limits(ratios, h)}
 
 
 _RATIO_CHECKS = (("debt / total assets", "debt_to_assets_pct", "max_debt_to_assets_pct", None),
@@ -1580,13 +1649,43 @@ _RATIO_CHECKS = (("debt / total assets", "debt_to_assets_pct", "max_debt_to_asse
                   "max_cash_receivables_to_assets_pct", None))
 
 
-def _ratio_why(ratios, limits, when):
-    """The halal ratios against the limits they were tested with. A missing ratio is ok=None."""
+def _near_pct(limits=None, near_pct=None):
+    if near_pct is not None:
+        return float(near_pct)
+    return float((limits or {}).get("near_limit_pct") or DEFAULT_CONFIG["halal"]["near_limit_pct"])
+
+
+def is_near_limit(value, limit, near_pct=None):
+    """Display only: a ratio at or above near_pct % of its limit (90 = within 10% of it)."""
+    if value is None or not limit:
+        return False
+    return value >= _near_pct(None, near_pct) / 100.0 * limit
+
+
+def near_limits(ratios, limits, near_pct=None):
+    """-> the ratio keys at or above near_pct % of their limit (the halal list's near_limit[])."""
+    near = _near_pct(limits, near_pct)
+    return [key for _, key, lim, _ in _RATIO_CHECKS
+            if is_near_limit((ratios or {}).get(key), (limits or {}).get(lim), near)]
+
+
+def _flag_near(item, near_pct):
+    """Mark a recorded HALAL ratio item near_limit true / false from its own value and limit."""
+    if item.get("group") == "HALAL" and item.get("op") == "<" and item.get("unit") == "%" and "near_limit" not in item:
+        item["near_limit"] = is_near_limit(item.get("value"), item.get("limit"), near_pct)
+    return item
+
+
+def _ratio_why(ratios, limits, when, near_pct=None):
+    """The halal ratios against the limits they were tested with. A missing ratio is ok=None.
+    near_limit: true on a ratio at or above halal.near_limit_pct of its limit (display only)."""
     w = []
+    near = _near_pct(limits, near_pct)
     for label, key, lim, note in _RATIO_CHECKS:
         v, L = ratios.get(key), (limits or {}).get(lim)
         w.append(why_item("HALAL", label, v, L, "<", None if v is None or L is None else not v >= L, "%",
                           note if v is not None else "UNKNOWN: not in the data (%s)" % when))
+        w[-1]["near_limit"] = is_near_limit(v, L, near)
         if key == "noncompliant_income_pct":
             rate = (limits or {}).get("noncompliant_investment_return_pct")
             av = ratios.get("assumed_return_pct")
@@ -1597,9 +1696,10 @@ def _ratio_why(ratios, limits, when):
     return w
 
 
-def halal_why(rec, universe=None):
+def halal_why(rec, universe=None, near_pct=None):
     """HALAL items for one stock, from its halal-list record: status, your override, the ratios
-    and the limits they were tested with when the list was built, and the date of the figures."""
+    and the limits they were tested with when the list was built, and the date of the figures.
+    Ratio items carry near_limit (display only; halal.near_limit_pct, default 90)."""
     uni = universe or {}
     st = rec.get("status")
     w = [why_item("HALAL", "halal status", st, "compliant", "==", None if st is None else st == "compliant",
@@ -1609,10 +1709,11 @@ def halal_why(rec, universe=None):
         w.append(why_item("HALAL", "your override", ov.get("status"), None, None, True, None,
                           "%s (set %s)" % (ov.get("note") or "no note", ov.get("date") or "UNKNOWN")))
     if rec.get("why"):
-        w += [dict(x) for x in rec["why"]]
+        w += [_flag_near(dict(x), near_pct) for x in rec["why"]]
     elif rec.get("ratios"):
         w += [dict(x, note=(x["note"] or "") + (" " if x["note"] else "") + "(from the ratios and limits stored "
-                     "when the list was built)") for x in _ratio_why(rec["ratios"], uni.get("thresholds"), "list")]
+                     "when the list was built)") for x in _ratio_why(rec["ratios"], uni.get("thresholds"), "list",
+                                                                      near_pct)]
     else:
         w.append(why_item("HALAL", "financial ratios", None, None, None, None, "%",
                           "UNKNOWN: not computed for this stock (%s)" % (rec.get("source") or uni.get("source")
@@ -1742,6 +1843,34 @@ HARD_RULES = (
     "cash equities only: no futures, options or other derivatives",
     "every order needs the user's explicit yes; nothing here places orders",
 )
+
+
+# The steps a ticket shows for placing it yourself. tayyib-broker prints them and the dashboard shows
+# them with a Copy button: one copy of the text, here. Nothing in this project places an order.
+BROKER_STEPS = {
+    "zerodha": [
+        "Kite -> search {sym} (NSE) -> Buy -> choose CNC (Longterm), never MIS.",
+        "Order type SL: trigger {trig:.2f}, price {limit:.2f}, quantity {qty}. Or a GTT single "
+        "trigger at {trig:.2f} with limit {limit:.2f} to wait across sessions.",
+        "After it fills: Holdings -> {sym} -> Create GTT -> OCO: stop-loss trigger {stop:.2f}, "
+        "target trigger {target:.2f}, quantity {qty}.",
+    ],
+    "groww": [
+        "Groww -> search {sym} -> Buy -> Delivery (not Intraday, not MTF).",
+        "Use a Stop Loss order: trigger {trig:.2f}, limit {limit:.2f}, quantity {qty}; or a "
+        "GTT/trigger order at {trig:.2f} if your app offers it.",
+        "After it fills: set a stop-loss sell at {stop:.2f} and a target sell at {target:.2f} "
+        "for {qty} shares (GTT/OCO where available, otherwise an alert and a manual sell).",
+    ],
+}
+BROKER_STEPS["custom"] = BROKER_STEPS["zerodha"]
+
+
+def broker_steps(o, broker=None):
+    """The numbered steps to place ticket `o` yourself in Kite or Groww -> list of strings."""
+    b = broker or o.get("broker") or "zerodha"
+    return [step.format(sym=o["symbol"], trig=o["trigger_price"], limit=o["limit_price"], qty=o["qty"],
+                        stop=o["stop"], target=o["target"]) for step in BROKER_STEPS.get(b, BROKER_STEPS["zerodha"])]
 
 
 def guard_order(order, holdings=None):

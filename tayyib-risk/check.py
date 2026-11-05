@@ -186,9 +186,11 @@ def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, ext
                   "UNKNOWN: no time-machine result for this plan" if not res else
                   "UNKNOWN: the time-machine result is for another setup (%s)" % (res.get("plan") or {}).get("setup"))))
     nt = hist.get("trades") if same_setup else None
-    why.append(W("HISTORY", "past trades of this setup on this stock", nt, 8, ">=",
-                 None if nt is None else nt >= 8, "trades",
-                 None if nt is None else ("too few to trust (under 8): information only" if nt < 8 else
+    k = (cfg.get("daily") or {}).get("min_past_trades_for_rank", 8)
+    why.append(W("HISTORY", "past trades of this setup on this stock", nt, k, ">=",
+                 None if nt is None else nt >= k, "trades",
+                 None if nt is None else ("too few to rank by (under %d): information only, ranked by setup score"
+                                          % k if nt < k else
                                           "past expectancy %+.2fR" % hist["expectancy_r"]
                                           if hist.get("expectancy_r") is not None else None)))
     for it in (news.get("symbols", {}) or {}).get(o["symbol"], []):

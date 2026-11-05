@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>tayyib dashboard</title>
+<style>
+/* design-system/tayyib/MASTER.md: plain CSS, offline, system fonts, light + dark, status = label + shape + colour */
+:root {
+  --bg:#F7F8FA; --surface:#FFFFFF; --surface-2:#EEF1F5; --fg:#111827; --muted:#4B5563; --border:#D5DAE1;
+  --primary:#1E40AF; --pass:#00735A; --warn:#8A5A00; --block:#B03A00; --info:#005A8C; --unknown:#5B6472;
+  --s1:2px; --s2:4px; --s3:8px; --s4:12px; --s5:16px; --s6:24px; --s7:32px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  --radius:6px; --shadow:0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#0F172A; --surface:#192134; --surface-2:#101A34; --fg:#F1F5F9; --muted:#A3B1C6;
+    --border:rgba(255,255,255,.12); --primary:#93B4FF; --pass:#3FD0A8; --warn:#F2B84B; --block:#FF8A5C;
+    --info:#6CC3F5; --unknown:#A3AEBD; --shadow:none; }
+}
+* { box-sizing:border-box; }
+html { -webkit-text-size-adjust:100%; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 var(--font); }
+a { color:var(--primary); }
+.wrap { max-width:1400px; margin:0 auto; padding:var(--s5); }
+header.top { display:flex; flex-wrap:wrap; gap:var(--s3) var(--s5); align-items:baseline; justify-content:space-between;
+  border-bottom:1px solid var(--border); padding-bottom:var(--s4); }
+h1 { font-size:18px; margin:0; }
+h2 { font-size:16px; margin:var(--s6) 0 var(--s3); }
+h3 { font-size:14px; margin:var(--s5) 0 var(--s2); }
+.muted { color:var(--muted); }
+#datadir { overflow-wrap:anywhere; word-break:break-all; }
+header.top > div, .banner > div, .card, .meta-line > span { min-width:0; overflow-wrap:anywhere; }
+td.nowrap { white-space:nowrap; }
+td.reason { min-width:240px; }
+.small { font-size:13px; }
+.mono, td.num, .num { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.settings { font-weight:600; }
+nav[role=tablist] { display:flex; gap:var(--s2); margin:var(--s4) 0; border-bottom:1px solid var(--border); overflow-x:auto; }
+nav[role=tablist] button { font:inherit; font-weight:600; background:none; border:0; border-bottom:3px solid transparent;
+  color:var(--muted); padding:var(--s3) var(--s4); cursor:pointer; min-height:44px; white-space:nowrap;
+  transition:color .15s, border-color .15s; }
+nav[role=tablist] button[aria-selected=true] { color:var(--primary); border-bottom-color:var(--primary); }
+nav[role=tablist] button:hover { color:var(--fg); }
+:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.banner { display:flex; gap:var(--s3); align-items:flex-start; background:var(--surface); border:1px solid var(--border);
+  border-left:3px solid var(--unknown); border-radius:var(--radius); padding:var(--s3) var(--s4); margin:var(--s3) 0; }
+.banner.k-warn { border-left-color:var(--warn); background:color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.banner.k-block { border-left-color:var(--block); background:color-mix(in srgb, var(--block) 10%, var(--surface)); }
+.banner.k-info { border-left-color:var(--info); }
+.banner .ico { flex:none; margin-top:2px; }
+.badge { display:inline-flex; align-items:center; gap:var(--s2); font-size:12px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.02em; border:1px solid currentColor; border-radius:999px; padding:1px 7px 1px 5px; white-space:nowrap; }
+.k-pass { color:var(--pass); } .k-warn { color:var(--warn); } .k-block { color:var(--block); }
+.k-info { color:var(--info); } .k-unknown { color:var(--unknown); }
+.banner.k-warn, .banner.k-block, .banner.k-info, .banner.k-unknown { color:var(--fg); }
+.banner.k-warn .ico { color:var(--warn); } .banner.k-block .ico { color:var(--block); }
+.banner.k-info .ico { color:var(--info); } .banner.k-unknown .ico { color:var(--unknown); }
+.meta-line { display:flex; flex-wrap:wrap; gap:var(--s2) var(--s5); margin:var(--s3) 0; font-size:14px; }
+.meta-line b { font-weight:600; }
+.cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:var(--s4); margin:var(--s3) 0; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:var(--s4); box-shadow:var(--shadow); }
+.card .head { display:flex; justify-content:space-between; gap:var(--s3); align-items:center; margin-bottom:var(--s3); }
+.card .sym { font-weight:700; font-size:16px; }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:var(--s1) var(--s4); font-size:14px; }
+.kv dt { color:var(--muted); } .kv dd { margin:0; font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; }
+.controls { display:flex; flex-wrap:wrap; gap:var(--s3) var(--s4); align-items:center; margin:var(--s3) 0; }
+.controls label { font-size:14px; display:flex; gap:var(--s2); align-items:center; }
+select, input[type=search] { font:inherit; font-size:14px; color:var(--fg); background:var(--surface);
+  border:1px solid var(--border); border-radius:var(--radius); padding:6px 8px; min-height:36px; }
+input[type=search] { min-width:220px; }
+.tablewrap { overflow-x:auto; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); }
+table { border-collapse:collapse; width:100%; font-size:14px; }
+th, td { padding:4px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; height:32px; }
+thead th { position:sticky; top:0; background:var(--surface-2); font-size:13px; font-weight:600; white-space:nowrap; }
+td.num, th.num { text-align:right; white-space:nowrap; }
+tbody tr:hover > td { background:color-mix(in srgb, var(--primary) 5%, var(--surface)); }
+th button.sort { font:inherit; font-weight:600; color:inherit; background:none; border:0; padding:0; cursor:pointer; }
+th button.sort::after { content:" \2195"; color:var(--muted); }
+th[aria-sort=ascending] button.sort::after { content:" \2191"; color:var(--fg); }
+th[aria-sort=descending] button.sort::after { content:" \2193"; color:var(--fg); }
+button.link { font:inherit; font-size:13px; color:var(--primary); background:none; border:1px solid var(--border);
+  border-radius:var(--radius); padding:2px 8px; cursor:pointer; min-height:28px; white-space:nowrap; transition:background .15s; }
+button.link:hover { background:var(--surface-2); }
+button.copy { font:inherit; font-size:13px; font-weight:600; color:var(--primary); background:var(--surface);
+  border:1px solid var(--primary); border-radius:var(--radius); padding:4px 10px; cursor:pointer; min-height:32px; }
+button.copy:hover { background:var(--surface-2); }
+tr.detail > td { background:var(--surface-2); }
+.why { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:var(--s3) var(--s5); padding:var(--s3) 0; }
+.why h4 { margin:0 0 var(--s2); font-size:13px; letter-spacing:.04em; color:var(--muted); }
+.why ul { list-style:none; margin:0; padding:0; font-size:13px; }
+.why li { display:grid; grid-template-columns:72px 1fr; gap:var(--s3); padding:2px 0; border-bottom:1px dotted var(--border); }
+.why .mark { font-weight:700; white-space:nowrap; }
+.flag { display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:600; margin-left:var(--s2); white-space:nowrap; }
+tr.hl-capped > td:first-child, tr.hl-near > td:first-child { box-shadow:inset 3px 0 0 var(--warn); }
+.changed { color:var(--fg); }
+.bar { position:relative; height:12px; background:var(--surface-2); border:1px solid var(--border); border-radius:3px; min-width:160px; }
+.bar .fill { position:absolute; left:0; top:0; bottom:0; background:var(--pass); border-radius:2px 0 0 2px; }
+.bar.s-near .fill { background:var(--warn); } .bar.s-over .fill { background:var(--block); }
+.bar .tick { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--fg); }
+.bar .tick.near { background:var(--warn); width:1px; }
+.ratios { display:grid; grid-template-columns:minmax(200px, 300px) minmax(160px, 1fr) auto; gap:var(--s2) var(--s4); align-items:center; font-size:13px; }
+.stats td, .stats th { white-space:nowrap; }
+pre.steps { white-space:pre-wrap; font:13px/1.5 var(--mono); background:var(--surface-2); border:1px solid var(--border);
+  border-radius:var(--radius); padding:var(--s3); margin:var(--s2) 0; }
+.steps-head { display:flex; justify-content:space-between; align-items:center; gap:var(--s3); margin-top:var(--s3); }
+svg.chart { width:100%; max-width:720px; height:auto; display:block; }
+svg.chart text { font:11px var(--font); fill:var(--muted); }
+svg.chart .price { fill:none; stroke:var(--primary); stroke-width:1.6; }
+svg.chart .lv-entry { stroke:var(--info); stroke-width:1.2; }
+svg.chart .lv-stop { stroke:var(--block); stroke-width:1.2; stroke-dasharray:6 4; }
+svg.chart .lv-target { stroke:var(--pass); stroke-width:1.4; stroke-dasharray:2 3; }
+svg.chart .zero { stroke:var(--muted); stroke-dasharray:3 3; }
+svg.chart .eq { fill:none; stroke:var(--primary); stroke-width:2; }
+svg.chart .dot { fill:var(--primary); }
+svg.chart .m-fill { fill:var(--info); } svg.chart .m-exit { fill:var(--fg); }
+svg.chart .sig { stroke:var(--muted); stroke-dasharray:1 3; }
+.empty { padding:var(--s5); color:var(--muted); }
+footer { margin-top:var(--s7); padding-top:var(--s4); border-top:1px solid var(--border); font-size:13px; color:var(--muted); }
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+[hidden] { display:none !important; }
+@media (max-width: 640px) {
+  .wrap { padding:var(--s5) 16px; }
+  input[type=search] { min-width:0; width:100%; }
+  .ratios { grid-template-columns:1fr; }
+  .why { grid-template-columns:1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>tayyib dashboard <span class="muted small" id="ver"></span></h1>
+      <div class="small muted">Read-only. Data folder: <span class="mono" id="datadir">UNKNOWN</span></div>
+    </div>
+    <div class="small settings" id="settings">Settings: UNKNOWN</div>
+  </header>
+  <div id="globalBanners"></div>
+  <nav role="tablist" aria-label="Dashboard sections">
+    <button role="tab" id="tab-today" aria-controls="p-today" aria-selected="true">Today</button>
+    <button role="tab" id="tab-results" aria-controls="p-results" aria-selected="false" tabindex="-1">Results</button>
+    <button role="tab" id="tab-halal" aria-controls="p-halal" aria-selected="false" tabindex="-1">Halal</button>
+    <button role="tab" id="tab-tickets" aria-controls="p-tickets" aria-selected="false" tabindex="-1">Tickets</button>
+  </nav>
+  <main>
+    <section role="tabpanel" id="p-today" aria-labelledby="tab-today"></section>
+    <section role="tabpanel" id="p-results" aria-labelledby="tab-results" hidden></section>
+    <section role="tabpanel" id="p-halal" aria-labelledby="tab-halal" hidden></section>
+    <section role="tabpanel" id="p-tickets" aria-labelledby="tab-tickets" hidden></section>
+  </main>
+  <footer><span id="disclaimer">Not financial advice, not a fatwa.</span>
+    <span class="muted"> This page cannot place, change or cancel an order.</span></footer>
+  <div class="sr" aria-live="polite" id="live"></div>
+</div>
+<script>
+"use strict";
+// The server does every calculation; this script only draws what it sends. GET requests only.
+var SVGNS = "http://www.w3.org/2000/svg";
+var KIND = { PASS:"pass", WARN:"warn", BLOCK:"block", FILTERED:"unknown", "NOT SIZED":"unknown",
+  TARGET:"pass", STOP:"block", BREAKEVEN:"warn", "TIME EXIT":"warn", OPEN:"info", WAITING:"info",
+  "NOT TRIGGERED":"unknown", compliant:"pass", review:"warn", excluded:"block", unknown:"unknown",
+  SIZED:"info", PLACED:"info" };
+
+function el(tag, attrs) {
+  var e = document.createElement(tag), k;
+  for (k in (attrs || {})) {
+    if (k === "text") e.textContent = attrs[k];
+    else if (k === "cls") e.className = attrs[k];
+    else if (k.slice(0, 2) === "on") e.addEventListener(k.slice(2), attrs[k]);
+    else if (attrs[k] !== null && attrs[k] !== undefined && attrs[k] !== false) e.setAttribute(k, attrs[k]);
+  }
+  for (var i = 2; i < arguments.length; i++) add(e, arguments[i]);
+  return e;
+}
+function add(e) {   // add(parent, child, child, ...): strings, nodes, arrays; null is skipped
+  for (var i = 1; i < arguments.length; i++) {
+    var c = arguments[i];
+    if (c === null || c === undefined || c === false) continue;
+    if (Array.isArray(c)) { c.forEach(function (x) { add(e, x); }); continue; }
+    e.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
+  }
+}
+function svg(tag, attrs) {
+  var e = document.createElementNS(SVGNS, tag), k;
+  for (k in (attrs || {})) {
+    if (k === "text") e.textContent = attrs[k]; else e.setAttribute(k, attrs[k]);
+  }
+  for (var i = 2; i < arguments.length; i++) if (arguments[i]) e.appendChild(arguments[i]);
+  return e;
+}
+function shown(v) { return (v === null || v === undefined || v === "") ? "UNKNOWN" : String(v); }
+
+// Five shapes (MASTER.md section 4): never colour alone
+function icon(kind, size) {
+  var s = size || 14, g = svg("svg", { width:s, height:s, viewBox:"0 0 16 16", "aria-hidden":"true", focusable:"false", "class":"ico" });
+  var st = { fill:"none", stroke:"currentColor", "stroke-width":"1.8", "stroke-linecap":"round", "stroke-linejoin":"round" };
+  function p(tag, a) { var k, o = {}; for (k in st) o[k] = st[k]; for (k in a) o[k] = a[k]; g.appendChild(svg(tag, o)); }
+  if (kind === "pass") { p("circle", { cx:8, cy:8, r:6.5 }); p("path", { d:"M5 8.2l2 2 4-4.4" }); }
+  else if (kind === "warn") { p("path", { d:"M8 1.8L15 14H1z" }); p("path", { d:"M8 6v3.6M8 11.8v.1" }); }
+  else if (kind === "block") { p("path", { d:"M5.2 1.5h5.6l3.7 3.7v5.6l-3.7 3.7H5.2l-3.7-3.7V5.2z" }); p("path", { d:"M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" }); }
+  else if (kind === "info") { p("circle", { cx:8, cy:8, r:6.5 }); p("path", { d:"M8 4.5V8l2.4 1.6" }); }
+  else { p("circle", { cx:8, cy:8, r:6.5, "stroke-dasharray":"2.2 2" }); p("path", { d:"M6.3 6.2a1.8 1.8 0 113 1.4c-.8.5-1.3.9-1.3 1.8M8 11.6v.1" }); }
+  return g;
+}
+function badge(label, kind) {
+  var k = kind || KIND[label] || "unknown";
+  return el("span", { cls:"badge k-" + k }, icon(k, 12), shown(label));
+}
+function banner(text, kind) {
+  var k = kind || "warn";
+  return el("div", { cls:"banner k-" + k, role:"status" }, icon(k, 16), el("div", null, text));
+}
+function missing(panel, d) {
+  panel.textContent = "";
+  add(panel, banner(["File not found: ", el("span", { cls:"mono", text:d.missing }), ". ", d.hint || "", d.error ? " (" + d.error + ")" : ""], "unknown"));
+}
+function getJSON(url) {   // GET only, same origin
+  return fetch(url, { cache:"no-store", credentials:"same-origin" }).then(function (r) { return r.json(); });
+}
+function announce(t) { var l = document.getElementById("live"); l.textContent = ""; setTimeout(function () { l.textContent = t; }, 30); }
+function copyText(text, btn) {
+  function done() { var o = btn.textContent; btn.textContent = "Copied"; announce("Copied"); setTimeout(function () { btn.textContent = o; }, 1500); }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+  } else { fallbackCopy(text); done(); }
+}
+function fallbackCopy(text) {
+  var t = el("textarea", { "aria-hidden":"true", style:"position:fixed;left:-9999px" }); t.value = text;
+  document.body.appendChild(t); t.select(); try { document.execCommand("copy"); } catch (e) {} t.remove();
+}
+
+// --- sortable table --------------------------------------------------------------------------------
+function table(cols, rows, opts) {
+  opts = opts || {};
+  var state = { key:opts.sortKey || null, dir:opts.sortDir || 1 };
+  var thead = el("thead"), tbody = el("tbody"), t = el("table", null, thead, tbody);
+  var hr = el("tr");
+  cols.forEach(function (c) {
+    var th = el("th", { cls:c.num ? "num" : null, scope:"col" });
+    if (c.sort) {
+      th.setAttribute("aria-sort", "none");
+      add(th, el("button", { cls:"sort", type:"button", text:c.title, onclick:function () {
+        state.dir = state.key === c.key ? -state.dir : 1; state.key = c.key; draw(); } }));
+    } else add(th, c.title);
+    c.th = th; hr.appendChild(th);
+  });
+  thead.appendChild(hr);
+  function val(r, c) { var v = c.sort(r); return v === null || v === undefined ? null : v; }
+  function draw() {
+    var list = rows.slice();
+    if (state.key) {
+      var c = cols.filter(function (x) { return x.key === state.key; })[0];
+      list.sort(function (a, b) {
+        var x = val(a, c), y = val(b, c);
+        if (x === null && y === null) return 0; if (x === null) return 1; if (y === null) return -1;
+        return (x < y ? -1 : x > y ? 1 : 0) * state.dir;
+      });
+    }
+    cols.forEach(function (c) { if (c.sort) c.th.setAttribute("aria-sort", state.key === c.key ? (state.dir > 0 ? "ascending" : "descending") : "none"); });
+    tbody.textContent = "";
+    if (!list.length) { tbody.appendChild(el("tr", null, el("td", { colspan:cols.length, cls:"empty", text:opts.empty || "Nothing to show." }))); return; }
+    list.forEach(function (r) {
+      var tr = el("tr", { cls:opts.rowClass ? opts.rowClass(r) : null });
+      cols.forEach(function (c) { tr.appendChild(el("td", { cls:(c.num ? "num " : "") + (c.td || "") || null }, c.cell(r, tr))); });
+      tbody.appendChild(tr);
+      if (opts.detail) opts.detail(r, tr, cols.length);
+    });
+  }
+  draw();
+  return el("div", { cls:"tablewrap" }, t);
+}
+function toggleDetail(tr, ncols, btn, build) {
+  var next = tr.nextSibling;
+  if (next && next.classList && next.classList.contains("detail")) { next.remove(); btn.setAttribute("aria-expanded", "false"); return; }
+  var td = el("td", { colspan:ncols }); var row = el("tr", { cls:"detail" }, td);
+  tr.parentNode.insertBefore(row, tr.nextSibling); btn.setAttribute("aria-expanded", "true");
+  build(td);
+}
+
+// --- Today ------------------------------------------------------------------------------------------
+function whyPanel(groups) {
+  var box = el("div", { cls:"why" });
+  groups.forEach(function (g) {
+    var ul = el("ul");
+    g.items.forEach(function (x) {
+      var k = x.mark === "ok" ? "pass" : x.mark === "failed" ? "block" : x.mark === "info" ? "info" : "unknown";
+      var word = x.mark === "ok" ? "ok" : x.mark === "failed" ? "failed" : x.mark === "info" ? "info" : "";
+      var line = [el("b", { text:x.check }), " ", el("span", { cls:"mono", text:x.value })];
+      if (x.limit) line.push(" ", el("span", { cls:"mono muted", text:x.limit }));
+      if (x.near_limit) line.push(el("span", { cls:"flag k-warn" }, icon("warn", 12), "near limit"));
+      if (x.stop_capped) line.push(el("span", { cls:"flag k-warn" }, icon("warn", 12), "stop capped"));
+      if (x.note) line.push(el("div", { cls:"muted", text:x.note }));
+      ul.appendChild(el("li", null, el("span", { cls:"mark k-" + k }, x.symbol + (word && word !== x.symbol ? " " + word : "")), el("span", null, line)));
+    });
+    box.appendChild(el("div", null, el("h4", { text:g.group }), ul));
+  });
+  return box;
+}
+function flags(r) {
+  return [r.stop_capped ? el("span", { cls:"flag k-warn", title:"the % cap set the stop, not the chart" }, icon("warn", 12), "stop capped") : null,
+          r.near_limit ? el("span", { cls:"flag k-warn", title:"a halal ratio is within 10% of its limit" }, icon("warn", 12), "near halal limit") : null];
+}
+function pickCard(r) {
+  if (r.halal_changed) return el("div", { cls:"card" }, el("div", { cls:"head" }, el("span", { cls:"sym", text:r.symbol }), badge(r.halal_now || "unknown")),
+    banner(r.message, "block"));
+  var d = r.display;
+  return el("div", { cls:"card" },
+    el("div", { cls:"head" }, el("span", null, el("span", { cls:"sym", text:r.symbol }), " ", el("span", { cls:"muted small", text:r.mode + " " + r.setup })), badge(r.risk)),
+    el("dl", { cls:"kv" }, el("dt", { text:"Buy above" }), el("dd", { text:d.entry }), el("dt", { text:"Stop" }), el("dd", { text:d.stop + " (" + d.stop_pct + ")" }),
+      el("dt", { text:"Target" }), el("dd", { text:d.target }), el("dt", { text:"Quantity" }), el("dd", { text:d.qty }),
+      el("dt", { text:"Risk at stop" }), el("dd", { text:d.loss_at_stop_rs }), el("dt", { text:"Time machine" }), el("dd", { text:d.expectancy_r }),
+      el("dt", { text:"Ranked by" }), el("dd", { text:r.ranked_by === "score" ? "setup score " + d.score : "expectancy" })),
+    el("div", { cls:"small muted", style:"margin-top:4px" }, "Expectancy: " + r.expectancy_use, flags(r)));
+}
+function renderToday(panel, d, dates) {
+  panel.textContent = "";
+  if (d.missing) return missing(panel, d);
+  var sel = el("select", { id:"dateSel", onchange:function () { loadToday(this.value); } });
+  dates.forEach(function (x) { var o = el("option", { value:x, text:x }); if (x === d.date) o.selected = true; sel.appendChild(o); });
+  add(panel, el("div", { cls:"controls" }, el("label", { "for":"dateSel" }, "List date"), sel));
+  if (d.banner) add(panel, banner(d.banner, "warn"));
+  d.banners.forEach(function (b) { add(panel, banner(b, "warn")); });
+  if (d.staleness.stale) add(panel, banner(["Stale: ", d.staleness.reasons.join("; "), "."], "warn"));
+  if (d.halal_changed.length) add(panel, banner("Halal status changed since this list for " + d.halal_changed.join(", ") + ": re-check. Their levels are hidden.", "block"));
+  add(panel, el("div", { cls:"meta-line" },
+    el("span", null, el("b", { text:"Date " }), d.date), el("span", null, el("b", { text:"Capital " }), d.capital),
+    el("span", null, el("b", { text:"Risk a trade " }), d.risk_per_trade_pct), el("span", null, el("b", { text:"Broker " }), d.broker),
+    el("span", null, el("b", { text:"Scanned " }), d.scanned + " halal stocks (list of " + d.universe_updated + ")"),
+    el("span", null, el("b", { text:"Settings " }), d.settings_label)));
+  add(panel, el("h2", { text:"Top picks" }));
+  add(panel, el("p", { cls:"small muted", text:"PASS only. Ranked by time-machine expectancy when a stock has at least " + d.min_past_trades_for_rank +
+    " past trades of its setup; the rest by setup score, after them." }));
+  add(panel, d.top_picks.length ? el("div", { cls:"cards" }, d.top_picks.map(pickCard)) : el("p", { cls:"empty", text:"No stock passed every check. No trade is also a decision." }));
+  add(panel, el("h2", { text:"Full list" }));
+  var fCheck = el("select", { id:"fCheck" }, el("option", { value:"", text:"all" }), d.checks.map(function (c) { return el("option", { value:c, text:c }); }));
+  var fMode = el("select", { id:"fMode" }, el("option", { value:"", text:"all" }), d.modes.map(function (c) { return el("option", { value:c, text:c }); }));
+  var holder = el("div");
+  add(panel, el("div", { cls:"controls" }, el("label", { "for":"fCheck" }, "Check"), fCheck, el("label", { "for":"fMode" }, "Mode"), fMode));
+  add(panel, holder);
+  function draw() {
+    var rows = d.rows.filter(function (r) { return r.halal_changed || ((!fCheck.value || r.risk === fCheck.value) && (!fMode.value || r.mode === fMode.value)); });
+    rows.forEach(function (r, i) { r._rank = i + 1; });
+    holder.textContent = "";
+    var cols = [
+      { key:"rank", title:"#", num:true, sort:function (r) { return r._rank; }, cell:function (r) { return String(r._rank); } },
+      { key:"symbol", title:"Stock", sort:function (r) { return r.symbol; }, cell:function (r) { return [el("b", { text:r.symbol }), r.halal_changed ? null : flags(r)]; } },
+      { key:"setup", title:"Setup", td:"nowrap", sort:function (r) { return r.halal_changed ? null : r.mode + r.setup; }, cell:function (r) { return r.halal_changed ? el("span", { cls:"changed", text:r.message }) : r.mode + " " + r.setup; } },
+      { key:"entry", title:"Entry", num:true, sort:function (r) { return r.entry; }, cell:function (r) { return r.halal_changed ? "" : r.display.entry; } },
+      { key:"stop", title:"Stop", num:true, sort:function (r) { return r.stop; }, cell:function (r) { return r.halal_changed ? "" : r.display.stop; } },
+      { key:"stop_pct", title:"Stop %", num:true, sort:function (r) { return r.stop_pct; }, cell:function (r) { return r.halal_changed ? "" : r.display.stop_pct; } },
+      { key:"target", title:"Target", num:true, sort:function (r) { return r.target; }, cell:function (r) { return r.halal_changed ? "" : r.display.target; } },
+      { key:"qty", title:"Qty", num:true, sort:function (r) { return r.qty; }, cell:function (r) { return r.halal_changed ? "" : r.display.qty; } },
+      { key:"risk_rs", title:"Risk ₹", num:true, sort:function (r) { return r.loss_at_stop_rs; }, cell:function (r) { return r.halal_changed ? "" : r.display.loss_at_stop_rs; } },
+      { key:"rr", title:"Net R:R", num:true, sort:function (r) { return r.rr_net; }, cell:function (r) { return r.halal_changed ? "" : r.display.rr_net; } },
+      { key:"exp", title:"Time machine", num:true, sort:function (r) { return r.expectancy_r; }, cell:function (r) {
+          return r.halal_changed ? "" : [r.display.expectancy_r, el("div", { cls:"small muted", text:r.expectancy_use })]; } },
+      { key:"score", title:"Score", num:true, sort:function (r) { return r.score; }, cell:function (r) { return r.halal_changed ? "" : r.display.score; } },
+      { key:"check", title:"Check", td:"reason", sort:function (r) { return r.halal_changed ? "ZZ" : r.risk; }, cell:function (r) {
+          return r.halal_changed ? badge(r.halal_now || "unknown") : [badge(r.risk), r.reason ? el("div", { cls:"small muted", text:r.reason }) : null]; } },
+      { key:"why", title:"Why?", cell:function (r, tr) {
+          if (r.halal_changed) return "";
+          var b = el("button", { cls:"link", type:"button", "aria-expanded":"false", text:"Why?" });
+          b.addEventListener("click", function () { toggleDetail(tr, cols.length, b, function (td) { td.appendChild(whyPanel(r.why_view)); }); });
+          return b; } }
+    ];
+    holder.appendChild(table(cols, rows, { empty:"No setups armed. No trade is also a decision.",
+      rowClass:function (r) { return r.halal_changed ? null : (r.stop_capped ? "hl-capped" : r.near_limit ? "hl-near" : null); } }));
+  }
+  fCheck.addEventListener("change", draw); fMode.addEventListener("change", draw); draw();
+  if (d.notes.length) add(panel, el("h3", { text:"Notes" }), el("ul", { cls:"small" }, d.notes.map(function (n) { return el("li", { text:n }); })));
+}
+function loadToday(date) {
+  var panel = document.getElementById("p-today");
+  Promise.all([getJSON("/api/today" + (date ? "?date=" + encodeURIComponent(date) : "")), getJSON("/api/dates")])
+    .then(function (x) { renderToday(panel, x[0], x[1].dates || []); })
+    .catch(function (e) { panel.textContent = ""; add(panel, banner("Could not load today's list: " + e, "block")); });
+}
+
+// --- Results ----------------------------------------------------------------------------------------
+function drawPriceChart(td, row) {
+  td.appendChild(el("p", { cls:"small muted", text:"Loading prices..." }));
+  getJSON("/api/chart?symbol=" + encodeURIComponent(row.symbol) + "&from=" + encodeURIComponent(row.date)).then(function (c) {
+    td.textContent = "";
+    if (c.status !== "ok") { td.appendChild(banner(c.message || c.error || "price data unavailable", "unknown")); return; }
+    var s = c.svg, g = svg("svg", { "class":"chart", viewBox:"0 0 " + s.width + " " + s.height, role:"img", "aria-label":c.summary });
+    s.y_labels.forEach(function (y) { g.appendChild(svg("text", { x:2, y:y.y + 4, text:y.label })); });
+    s.x_labels.forEach(function (x) { g.appendChild(svg("text", { x:x.x, y:s.height - 6, "text-anchor":"middle", text:x.label })); });
+    if (s.signal_x !== null) g.appendChild(svg("line", { "class":"sig", x1:s.signal_x, x2:s.signal_x, y1:20, y2:s.height - 24 }));
+    s.levels.forEach(function (l) {
+      g.appendChild(svg("line", { "class":"lv-" + l.kind, x1:30, x2:s.width - 90, y1:l.y, y2:l.y }));
+      g.appendChild(svg("text", { x:s.width - 86, y:l.y + 4, text:l.label }));
+    });
+    g.appendChild(svg("polyline", { "class":"price", points:s.line }));
+    s.markers.forEach(function (m) {
+      var shape = m.kind === "fill" ? svg("path", { "class":"m-fill", d:"M" + m.x + " " + (m.y - 7) + "l6 10h-12z" })
+                                    : svg("rect", { "class":"m-exit", x:m.x - 5, y:m.y - 5, width:10, height:10 });
+      shape.appendChild(svg("title", { text:m.label })); g.appendChild(shape);
+    });
+    td.appendChild(g);
+    td.appendChild(el("p", { cls:"small" }, c.summary, " ", el("span", { cls:"muted", text:"Lines: entry solid, stop dashed, target dotted. Triangle = bought, square = exit. Source: " + c.source + "." })));
+    td.appendChild(el("p", { cls:"small muted", text:c.svg.markers.map(function (m) { return m.label; }).join("; ") || "No fill." }));
+  }).catch(function () { td.textContent = ""; td.appendChild(banner("price data unavailable", "unknown")); });
+}
+function equityChart(eq) {
+  if (!eq.svg) return el("p", { cls:"empty", text:eq.summary });
+  var s = eq.svg, g = svg("svg", { "class":"chart", viewBox:"0 0 " + s.width + " " + s.height, role:"img", "aria-label":"Equity curve: " + eq.summary });
+  s.y_ticks.forEach(function (y) { g.appendChild(svg("text", { x:2, y:y.y + 4, text:y.label })); });
+  g.appendChild(svg("line", { "class":"zero", x1:28, x2:s.width - 28, y1:s.zero_y, y2:s.zero_y }));
+  g.appendChild(svg("polyline", { "class":"eq", points:s.line }));
+  s.dots.forEach(function (d) { var c = svg("circle", { "class":"dot", cx:d.x, cy:d.y, r:3 }); c.appendChild(svg("title", { text:d.label })); g.appendChild(c); });
+  return el("div", null, g, el("p", { cls:"small", text:eq.summary }));
+}
+function renderResults(panel, d) {
+  panel.textContent = "";
+  if (d.missing) return missing(panel, d);
+  if (d.noise_banner) add(panel, banner(d.noise_banner, "warn"));
+  add(panel, el("h2", { text:"Equity curve (cumulative R by exit date)" }), equityChart(d.equity));
+  add(panel, el("h2", { text:"Summary" }));
+  var by = {};
+  d.groups.forEach(function (g) { (by[g.by] = by[g.by] || []).push(g); });
+  ["all", "check", "mode", "setup", "settings"].forEach(function (k) {
+    if (!by[k]) return;
+    add(panel, el("h3", { text:k === "all" ? "All" : "By " + (k === "settings" ? "settings label" : k) }));
+    add(panel, table([
+      { title:k === "all" ? "Group" : k, cell:function (g) { return k === "check" ? badge(g.value) : g.value; } },
+      { title:"Listed", num:true, cell:function (g) { return String(g.stats.listed); } },
+      { title:"Bought", num:true, cell:function (g) { return String(g.stats.triggered); } },
+      { title:"Closed", num:true, cell:function (g) { return String(g.stats.closed); } },
+      { title:"Target", num:true, cell:function (g) { return String(g.stats.target); } },
+      { title:"Stop", num:true, cell:function (g) { return String(g.stats.stop); } },
+      { title:"Open", num:true, cell:function (g) { return String(g.stats.open); } },
+      { title:"Waiting", num:true, cell:function (g) { return String(g.stats.waiting); } },
+      { title:"Not triggered", num:true, cell:function (g) { return String(g.stats.not_triggered); } },
+      { title:"Win rate", num:true, cell:function (g) { return g.display.win_rate_pct; } },
+      { title:"Avg R", num:true, cell:function (g) { return g.display.avg_r; } },
+      { title:"Total R", num:true, cell:function (g) { return g.display.total_r; } },
+      { title:"P&L", num:true, cell:function (g) { return g.display.pnl_rs; } }
+    ], by[k]));
+    if (k === "settings") Object.keys(d.settings_split).forEach(function (l) { add(panel, el("p", { cls:"small muted", text:l + ": " + d.settings_split[l].differs })); });
+  });
+  add(panel, el("h2", { text:"Every pick" }));
+  var cols = [
+    { key:"date", title:"List date", sort:function (r) { return r.date; }, cell:function (r) { return r.date; } },
+    { key:"symbol", title:"Stock", sort:function (r) { return r.symbol; }, cell:function (r) { return el("b", { text:r.symbol }); } },
+    { key:"setup", title:"Setup", sort:function (r) { return r.mode + r.setup; }, cell:function (r) { return r.mode + " " + r.setup; } },
+    { key:"check", title:"Check", sort:function (r) { return r.check; }, cell:function (r) { return badge(r.display.check); } },
+    { key:"verdict", title:"Verdict", sort:function (r) { return r.verdict.verdict; }, cell:function (r) { return badge(r.verdict.label, r.verdict.kind); } },
+    { key:"entry", title:"Buy above", num:true, sort:function (r) { return r.entry; }, cell:function (r) { return r.display.entry; } },
+    { key:"stop", title:"Stop", num:true, sort:function (r) { return r.stop; }, cell:function (r) { return r.display.stop; } },
+    { key:"target", title:"Target", num:true, sort:function (r) { return r.target; }, cell:function (r) { return r.display.target; } },
+    { key:"filled", title:"Bought on", sort:function (r) { return r.filled; }, cell:function (r) { return r.display.filled; } },
+    { key:"exited", title:"Exit on", sort:function (r) { return r.exited; }, cell:function (r) { return r.display.exited; } },
+    { key:"r", title:"Result", num:true, sort:function (r) { return r.r; }, cell:function (r) { return r.display.r; } },
+    { key:"pnl", title:"P&L", num:true, sort:function (r) { return r.pnl_rs; }, cell:function (r) { return r.display.pnl_rs; } },
+    { key:"label", title:"Settings", sort:function (r) { return r.settings_label; }, cell:function (r) { return el("span", { cls:"mono small", text:r.settings_label }); } },
+    { title:"Chart", cell:function (r, tr) {
+        var b = el("button", { cls:"link", type:"button", "aria-expanded":"false", text:"Chart" });
+        b.addEventListener("click", function () { toggleDetail(tr, cols.length, b, function (td) { drawPriceChart(td, r); }); });
+        return b; } }
+  ];
+  add(panel, table(cols, d.rows, { empty:"Nothing tracked yet: run tayyib-daily." }));
+}
+
+// --- Halal ------------------------------------------------------------------------------------------
+function ratioBars(s) {
+  var box = el("div", { cls:"ratios" });
+  s.ratios.forEach(function (b) {
+    var kind = b.state === "over" ? "block" : b.state === "near" ? "warn" : b.state === "ok" ? "pass" : "unknown";
+    var bar = el("div", { cls:"bar s-" + b.state, role:"img", "aria-label":b.label + " " + b.value_text + " of a " + b.limit_text + " limit" });
+    if (b.fill_pct !== null) bar.appendChild(el("div", { cls:"fill", style:"width:" + b.fill_pct + "%" }));
+    bar.appendChild(el("div", { cls:"tick near", style:"left:" + b.near_pct + "%", title:"near-limit mark" }));
+    bar.appendChild(el("div", { cls:"tick", style:"left:" + b.limit_pct + "%", title:"limit" }));
+    box.appendChild(el("span", null, b.label));
+    box.appendChild(bar);
+    box.appendChild(el("span", { cls:"k-" + kind, style:"display:inline-flex;gap:4px;align-items:center" }, icon(kind, 12),
+      el("span", { cls:"mono", text:b.value_text + " / " + b.limit_text }),
+      b.state === "over" ? " over" : b.state === "near" ? " near limit" : b.state === "unknown" ? " UNKNOWN" : ""));
+  });
+  return box;
+}
+function renderHalal(panel, d) {
+  panel.textContent = "";
+  if (d.missing) return missing(panel, d);
+  if (d.banner) add(panel, banner(d.banner, "warn"));
+  add(panel, el("div", { cls:"meta-line" }, el("span", null, el("b", { text:"Built " }), d.updated + (d.age_days !== null ? " (" + d.age_days + " days ago)" : "")),
+    el("span", null, el("b", { text:"Method " }), d.method), el("span", null, el("b", { text:"Source " }), d.source)));
+  add(panel, el("div", { cls:"meta-line" }, Object.keys(d.counts).sort().map(function (k) { return el("span", null, badge(k), " " + d.counts[k]); })));
+  add(panel, el("p", { cls:"small muted", text:"Limits now: debt " + d.limits.max_debt_to_assets_pct + "%, non-compliant income " + d.limits.max_noncompliant_income_pct +
+    "%, cash + receivables " + d.limits.max_cash_receivables_to_assets_pct + "%, assumed return " + d.limits.noncompliant_investment_return_pct +
+    "%. Near limit = at or above " + d.near_limit_pct + "% of a limit. Review and excluded stocks are shown for their status only: they are never picks." }));
+  var q = el("input", { type:"search", id:"hq", placeholder:"symbol, company or industry", "aria-label":"Search the halal list" });
+  var fs = el("select", { id:"hs" }, el("option", { value:"", text:"all statuses" }), Object.keys(d.counts).sort().map(function (k) { return el("option", { value:k, text:k }); }));
+  var fn = el("select", { id:"hn" }, el("option", { value:"", text:"all" }), el("option", { value:"near", text:"near a limit" }), el("option", { value:"ov", text:"your overrides" }));
+  var holder = el("div");
+  add(panel, el("div", { cls:"controls" }, el("label", { "for":"hq" }, "Search"), q, el("label", { "for":"hs" }, "Status"), fs, el("label", { "for":"hn" }, "Show"), fn), holder);
+  function draw() {
+    var t = q.value.trim().toLowerCase();
+    var rows = d.stocks.filter(function (s) {
+      return (!fs.value || s.status === fs.value) && (fn.value !== "near" || s.near_limit.length) && (fn.value !== "ov" || s.override) &&
+        (!t || (s.symbol + " " + s.name + " " + s.industry).toLowerCase().indexOf(t) >= 0); });
+    holder.textContent = "";
+    var cols = [
+      { key:"symbol", title:"Stock", sort:function (s) { return s.symbol; }, cell:function (s) { return el("b", { text:s.symbol }); } },
+      { key:"name", title:"Company", sort:function (s) { return s.name; }, cell:function (s) { return s.name; } },
+      { key:"industry", title:"Industry", sort:function (s) { return s.industry; }, cell:function (s) { return s.industry; } },
+      { key:"status", title:"Status", sort:function (s) { return s.status; }, cell:function (s) {
+          return [badge(s.status), s.override ? el("span", { cls:"flag k-info", title:s.override.note + " (" + s.override.date + ")" }, icon("info", 12), "your override") : null,
+                  s.near_limit.length ? el("span", { cls:"flag k-warn" }, icon("warn", 12), "near limit") : null]; } },
+      { key:"debt", title:"Debt %", num:true, sort:function (s) { return s.ratios[0].value; }, cell:function (s) { return s.ratios[0].value_text; } },
+      { key:"int", title:"Interest %", num:true, sort:function (s) { return s.ratios[1].value; }, cell:function (s) { return s.ratios[1].value_text; } },
+      { key:"nci", title:"+ assumed %", num:true, sort:function (s) { return s.ratios[2].value; }, cell:function (s) { return s.ratios[2].value_text; } },
+      { key:"cash", title:"Cash+recv %", num:true, sort:function (s) { return s.ratios[3].value; }, cell:function (s) { return s.ratios[3].value_text; } },
+      { title:"Details", cell:function (s, tr) {
+          var b = el("button", { cls:"link", type:"button", "aria-expanded":"false", text:"Ratios" });
+          b.addEventListener("click", function () { toggleDetail(tr, cols.length, b, function (td) {
+            td.appendChild(ratioBars(s));
+            td.appendChild(el("p", { cls:"small muted", text:"Reported interest vs the TASIS income test: reported " + s.ratios[1].value_text + ", plus assumed 8% on short-term investments " +
+              s.assumed_return_text + " = " + s.ratios[2].value_text + ". Figures as of " + s.as_of + (s.total_income_basis ? "; total income = " + s.total_income_basis : "") + "." }));
+            if (s.override) td.appendChild(banner(["Your override: ", el("b", { text:s.override.status }), " (" + s.override.date + "): " + s.override.note], "info"));
+            td.appendChild(el("ul", { cls:"small" }, s.reasons.map(function (x) { return el("li", { text:x }); })));
+          }); });
+          return b; } }
+    ];
+    holder.appendChild(el("p", { cls:"small muted", text:rows.length + " of " + d.stocks.length + " stocks" }));
+    holder.appendChild(table(cols, rows, { sortKey:"symbol", empty:"No stock matches." }));
+  }
+  var timer; q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(draw, 150); });
+  fs.addEventListener("change", draw); fn.addEventListener("change", draw); draw();
+}
+
+// --- Tickets ----------------------------------------------------------------------------------------
+function ticketCard(t) {
+  if (t.halal_changed) return el("div", { cls:"card" }, el("div", { cls:"head" }, el("span", { cls:"sym", text:t.symbol }), badge(t.halal_now || "unknown")), banner(t.message, "block"));
+  var d = t.display, card = el("div", { cls:"card" },
+    el("div", { cls:"head" }, el("span", null, el("span", { cls:"sym", text:t.symbol }), " ", el("span", { cls:"muted small", text:t.mode + " " + t.setup })),
+      el("span", null, badge(t.status), t.expired ? el("span", { cls:"flag k-block" }, icon("block", 12), "expired") : null)),
+    el("div", { cls:"small mono muted", text:t.id }),
+    el("dl", { cls:"kv" }, el("dt", { text:"BUY (CNC)" }), el("dd", { text:d.qty + " shares" }), el("dt", { text:"Trigger / limit" }), el("dd", { text:d.trigger + " / " + d.limit }),
+      el("dt", { text:"Stop" }), el("dd", { text:d.stop + " (lose " + d.loss + ")" }), el("dt", { text:"Target" }), el("dd", { text:d.target + " (gain " + d.gain + ")" }),
+      el("dt", { text:"Costs" }), el("dd", { text:d.position + " + " + d.charges }), el("dt", { text:"Valid until" }), el("dd", { text:t.valid_until })));
+  if (!t.is_ticket) { card.appendChild(el("p", { cls:"small muted", text:t.expired ? "Expired: not a ticket." : "Status " + t.status + ": not a ticket (only PASS / WARN are)." })); return card; }
+  if (!t.steps) { card.appendChild(el("p", { cls:"small", text:"Steps UNKNOWN: the order is missing fields." })); return card; }
+  [["zerodha", "Zerodha Kite"], ["groww", "Groww"]].forEach(function (b) {
+    var txt = t.steps[b[0]].map(function (s, i) { return (i + 1) + ". " + s; }).join("\n");
+    var btn = el("button", { cls:"copy", type:"button", text:"Copy " + b[1] + " steps" });
+    btn.addEventListener("click", function () { copyText(txt, btn); });
+    card.appendChild(el("div", { cls:"steps-head" }, el("b", { cls:"small", text:b[1] + (t.broker === b[0] ? " (your broker)" : "") }), btn));
+    card.appendChild(el("pre", { cls:"steps", text:txt }));
+  });
+  return card;
+}
+function renderTickets(panel, d) {
+  panel.textContent = "";
+  if (d.missing) return missing(panel, d);
+  add(panel, banner(d.note, "info"));
+  if (d.orders_missing) add(panel, banner(["No orders file: ", d.orders_missing.hint, "."], "unknown"));
+  add(panel, el("h2", { text:"Unplaced tickets" }));
+  add(panel, d.tickets.length ? el("div", { cls:"cards" }, d.tickets.map(ticketCard)) : el("p", { cls:"empty", text:"No unplaced tickets." }));
+  add(panel, el("h2", { text:"Open positions" }));
+  add(panel, table([
+    { title:"Stock", cell:function (p) { return el("b", { text:p.symbol }); } }, { title:"Qty", num:true, cell:function (p) { return p.display.qty; } },
+    { title:"Entry", num:true, cell:function (p) { return p.display.entry; } }, { title:"Stop", num:true, cell:function (p) { return p.display.stop; } },
+    { title:"Target", num:true, cell:function (p) { return p.display.target; } }, { title:"Since", cell:function (p) { return p.display.opened; } },
+    { title:"Out by", cell:function (p) { return p.display.time_stop_date; } }], d.open, { empty:"No open positions." }));
+  add(panel, el("h2", { text:"Closed trades" }));
+  add(panel, table([
+    { title:"Stock", cell:function (p) { return el("b", { text:p.symbol }); } }, { title:"Qty", num:true, cell:function (p) { return p.display.qty; } },
+    { title:"Entry", num:true, cell:function (p) { return p.display.entry; } }, { title:"Exit", num:true, cell:function (p) { return p.display.exit; } },
+    { title:"Reason", cell:function (p) { return shown(p.reason); } }, { title:"Closed", cell:function (p) { return p.display.closed; } },
+    { title:"P&L", num:true, cell:function (p) { return p.display.pnl_rs; } }, { title:"R", num:true, cell:function (p) { return p.display.r; } }], d.closed, { empty:"No closed trades yet." }));
+  add(panel, el("p", { cls:"small", text:"Closed: " + d.totals.closed + ", winners " + d.totals.winners + ", total " + d.totals.pnl_rs + ", average " + d.totals.avg_r + " (after charges)." }));
+}
+
+// --- tabs, header -----------------------------------------------------------------------------------
+var LOADERS = {
+  today:function () { loadToday(null); },
+  results:function () { getJSON("/api/tracker").then(function (d) { renderResults(document.getElementById("p-results"), d); }); },
+  halal:function () { getJSON("/api/halal").then(function (d) { renderHalal(document.getElementById("p-halal"), d); }); },
+  tickets:function () { getJSON("/api/tickets").then(function (d) { renderTickets(document.getElementById("p-tickets"), d); }); }
+};
+var loaded = {};
+function show(name, focus) {
+  if (!LOADERS[name]) name = "today";
+  Object.keys(LOADERS).forEach(function (n) {
+    var t = document.getElementById("tab-" + n), p = document.getElementById("p-" + n), on = n === name;
+    t.setAttribute("aria-selected", on ? "true" : "false"); t.tabIndex = on ? 0 : -1; p.hidden = !on;
+    if (on && focus) t.focus();
+  });
+  if (!loaded[name]) { loaded[name] = true; document.getElementById("p-" + name).appendChild(el("p", { cls:"empty", text:"Loading..." })); LOADERS[name](); }
+  if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+}
+var names = Object.keys(LOADERS);
+names.forEach(function (n, i) {
+  var t = document.getElementById("tab-" + n);
+  t.addEventListener("click", function () { show(n); });
+  t.addEventListener("keydown", function (e) {
+    var k = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (e.key === "Home") { show(names[0], true); e.preventDefault(); }
+    else if (e.key === "End") { show(names[names.length - 1], true); e.preventDefault(); }
+    else if (k) { show(names[(i + k + names.length) % names.length], true); e.preventDefault(); }
+  });
+});
+window.addEventListener("hashchange", function () { show(location.hash.slice(1)); });
+getJSON("/api/meta").then(function (m) {
+  document.getElementById("ver").textContent = "v" + m.version;
+  document.getElementById("datadir").textContent = m.data_dir;
+  document.getElementById("settings").textContent = m.settings_header;
+  document.getElementById("disclaimer").textContent = m.disclaimer;
+  var g = document.getElementById("globalBanners");
+  if (m.halal_banner) g.appendChild(banner(m.halal_banner, "warn"));
+  (m.config_notes || []).forEach(function (n) { g.appendChild(banner(n, n.indexOf("CONFIG ERROR") === 0 ? "block" : "warn")); });
+}).catch(function () { document.getElementById("globalBanners").appendChild(banner("The dashboard server is not answering.", "block")); });
+show(location.hash.slice(1) || "today");
+</script>
+</body>
+</html>

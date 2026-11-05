@@ -74,7 +74,9 @@ class Docs(unittest.TestCase):
         self.assertEqual(st["oversold"]["rsi_below"], 35)
         self.assertEqual(st["squeeze"]["max_range_ratio"], 0.5)
         self.assertEqual(st["trend"]["min_pct_of_high"], 85.0)
-        self.assertEqual(tc.DEFAULT_CONFIG["daily"], {"top": 10, "picks": 3, "min_expectancy_r": None})
+        # min_past_trades_for_rank is the one default@2 behaviour change (v0.1.7); 0 is the v0.1.4 order
+        self.assertEqual(tc.DEFAULT_CONFIG["daily"], {"top": 10, "picks": 3, "min_expectancy_r": None,
+                                                      "min_past_trades_for_rank": 8})
 
 
 class Setups(OfflineCase):
@@ -346,7 +348,8 @@ class Why(OfflineCase):
             self.assertEqual(sorted(set(groups), key=tc.WHY_GROUPS.index), list(tc.WHY_GROUPS), r["symbol"])
             self.assertEqual(groups, sorted(groups, key=tc.WHY_GROUPS.index))           # in group order
             for w in r["why"]:
-                self.assertEqual(set(w), {"group", "check", "value", "limit", "op", "ok", "unit", "note"})
+                base = {"group", "check", "value", "limit", "op", "ok", "unit", "note"}
+                self.assertTrue(base <= set(w) <= base | {"near_limit", "stop_capped"}, w)   # v0.1.7 flags
                 self.assertIn(w["ok"], (True, False, None))
                 if w["value"] is None:
                     self.assertIsNone(w["ok"], w)
@@ -521,12 +524,12 @@ class Settings(OfflineCase):
 
     def test_default_label(self):
         d = tc.settings_snapshot(V({})[0])
-        self.assertEqual(tc.DEFAULTS_VERSION, 1)
-        self.assertEqual(d["label"], "default@1")
-        self.assertEqual((d["differs_from_default"], d["defaults_version"]), ([], 1))
+        self.assertEqual(tc.DEFAULTS_VERSION, 2)
+        self.assertEqual(d["label"], "default@2")
+        self.assertEqual((d["differs_from_default"], d["defaults_version"]), ([], 2))
         # setting a value to its default is still the defaults
         self.assertEqual(tc.settings_snapshot(V({"max_risk_per_trade_pct": 1.0, "broker": "zerodha"})[0])["label"],
-                         "default@1")
+                         "default@2")
 
     def test_hash_is_the_differences_and_the_defaults_version(self):
         import hashlib
@@ -535,7 +538,7 @@ class Settings(OfflineCase):
         self.assertNotEqual(c["hash"], d["hash"])
         self.assertEqual(c["label"], c["hash"])
         self.assertEqual(c["differs_from_default"], [{"key": "max_risk_per_trade_pct", "value": 0.5, "default": 1.0}])
-        canon = json.dumps({"defaults_version": 1, "differs": [["max_risk_per_trade_pct", 0.5]]},
+        canon = json.dumps({"defaults_version": 2, "differs": [["max_risk_per_trade_pct", 0.5]]},
                            sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         self.assertEqual(c["hash"], hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8])
         s = tc.settings_snapshot(V({"scanner": {"setups": {"trend": {"enabled": False}}}})[0])
@@ -566,7 +569,7 @@ class Settings(OfflineCase):
         try:
             after = (tc.settings_snapshot(V({})[0])["hash"], tc.settings_snapshot(V({"max_open_positions": 4})[0])["hash"])
             self.assertEqual(after, before)
-            self.assertEqual(tc.settings_snapshot(V({})[0])["label"], "default@1")
+            self.assertEqual(tc.settings_snapshot(V({})[0])["label"], "default@2")
         finally:
             tc.DEFAULT_CONFIG.clear()
             tc.DEFAULT_CONFIG.update(saved)
@@ -588,22 +591,32 @@ class Settings(OfflineCase):
         self.assertEqual(sorted(k for k, x in hist[v].items() if fake.get(k) != x), ["max_position_pct"])
 
     def test_legacy_default_hash_counts_as_default(self):
+        import hashlib
         import tracker
         snap = tc.settings_snapshot(V({})[0])
+        # the all-defaults hash of v0.1.5 / v0.1.6 (DEFAULTS_VERSION 1), as the live tracker.json has it
+        v1 = hashlib.sha1(json.dumps({"defaults_version": 1, "differs": []}, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()[:8]
+        self.assertNotEqual(v1, snap["hash"])
         store = {"rows": [{"settings_hash": "cf8b2136", "status": "WAITING"},
+                          {"settings_hash": v1, "status": "WAITING"},
                           {"settings_hash": snap["hash"], "status": "WAITING"},
                           {"status": "WAITING"}],
                  "settings": {"cf8b2136": {"first_seen": "2026-11-05", "differs_from_default": []},   # no label
+                              v1: {"label": "default@1", "first_seen": "2026-11-05", "differs_from_default": []},
                               snap["hash"]: {"label": snap["label"], "first_seen": "2026-11-06",
                                              "differs_from_default": []}}}
         for r in store["rows"]:
             r.setdefault("settings_hash", tracker.PRE)
         summ = tracker.summary(store["rows"], store)
         self.assertEqual(summ["settings: default@1"]["listed"], 2)
+        self.assertEqual(summ["settings: default@2"]["listed"], 1)      # v0.1.7 defaults: a separate group
         self.assertEqual(summ["settings: pre-0.1.5"]["listed"], 1)
         split = tracker.settings_split(store)
-        self.assertEqual(split["default@1"]["hashes"], sorted(["cf8b2136", tc.settings_snapshot(V({})[0])["hash"]]))
-        self.assertIn("all defaults", split["default@1"]["differs"])
+        self.assertEqual(split["default@1"]["hashes"], sorted(["cf8b2136", v1]))
+        self.assertEqual(split["default@2"]["hashes"], [snap["hash"]])
+        self.assertIn("all defaults (defaults version 1)", split["default@1"]["differs"])
+        self.assertIn("all defaults (defaults version 2)", split["default@2"]["differs"])
         self.assertEqual(split["default@1"]["first_seen"], "2026-11-05")
         self.assertEqual(store["rows"][0]["settings_hash"], "cf8b2136")          # the row keeps its hash
 
@@ -615,15 +628,15 @@ class Settings(OfflineCase):
         self.write("tracker.json", {"rows": old})
         out = self.run_script(DAILY, "--no-news", "--no-rebuild")
         h = out["settings"]["hash"]
-        self.assertEqual(out["settings"]["label"], "default@1")
+        self.assertEqual(out["settings"]["label"], "default@2")
         t = self.read("tracker.json")
         hashes = {r["symbol"]: r["settings_hash"] for r in t["rows"]}
         self.assertEqual(hashes.pop("OLDX"), "pre-0.1.5")
         self.assertEqual(set(hashes.values()), {h})
-        self.assertIn("settings: default@1", t["summary"])
+        self.assertIn("settings: default@2", t["summary"])
         self.assertIn("settings: pre-0.1.5", t["summary"])
         self.assertEqual(t["summary"]["settings: pre-0.1.5"]["target"], 1)
-        self.assertIn("all defaults", t["settings_split"]["default@1"]["differs"])
+        self.assertIn("all defaults", t["settings_split"]["default@2"]["differs"])
         self.assertIn("before v0.1.5", t["settings_split"]["pre-0.1.5"]["differs"])
         # a second settings set
         self.write("config.json", {"max_risk_per_trade_pct": 0.5})
@@ -632,15 +645,15 @@ class Settings(OfflineCase):
         self.assertNotEqual(h2, h)
         rep = self.run_script(TR, "report")
         split = rep["settings_split"]
-        self.assertEqual(set(split), {"default@1", h2, "pre-0.1.5"})
+        self.assertEqual(set(split), {"default@2", h2, "pre-0.1.5"})
         self.assertIn("max_risk_per_trade_pct 0.5 (default 1)", split[h2]["differs"])
         txt = self.run_script(TR, "report", as_json=False)
         self.assertIn("By settings:", txt)
-        self.assertIn("default@1", txt)
+        self.assertIn("default@2", txt)
         with zipfile.ZipFile(os.path.join(self.dir, "tracker.xlsx")) as z:
             summ = z.read("xl/worksheets/sheet2.xml").decode()
         self.assertIn("settings: pre-0.1.5", summ)
-        self.assertIn("settings: default@1", summ)
+        self.assertIn("settings: default@2", summ)
         self.assertIn("all defaults", summ)
         self.assertIn("Settings vs defaults", summ)
 

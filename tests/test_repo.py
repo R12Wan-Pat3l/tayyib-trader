@@ -11,12 +11,12 @@ SKILLS = sorted(d for d in os.listdir(ROOT) if d.startswith("tayyib-"))
 
 
 class Repo(unittest.TestCase):
-    def test_fifteen_skills(self):
-        self.assertEqual(len(SKILLS), 15)
+    def test_sixteen_skills(self):
+        self.assertEqual(len(SKILLS), 16)
 
     def test_skill_md_frontmatter(self):
         for d in SKILLS:
-            txt = open(os.path.join(ROOT, d, "SKILL.md")).read()
+            txt = open(os.path.join(ROOT, d, "SKILL.md"), encoding="utf-8").read()
             m = re.match(r"---\nname: (\S+)\ndescription: >-\n((?:  .+\n)+)argument-hint: .+\n---\n", txt)
             self.assertTrue(m, d)
             self.assertEqual(m.group(1), d)

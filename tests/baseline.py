@@ -117,11 +117,19 @@ PIPELINE_RUNS = (("all-news", ()), ("all-nonews", ("--no-news",)), ("swing", ("-
                  ("delivery", ("--mode", "delivery", "--no-news")), ("top2", ("--top", "2", "--no-news")))
 
 
-def pipeline():
+# v0.1.7 (default@2) ranks rows with fewer than daily.min_past_trades_for_rank past trades by setup score.
+# With the key at 0 every decision must be the v0.1.4 one: that proves the ranking rule is the only change.
+V014_ORDER = {"daily": {"min_past_trades_for_rank": 0}}
+
+
+def pipeline(config=V014_ORDER):
     out = {}
     for name, args in PIPELINE_RUNS:
         d = tempfile.mkdtemp(prefix="tayyib-baseline-")
         try:
+            if config:
+                with open(os.path.join(d, "config.json"), "w", encoding="utf-8") as f:
+                    json.dump(config, f)
             b = _run(d, "tayyib-halal/halal.py", "build")
             daily = _run(d, "tayyib-daily/daily.py", *args)
             rec = {"halal_counts": b["counts"],
@@ -145,8 +153,9 @@ def capture():
     return {"sweep": sweep(), "pipeline": pipeline()}
 
 
-# keys v0.1.5 adds to v0.1.4 records; nothing else may appear, and nothing may change or go missing
-NEW_KEYS = frozenset(("why", "override"))
+# keys added to v0.1.4 records since (display only); nothing else may appear, and nothing may change or
+# go missing. v0.1.5: why, override. v0.1.7: near_limit (halal list: ratios close to a limit).
+NEW_KEYS = frozenset(("why", "override", "near_limit"))
 
 
 def diff(base, cur, path="", out=None, new_keys=NEW_KEYS):

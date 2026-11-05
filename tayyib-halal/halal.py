@@ -53,6 +53,7 @@ def cmd_build(a, cfg):
                 try:
                     fs = tc.financial_screen(tc.fetch_fundamentals(r["symbol"]), cfg)
                     rec["ratios"], rec["as_of"], rec["why"] = fs["ratios"], fs["as_of"], fs["why"]
+                    rec["near_limit"] = fs["near_limit"]          # display only: ratios close to a limit
                     rec["reasons"] += fs["reasons"]
                     rec["status"] = fs["status"] if fs["status"] != "compliant" or st == "pass" else "review"
                 except tc.FetchError as e:
@@ -128,7 +129,7 @@ def cmd_check(a, cfg):
             if st != "excluded":
                 try:
                     fs = tc.financial_screen(tc.fetch_fundamentals(sym), cfg)
-                    rec.update(ratios=fs["ratios"], as_of=fs["as_of"])
+                    rec.update(ratios=fs["ratios"], as_of=fs["as_of"], near_limit=fs["near_limit"])
                     rec["reasons"] += fs["reasons"]
                     rec["status"] = fs["status"] if st == "pass" or fs["status"] != "compliant" else "review"
                 except tc.FetchError as e:

@@ -34,6 +34,8 @@ core/tayyib_core.py      shared library (config, data, indicators, setups, charg
 tools/sync_core.py       copies the core into every skill folder (--check verifies)
 tayyib-<skill>/          SKILL.md (instructions for Claude) + one script + a copy of tayyib_core.py
 mcp/server.py            stdio MCP server wrapping the scripts
+tayyib-dashboard/        dashboard.py (read-only local web server) + index.html (one page, inline CSS/JS/SVG)
+design-system/tayyib/    the dashboard's design system (MASTER.md, pages/dashboard.md); not shipped code
 tests/                   offline unittest suite + make_fixtures.py (synthetic data, real formats)
 AGENTS.md                rules and commands for non-Claude agents
 ```
@@ -66,7 +68,16 @@ What `daily` does:
 - It rebuilds the halal list on the first run, and again whenever the list is `halal.auto_rebuild_days` (default 30) old.
 - It keeps one setup per stock. With `--mode all` it alternates swing and delivery.
 - It skips stocks you already hold or have placed.
-- Orders are sized best expectancy first.
+- Orders are sized in rank order (`tc.rank_key`, default@2): stocks with at least
+  `daily.min_past_trades_for_rank` (8) past trades of their setup first, best time-machine expectancy
+  first; then the rest by setup score. The same key orders the rows inside each PASS / WARN / BLOCK group
+  and so picks the top picks. Because the risk check fills limits in file order, it also decides which
+  tickets the position, heat, cash and industry limits block. With the key at 0 the order is the v0.1.4
+  one (expectancy only), and the baseline test proves every decision is then identical.
+- When NSE announcements or Google News failed for any of today's stocks, the list gets one banner in
+  `banners[]` (`.json`) and at the top of the `.md`: "NSE announcements unavailable today: HALAL-WATCH and
+  results checks are incomplete for N of M stocks." Per row, the NEWS `why[]` items stay UNKNOWN. No
+  verdict changes.
 - It then risk-checks the whole orders file, so its statuses always match a plain `check.py`.
 - Earlier unplaced tickets are removed, and it reports which ones. Placed orders are never touched.
 - Finally it records the list in the tracker, follows every unfinished earlier row (`tc.trade_outcome`)
@@ -116,6 +127,8 @@ test fails if one appears. The MCP server has no order tool.
 | `holidays` | [] | NSE holidays, `YYYY-MM-DD` (used for plan dates) |
 | `daily.top` / `daily.picks` | 10 / 3 | stocks planned / PASS stocks highlighted; `--top` / `--picks` override |
 | `daily.min_expectancy_r` | null | skip stocks whose time-machine expectancy is lower (null = no filter); skipped rows show `FILTERED` |
+| `daily.min_past_trades_for_rank` | 8 (0–50) | rank by expectancy only with this many past trades; the rest by setup score, after them. 0 = the default@1 order |
+| `halal.near_limit_pct` | 90 (50–100) | display only: mark a ratio at or above this % of its limit (`near_limit`). Not in the settings hash |
 | `scanner.warmup_bars` / `min_history_bars` / `liquidity_days` | 200 / 210 / 20 | bars before any signal / history the scanner needs / days in the turnover average |
 | `scanner.setups.<name>` | see below | `{"enabled": true, ...thresholds}` for breakout, pullback, oversold, squeeze, trend |
 
@@ -183,12 +196,12 @@ its items when it decides, and `daily` only puts them together:
 
 | group | recorded by | contents |
 |---|---|---|
-| HALAL | scanner (from the halal list) + risk check | status, your override, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check |
+| HALAL | scanner (from the halal list) + risk check | status, your override, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check. Ratio items carry `near_limit` (true at or above `halal.near_limit_pct`, 90%, of the limit) |
 | LIQUIDITY | scanner (`tc.liquidity_check`) | last price vs `min_price`, average traded value vs `min_turnover_rs` |
-| SETUP | `tc.detect` | every condition the setup tested, the measured value and its threshold, the score |
+| SETUP | `tc.detect` | every condition the setup tested, the measured value and its threshold, the score; two context items with `op: "info"`, `ok: true` (no limit, not conditions): % above the 200-day average and the 126-day return |
 | NEWS | risk check | `HALAL-WATCH news` and `results news in the window`: the same `trader/news.json` headlines (Google News India, NSE corporate announcements incl. board-meeting notices, RSS feeds; tagged by news.py, inside its `--hours` window, default 72) that raise the risk check's WARNs. A headline: `ok: false`. None: `ok: true`. `ok: null` / UNKNOWN only when news was not fetched for the stock or its Google News or NSE source failed |
-| PLAN | `tc.plan_trade` + risk check | stop % vs cap and method, stop in ATR, target R, time stop, net R:R vs `min_reward_risk` |
-| HISTORY | risk check | time-machine expectancy vs 0, past trades vs 8 ("too few" under 8) |
+| PLAN | `tc.plan_trade` + risk check | stop % vs cap and method, stop in ATR, target R, time stop, net R:R vs `min_reward_risk`; when the % cap set the stop, a `stop capped` item with `stop_capped: true` and the note "chart invalidation Rs X (Y% away); stop capped at Z%" (the daily row has `stop_capped` too) |
+| HISTORY | risk check | time-machine expectancy vs 0, past trades vs `daily.min_past_trades_for_rank` (under it: "information only, ranked by setup score") |
 | RISK | risk check + sizing | hard rules, loss at stop, position, cash, open positions, heat, industry, plan expiry, list age, which limit set the quantity, and the final `result` with its first reason |
 
 Rows that were not sized (or `FILTERED`) still have every group; the steps that did not run say so
@@ -202,11 +215,14 @@ carry their own `why[]` too.
 `differs_from_default` lists every decision-affecting setting whose value is not the default. Only
 three keys are left out: `user_agent` (an HTTP header), `halal.loosen_note` (the banner text; the
 looser thresholds it allows are recorded as values, and without it they fall back to TASIS) and
-`halal.list_url` (documented but not read by any script yet). `halal.parent_list_url` (which stocks
+`halal.near_limit_pct` (display only). `halal.list_url` was removed in v0.1.7 (it was never read); a
+config that still has it gets `CONFIG: halal.list_url removed: it was never used`. `halal.parent_list_url` (which stocks
 are screened) and each `news.feeds.<name>` (which headlines can raise a WARN) are included. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
 spaces) of `{"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}`: it depends only on
 what you changed, so adding a key whose default keeps the old behaviour does not change it. `label` is
-`default@<DEFAULTS_VERSION>` (now `default@1`) when nothing differs, otherwise the hash.
+`default@<DEFAULTS_VERSION>` (now `default@2`) when nothing differs, otherwise the hash. Version 2
+(v0.1.7) added `daily.min_past_trades_for_rank = 8`, a behaviour change; lists made before it stay
+`default@1` in the tracker.
 
 `DEFAULTS_VERSION` (an integer in core) is bumped only when a default value changes behaviour.
 `tests/fixtures/defaults_versions.json` records the defaults of each version, and
@@ -227,6 +243,51 @@ build, counts as `default@1`.
 the rupee loss per trade, the drawdown after 3, 5 and 10 losses in a row (each loss the risk % of what
 is left), and for sample stop distances whether the risk % or the max position % sets the quantity
 (they cross at `risk % / max position %`, 5% by default). Before charges. It runs nothing else.
+
+## Dashboard (`tayyib-dashboard`, v0.1.7)
+
+`python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]` serves one page and a JSON API over
+the files in `TAYYIB_DIR` (or `./trader`), and opens the browser unless `--no-browser`.
+
+**Server and security:**
+- `http.server.ThreadingHTTPServer` bound to **127.0.0.1** only (no option to change it).
+- **GET and HEAD only.** POST, PUT, PATCH, DELETE (and OPTIONS, TRACE, CONNECT) return 405 with
+  `Allow: GET, HEAD`. The module has no write call: it reads JSON, and fetches price bars with
+  `tc.get_daily_bars(..., save=False)` (it reads the cache but never writes it).
+- **Host check** against DNS rebinding: a request whose `Host` header is not `127.0.0.1:<port>` or
+  `localhost:<port>` gets 403.
+- **No CORS headers.** Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and a Content-Security-Policy
+  (`default-src 'none'`, `connect-src 'self'`, inline script and style only, `form-action 'none'`).
+- **Whitelisted files only:** `/` and `/index.html` serve the page; every other path that is not an
+  `/api/` route is 404, so there is no path to traverse. Query parameters are validated (`date`
+  `YYYY-MM-DD`, `symbol` an NSE code) and never used as a file path.
+- A missing file returns `{"missing": "<file>", "hint": "run tayyib-daily"}`. A server error returns
+  `{"error": ...}` (500), never a stack trace.
+
+**Python calculates, JavaScript draws:** the server formats every number (`₹1,00,000.00` with en-IN
+grouping, signed R, `UNKNOWN` for null), computes statuses and verdicts, and computes the SVG coordinates
+of every chart. The page builds DOM nodes with `textContent` (headlines cannot inject HTML) and only
+issues same-origin GETs to `/api/...`.
+
+| endpoint | returns |
+|---|---|
+| `/api/meta` | version, data folder, settings label and header ("Settings: default@2 (editing settings arrives in v0.1.8)"), the latest list's `banners[]`, the halal banner, config notes |
+| `/api/dates` | the dates of every `daily/DATE.json`, newest first |
+| `/api/today?date=` | that day's list (default the newest): rows with `display` strings, `why_view` (groups with ✓ / ✗ / UNKNOWN), `stop_capped`, `near_limit`, `ranked_by`, `expectancy_use`; top picks; `staleness {stale, reasons[]}` (not today's list, or `asof` before 15:30 IST) |
+| `/api/tracker` | rows with a labelled `verdict` (TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending, BREAKEVEN), `summary` from `tracker.summary()` (the function the Excel Summary sheet uses, so the numbers match), `settings_split`, the equity curve (cumulative R by exit date), and `noise_banner` until 30 closed trades |
+| `/api/halal` | every stock with its current status (overrides applied), ratio bars against the limits in config, reported vs assumed-8% income, `near_limit[]`, override note and date, reasons; counts; the loosened-thresholds banner |
+| `/api/tickets` | unplaced orders with status, expiry and the Kite and Groww steps from `tc.broker_steps` (the text `ticket.py show` prints); open and closed positions with totals |
+| `/api/chart?symbol=&from=` | for one tracker row: daily bars around it, as SVG coordinates for the close line, the entry / stop / target lines and the fill / exit markers. Live fetch, else the last cached bars (labelled); else `{"status": "unknown", "message": "price data unavailable"}`. Never a guessed line |
+
+**Compliance cross-check:** every today row and every ticket is checked against the **current** universe
+plus overrides. A stock that is no longer `compliant` is replaced by `{"halal_changed": true, "message":
+"halal status changed since this list: re-check", "halal_now": <status>}` with no levels and no steps.
+
+Tests: `tests/test_v017.py` (every endpoint, 405s, bad Host 403, traversal, 127.0.0.1 bind, missing
+files, null to UNKNOWN, the cross-check, tracker numbers equal `tracker.py report`, no write calls) and
+`tests/test_safety.py` (no broker API hosts or order code in any `.py` or `.html`; the page has no
+`XMLHttpRequest`, no `<form>` and no fetch with a method).
 
 ## Data endpoints (free, unofficial)
 

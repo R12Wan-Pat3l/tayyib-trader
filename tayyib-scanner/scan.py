@@ -78,7 +78,7 @@ def main(argv=None):
             sig.update(symbol=s, name=rec.get("name", ""), industry=rec.get("industry", ""),
                        halal=rec["status"])
             # recorded now, when halal status and liquidity decided that this stock is scanned at all
-            sig["why"] = tc.halal_why(rec, uni) + liq_why + sig.get("why", [])
+            sig["why"] = tc.halal_why(rec, uni, cfg["halal"]["near_limit_pct"]) + liq_why + sig.get("why", [])
             try:
                 pl = tc.plan_trade(sig, cfg)
             except ValueError:

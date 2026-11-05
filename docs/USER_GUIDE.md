@@ -77,6 +77,43 @@ Every daily list is recorded automatically and followed on the real prices after
 Or ask Claude: **"How did yesterday's picks do?"**. This is paper only: nothing is bought. Judge it after
 30 or more closed trades, not after a few days.
 
+### Your dashboard (in the browser)
+Everything above, on one page in your browser. It only **shows** your files: it cannot buy, sell or change
+anything, and it runs on your own computer only (nobody else can open it).
+
+**Open it on Windows:**
+- In Claude Code (in your `tayyib-live` folder), ask: **"Show my dashboard"**. Your browser opens
+  `http://127.0.0.1:8765/`.
+- Or without Claude: open Command Prompt, then
+  ```
+  cd %USERPROFILE%\tayyib-live
+  py C:\Code\Trader\tayyib-trader\tayyib-dashboard\dashboard.py
+  ```
+  (use the folder where you cloned or installed tayyib-trader). Leave that window open while you use the
+  dashboard; press **Ctrl+C** in it to stop. If the port is busy, add `--port 8800`.
+
+**What each tab means:**
+- **Today:** the latest list (choose another date at the top). Yellow banners say when the list is old or
+  was made before 3:30 PM, or when a news source failed (then HALAL-WATCH and results checks are
+  incomplete). Then the top picks as cards, and the full table: click a column to sort, filter by
+  PASS / WARN / BLOCK or swing / delivery, and press **Why?** on any row for every check with ✓ (passed),
+  ✗ (failed) or UNKNOWN (no data). "stop capped" means the chart's stop was further away than your
+  maximum stop %, so the cap was used; "near halal limit" means a ratio is within 10% of its limit.
+- **Results:** every earlier pick and what happened: TARGET = right, STOP = wrong, NOT TRIGGERED = no
+  trade, TIME EXIT = right or wrong by the result, OPEN / WAITING = still pending. **Chart** draws the
+  price with the buy, stop and target lines. The summary splits results by check, mode, setup and
+  settings, with the equity curve (your running total in R). Until 30 trades have closed it says
+  "still noise: don't judge yet".
+- **Halal:** every screened stock. Search by name, filter by status, and press **Ratios** to see each
+  ratio against its limit, reported interest next to the assumed 8% part, your overrides with their note
+  and date, and the reasons. Review and excluded stocks are listed for their status only.
+- **Tickets:** tickets you haven't placed yet, with **Copy** buttons for the Kite and Groww steps, and your
+  open and closed positions. Copying is the only thing the buttons do: you still place every order yourself.
+
+If a stock's halal status has changed since a list was made, that row only says "halal status changed
+since this list: re-check", without prices. Settings are shown at the top right; changing them from the
+dashboard arrives in v0.1.8 (until then, edit `trader\config.json`).
+
 ### While you hold a trade
 - **"Check my alerts"**: tells you if a stop, target or time limit was hit.
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.

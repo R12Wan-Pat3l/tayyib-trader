@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.6 (2026-11-05)
+
+- **Fix: crash/garbled text on Windows when output contains ₹ (cp1252); all scripts now print and read
+  UTF-8.** On Windows, output sent to a pipe or a file is cp1252, which has no ₹. A news headline with
+  a ₹ sign made the risk check crash (`UnicodeEncodeError`) and so stopped the daily list, and
+  tayyib-daily and the MCP server read the scripts' output as cp1252, so ₹ came out as "â‚¹". The bug
+  existed since v0.1.4. Every script now prints UTF-8, tayyib-daily and the MCP server read it as UTF-8,
+  and a test forces cp1252 on every OS. No decision changes: the v0.1.4 baseline still matches.
+
 ## v0.1.5 (2026-11-05)
 
 Groundwork for the dashboard. With the default settings every decision is identical to v0.1.4: same

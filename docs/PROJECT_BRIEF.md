@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-05 (v0.1.5).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-05 (v0.1.6).
 
 ## What it is
 
@@ -12,8 +12,8 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.1.5** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5; v0.1.3 is folded into v0.1.4)
-- Tests: 162 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.1.6** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5, v0.1.6; v0.1.3 is folded into v0.1.4)
+- Tests: 163 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -93,8 +93,8 @@ over MCP (stdio), none of which place orders.
 - **Why this stock:** every daily row carries `why[]`, recorded at decision time, never recomputed.
   Missing input is `ok: null` and shown as UNKNOWN.
 - **UI design tool:** UI/UX Pro Max (a Claude Code plugin) is a development-time design aid for the
-  v0.1.6 dashboard. Nothing from it ships or runs in the tool.
-- **Run button: not before v0.1.7.** The v0.1.6 dashboard is read-only. v0.1.7 may add a button that
+  v0.1.7 dashboard. Nothing from it ships or runs in the tool.
+- **Run button: not before v0.1.8.** The v0.1.7 dashboard is read-only. v0.1.8 may add a button that
   runs `tayyib-daily` locally (analysis only); it will never place, modify or cancel an order.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
@@ -108,13 +108,15 @@ over MCP (stdio), none of which place orders.
 
 ## Open ideas / roadmap
 
-- **v0.1.5** (this release): settings in config with validation and docs, the halal loosening policy,
+- **v0.1.5:** settings in config with validation and docs, the halal loosening policy,
   `why[]` on every row, settings hash in the daily list and tracker, `--risk-preview`.
-- **v0.1.6:** a local, read-only dashboard over the `trader/` JSON files (designed with UI/UX Pro Max
+- **v0.1.6** (this release): fix for Windows: ₹ in output crashed the risk check (cp1252); all
+  scripts now print and read UTF-8.
+- **v0.1.7:** a local, read-only dashboard over the `trader/` JSON files (designed with UI/UX Pro Max
   at development time): today's list with each row's `why[]`, top picks, the tracker (equity curve,
   win rate by PASS/WARN/BLOCK and by settings hash), halal status with ratios, tickets with the
   Kite/Groww steps, and a settings screen rendered from `DEFAULT_CONFIG_DOCS` with the risk preview.
-- **v0.1.7:** a run button for `tayyib-daily` from the dashboard (local, analysis only, no orders).
+- **v0.1.8:** a run button for `tayyib-daily` from the dashboard (local, analysis only, no orders).
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

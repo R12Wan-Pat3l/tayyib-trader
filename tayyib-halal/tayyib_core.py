@@ -38,12 +38,28 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
 DEFAULTS_VERSION = 1
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
+
+
+def _utf8_stdio():
+    """Print UTF-8 even when stdout is a pipe or a file on Windows (cp1252 there), so a headline with
+    a rupee sign cannot crash a script, and every script's output decodes the same way. The scripts
+    that read another script's output (tayyib-daily, the MCP server) decode it as UTF-8."""
+    for s in (sys.stdout, sys.stderr):
+        enc = (getattr(s, "encoding", None) or "").lower().replace("-", "").replace("_", "")
+        if enc != "utf8" and hasattr(s, "reconfigure"):
+            try:
+                s.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
+_utf8_stdio()
 
 # ---------------------------------------------------------------------------
 # The trader/ folder and config

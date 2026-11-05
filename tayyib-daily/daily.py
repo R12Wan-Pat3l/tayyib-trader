@@ -32,7 +32,8 @@ def script(skill, name):
 
 def run(skill, name, *args, want_json=True):
     argv = [sys.executable, script(skill, name)] + [str(a) for a in args] + (["--json"] if want_json else [])
-    p = subprocess.run(argv, capture_output=True, text=True, env=os.environ.copy())
+    p = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"))   # child scripts print UTF-8
     if p.returncode != 0:
         raise RuntimeError("%s %s failed: %s" % (skill, " ".join(map(str, args)), (p.stderr or p.stdout).strip()[:300]))
     return json.loads(p.stdout) if want_json else p.stdout

@@ -31,7 +31,7 @@ class OfflineCase(unittest.TestCase):
         if as_json:
             argv.append("--json")
         env = dict(os.environ, TAYYIB_DIR=self.dir, TAYYIB_FIXTURES=FIX, TAYYIB_NOW=NOW)
-        p = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=self.dir)
+        p = subprocess.run(argv, capture_output=True, encoding="utf-8", env=env, cwd=self.dir)
         if ok and p.returncode != 0:
             self.fail("%s %s failed:\n%s\n%s" % (script, args, p.stdout, p.stderr))
         if not ok:
@@ -39,7 +39,7 @@ class OfflineCase(unittest.TestCase):
         return json.loads(p.stdout) if as_json else p.stdout
 
     def read(self, name):
-        with open(os.path.join(self.dir, name)) as f:
+        with open(os.path.join(self.dir, name), encoding="utf-8") as f:
             return json.load(f)
 
     def write(self, name, obj):

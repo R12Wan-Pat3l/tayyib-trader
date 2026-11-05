@@ -645,6 +645,36 @@ class Settings(OfflineCase):
         self.assertIn("Settings vs defaults", summ)
 
 
+class Encoding(OfflineCase):
+    """2026-11-05 live run: a headline with a rupee sign crashed check.py when its stdout was a pipe
+    in cp1252 (Windows), and tayyib-daily decoded the children's output as cp1252. Forced here on
+    every OS with PYTHONIOENCODING=cp1252."""
+
+    def test_rupee_headline_through_a_cp1252_pipe(self):
+        self.build_universe()
+        self.run_script(DAILY, "--no-news", "--no-rebuild", "--mode", "swing")
+        sym = self.read("orders.json")["orders"][0]["symbol"]
+        title = "%s Q2 results: profit jumps 32.5%% to \u20b91,124 crore" % sym
+        news = {"asof": "2026-10-30T18:00", "hours": 72, "errors": [], "market": [],
+                "symbols": {sym: [{"title": title, "link": "", "published": "2026-10-30T09:00:00+05:30",
+                                   "source": "test", "summary": "", "tags": ["results"], "halal_watch": []}]}}
+        with open(os.path.join(self.dir, "news.json"), "w", encoding="utf-8") as f:
+            json.dump(news, f, ensure_ascii=False)
+        saved = dict(os.environ)
+        os.environ.update(PYTHONIOENCODING="cp1252", TAYYIB_FIXTURES=baseline.FIX, TAYYIB_NOW=baseline.NOW)
+        try:
+            out = self.run_script(RI)                                  # check.py --json, cp1252 asked for
+            mine = [r for r in out if r["symbol"] == sym][0]
+            self.assertTrue(any("\u20b9" in w for w in mine["warn"]), mine["warn"])
+            sys.path.insert(0, os.path.join(ROOT, "tayyib-daily"))
+            import daily
+            got = daily.run("tayyib-risk", "check.py")                # how tayyib-daily reads it
+            self.assertTrue(any("\u20b91,124" in w for r in got for w in r["warn"]))
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+
 class RiskPreview(OfflineCase):
     def test_arithmetic(self):
         rp = tc.risk_preview(V({})[0])

@@ -99,7 +99,7 @@ def sweep():
 def _run(d, script, *args):
     argv = [sys.executable, os.path.join(ROOT, script)] + [str(a) for a in args] + ["--json"]
     env = dict(os.environ, TAYYIB_DIR=d, TAYYIB_FIXTURES=FIX, TAYYIB_NOW=NOW)
-    p = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=d)
+    p = subprocess.run(argv, capture_output=True, encoding="utf-8", env=env, cwd=d)
     if p.returncode != 0:
         raise RuntimeError("%s %s: %s" % (script, args, p.stderr))
     return json.loads(p.stdout)

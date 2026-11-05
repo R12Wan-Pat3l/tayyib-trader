@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 PROTOCOL = "2025-06-18"
 
 
@@ -115,7 +115,8 @@ def run_tool(name, args):
         if k not in args:
             return True, "missing required argument: %s" % k
     argv = [sys.executable, os.path.join(ROOT, script)] + build(args) + ["--json"]
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=1800, env=os.environ.copy())
+    p = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace", timeout=1800,
+                       env=dict(os.environ, PYTHONIOENCODING="utf-8"))   # child scripts print UTF-8
     text = p.stdout.strip() or p.stderr.strip() or "(no output)"
     if p.returncode != 0 and p.stderr.strip():
         text = (p.stdout.strip() + "\n" + p.stderr.strip()).strip()

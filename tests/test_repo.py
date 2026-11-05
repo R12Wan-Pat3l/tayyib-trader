@@ -66,7 +66,7 @@ class ReleaseNotes(unittest.TestCase):
     def test_notes_for_top_version(self):
         top = re.search(r"^## v(\S+)", open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8").read(), re.M).group(1)
         p = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "release_notes.py"), "v" + top],
-                           capture_output=True, text=True)
+                           capture_output=True, encoding="utf-8", env=dict(os.environ, PYTHONIOENCODING="cp1252"))
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertTrue(p.stdout.startswith("## v" + top))
         self.assertNotIn("](docs/", p.stdout)                          # links made absolute

@@ -40,7 +40,8 @@ def main():
                "`/plugin install tayyib-trader@tayyib-trader` (existing users: "
                "`claude plugin update tayyib-trader@tayyib-trader`).\n\n"
                "Not financial advice. Not a fatwa.")
-    print("\n\n".join(out))
+    # UTF-8 on every OS: the notes can hold a rupee sign, which cp1252 (Windows pipes) cannot encode
+    sys.stdout.buffer.write(("\n\n".join(out) + "\n").encode("utf-8"))
 
 
 if __name__ == "__main__":

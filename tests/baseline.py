@@ -1,0 +1,170 @@
+"""Capture the decision outputs of the pipeline on the fixtures, for the v0.1.4 baseline test.
+
+capture() uses only APIs that existed in v0.1.4 (tc.detect, tc.liquidity_ok, tc.plan_trade,
+size.size, check.check_order, timemachine.history) plus full daily.py runs, and keeps only the
+fields v0.1.4 produced. tests/fixtures/baseline_v0.1.4.json.gz was written by
+`python3 tests/baseline.py --write` BEFORE any v0.1.5 change; test_baseline.py compares the
+current code against it. Never regenerate it to make a failing test pass: a difference means a
+default-config decision changed.
+"""
+import copy
+import gzip
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+FIX = os.path.join(HERE, "fixtures")
+NOW = "2026-10-30 18:00"
+BASELINE = os.path.join(FIX, "baseline_v0.1.4.json.gz")
+os.environ.setdefault("TAYYIB_FIXTURES", FIX)
+os.environ.setdefault("TAYYIB_NOW", NOW)
+sys.path.insert(0, os.path.join(ROOT, "core"))
+for d in ("tayyib-budget", "tayyib-risk", "tayyib-timemachine"):
+    sys.path.insert(0, os.path.join(ROOT, d))
+import tayyib_core as tc  # noqa: E402
+import size as size_mod  # noqa: E402
+import check as check_mod  # noqa: E402
+import timemachine as tm_mod  # noqa: E402
+
+SYMS = ("ALFA", "BRVO", "CHRL", "DLTA", "ECHO", "ITC", "THIN")
+SETUPS = ("breakout", "pullback", "oversold", "squeeze", "trend")
+# every field a v0.1.4 daily row had; new fields (why, settings_hash, ...) are ignored here
+ROW_KEYS = ("symbol", "name", "mode", "setup", "score", "entry", "stop", "stop_pct", "target", "valid_until",
+            "max_hold_days", "qty", "position_rs", "loss_at_stop_rs", "gain_at_target_rs", "rr_net",
+            "expectancy_r", "past_trades", "verdict", "risk", "reason", "reasons", "order_id")
+TOP_KEYS = ("date", "mode", "capital", "risk_per_trade_pct", "broker", "universe_updated", "scanned",
+            "top_picks", "notes")
+VOLATILE = ("created", "risk_checked", "asof")
+
+
+def _strip(obj):
+    if isinstance(obj, dict):
+        return {k: _strip(v) for k, v in obj.items() if k not in VOLATILE}
+    if isinstance(obj, list):
+        return [_strip(x) for x in obj]
+    return obj
+
+
+def sweep():
+    """Every setup at every bar index of every fixture chart, with the plan, size, risk check and
+    the time machine's history replay of each signal: far more cases than the daily list shows."""
+    cfg = copy.deepcopy(tc.DEFAULT_CONFIG)
+    out = {}
+    uni = {"updated": "2026-10-30", "stocks": {s: {"status": "compliant", "industry": "X"} for s in SYMS}}
+    for s in SYMS:
+        bars, _ = tc.get_daily_bars(s)
+        ind = tc.indicators(bars)
+        rec = {"liquidity": [], "signals": [], "history": {}}
+        for k in range(30, len(bars) + 1, 7):
+            ok, why = tc.liquidity_ok(bars[:k], cfg)
+            rec["liquidity"].append([k, ok, why])
+        for i in range(200, len(bars)):
+            for setup in SETUPS:
+                sig = tc.detect(setup, bars, ind, i, cfg["tick_size"])
+                if not sig:
+                    continue
+                sig = dict(sig, symbol=s)
+                item = {"i": i, "signal": sig}
+                try:
+                    pl = tc.plan_trade(sig, cfg)
+                except ValueError as e:
+                    item["plan_error"] = str(e)
+                    rec["signals"].append(item)
+                    continue
+                item["plan"] = pl
+                sz = size_mod.size(pl, cfg, cfg["capital"])
+                item["size"] = sz
+                if sz.get("qty"):
+                    o = {"id": "%s-%s-%s" % (s, pl["signal_date"], setup), "symbol": s, "side": "BUY",
+                         "product": "CNC", "instrument": "EQ", "qty": sz["qty"], "trigger_price": pl["entry"],
+                         "stop": pl["stop"], "target": pl["target"], "setup": setup, "mode": pl["mode"],
+                         "valid_until": None}
+                    o.update({k: v for k, v in sz.items() if k not in ("qty", "limit_price")})
+                    item["risk"] = check_mod.check_order(o, cfg, [], uni, {})
+                rec["signals"].append(item)
+        for setup in SETUPS:
+            mode = "delivery" if setup == "trend" else "swing"
+            summ, trades = tm_mod.history(bars, {"setup": setup, "mode": mode}, cfg)
+            rec["history"][setup] = {"summary": summ, "trades": trades}
+        out[s] = rec
+    return out
+
+
+def _run(d, script, *args):
+    argv = [sys.executable, os.path.join(ROOT, script)] + [str(a) for a in args] + ["--json"]
+    env = dict(os.environ, TAYYIB_DIR=d, TAYYIB_FIXTURES=FIX, TAYYIB_NOW=NOW)
+    p = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=d)
+    if p.returncode != 0:
+        raise RuntimeError("%s %s: %s" % (script, args, p.stderr))
+    return json.loads(p.stdout)
+
+
+def _read(d, name):
+    p = os.path.join(d, name)
+    if not os.path.exists(p):
+        return None
+    with open(p, encoding="utf-8") as f:
+        return json.load(f)
+
+
+PIPELINE_RUNS = (("all-news", ()), ("all-nonews", ("--no-news",)), ("swing", ("--mode", "swing", "--no-news")),
+                 ("delivery", ("--mode", "delivery", "--no-news")), ("top2", ("--top", "2", "--no-news")))
+
+
+def pipeline():
+    out = {}
+    for name, args in PIPELINE_RUNS:
+        d = tempfile.mkdtemp(prefix="tayyib-baseline-")
+        try:
+            b = _run(d, "tayyib-halal/halal.py", "build")
+            daily = _run(d, "tayyib-daily/daily.py", *args)
+            rec = {"halal_counts": b["counts"],
+                   "universe": _strip((_read(d, "halal_universe.json") or {}).get("stocks")),
+                   "daily": {k: daily.get(k) for k in TOP_KEYS},
+                   "rows": [{k: r.get(k) for k in ROW_KEYS} for r in daily["rows"]],
+                   "scan": _strip((_read(d, "scan.json") or {}).get("candidates")),
+                   "plans": _strip((_read(d, "plan.json") or {}).get("plans")),
+                   "orders": _strip((_read(d, "orders.json") or {}).get("orders")),
+                   "risk": _strip((_read(d, "risk.json") or {}).get("results"))}
+            # tracker rows: only the v0.1.4 fields (settings_hash is new)
+            tr = (_read(d, "tracker.json") or {}).get("rows") or []
+            rec["tracker"] = [{k: v for k, v in r.items() if k != "settings_hash"} for r in tr]
+            out[name] = rec
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    return out
+
+
+def capture():
+    return {"sweep": sweep(), "pipeline": pipeline()}
+
+
+def canonical(obj):
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def load_baseline():
+    with open(BASELINE, "rb") as f:
+        return json.loads(gzip.decompress(f.read()).decode("utf-8"))
+
+
+def digest(obj):
+    return hashlib.sha256(canonical(obj).encode("utf-8")).hexdigest()
+
+
+if __name__ == "__main__":
+    data = capture()
+    n_sig = sum(len(v["signals"]) for v in data["sweep"].values())
+    print("signals in sweep: %d; pipeline runs: %d" % (n_sig, len(data["pipeline"])))
+    print("sha256 sweep    %s" % digest(data["sweep"]))
+    print("sha256 pipeline %s" % digest(data["pipeline"]))
+    if "--write" in sys.argv:
+        with open(BASELINE, "w", encoding="utf-8") as f:
+            f.write(canonical(data) + "\n")
+        print("wrote %s" % BASELINE)

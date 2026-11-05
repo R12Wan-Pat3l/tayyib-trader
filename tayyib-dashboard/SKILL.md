@@ -1,10 +1,11 @@
 ---
 name: tayyib-dashboard
 description: >-
-  Local Dashboard (read-only). Opens a page in the user's browser on 127.0.0.1 over their trader/
+  Local Dashboard. Opens a page in the user's browser on 127.0.0.1 over their trader/
   files: Today (the daily list, top picks, every row's Why with ✓ / ✗ / UNKNOWN), Results (the paper
   tracker with price charts and an equity curve), Halal (ratios against the limits, overrides) and
-  Tickets (Kite / Groww steps to copy, the positions journal). Places no order and writes no file.
+  Tickets (Kite / Groww steps to copy, the positions journal) and Settings (edit config.json safely,
+  with a risk preview and backups). A "Run today's list" button runs tayyib-daily. Places no order.
   Use when the user says "show my dashboard", "open the dashboard", "show it in the browser".
 argument-hint: "[--port 8765] [--no-browser]"
 ---
@@ -42,16 +43,26 @@ What each tab shows:
   stocks are shown for their status only.
 - **Tickets:** PASS / WARN tickets first with the Kite / Groww steps (Copy buttons only), blocked ones
   folded under "Blocked (not tickets)", and the positions journal.
+- **Settings:** every editable setting grouped as Risk, Plan, Selection, Broker & charges, Halal (and
+  Data & calendar), each with its default, range and unit, a "changed" marker and Reset; a live risk
+  preview in rupees; a review of the changes before saving; restore from the last 20 backups in
+  `trader/config_backups/`. The hard rules are shown as "Always on", not as options. Loosening a halal
+  threshold needs a "Source / scholar" note.
+- **Run today's list** (Today tab): runs `tayyib-daily` on this computer with the same data folder, one run
+  at a time, with its output live. Before 3:30 PM IST it asks first ("Prices aren't final yet").
+  When it ends, the Today tab reloads; a failure shows the error and leaves the old list.
 
 Every row and ticket is checked against the halal list **now**: a stock that is no longer compliant
 shows "halal status changed since this list: re-check" and no levels.
 
 Rules:
-- Read-only. It listens on 127.0.0.1 only and answers GET / HEAD only. There is no button that places,
-  changes or cancels an order; the user places every order themselves in their broker app after an
+- It listens on 127.0.0.1 only. It answers GET / HEAD, plus exactly two POSTs: `/api/config` (save
+  settings) and `/api/run` (run tayyib-daily). Each POST needs the right Host and Origin, the page's
+  per-start token and a small JSON body. There is no button that places, changes or cancels an order; the user places every order themselves in their broker app after an
   explicit yes, and records it with `tayyib-broker placed`.
 - Missing data is shown as UNKNOWN, a missing price series as "price data unavailable", never 0 and
   never a guessed line.
-- Settings are shown, not edited ("editing settings arrives in v0.1.8").
+- Settings are checked by `tc.validate_config` (the same check every skill uses) before anything is
+  written; invalid values are refused and nothing is partly saved. Changes apply from the next run.
 
 Not financial advice, not a fatwa.

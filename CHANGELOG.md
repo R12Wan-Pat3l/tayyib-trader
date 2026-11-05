@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.1.8 (2026-11-05)
+
+Change your settings and run today's list from the dashboard, safely.
+
+### Added
+
+- **Settings tab** (the fifth tab, sliders icon). Every setting you can change, grouped as Risk, Plan,
+  Selection, Broker & charges, Halal (and Data & calendar), each with its default, allowed range and unit.
+  Sliders with number boxes, on / off switches for each setup, a "changed" marker with Reset, and errors
+  next to the field as you type.
+  - **What this means in rupees:** the loss per trade, the drawdown after 3, 5 and 10 losses in a row and
+    which limit sets the quantity, updated as you change a value. Above 2% a trade it warns you.
+  - **Review & save** shows every change (old → new) and the new settings label first. The server checks
+    everything with the same validator the skills use; anything invalid is refused with its message and
+    nothing is partly saved. "Changes apply from the next run."
+  - **Backups:** each save keeps your old `config.json` in `trader/config_backups/` (the last 20). Restore
+    one from the Backups section, after seeing what it changes.
+  - **Halal:** stricter values save freely. Looser than TASIS needs a "Source / scholar" note, shows the
+    loosened banner in the preview, and is refused without it.
+  - The hard rules (CNC only, BUY to open, cash equities only, your yes for every order, compliant stocks
+    only) are listed under **Always on**: they are not settings.
+- **Run today's list** button on the Today tab. Runs `tayyib-daily` on your computer with the same data
+  folder, with a "Skip news" option and live output. One run at a time. Before 3:30 PM IST on a weekday,
+  or on a holiday in your settings, it asks first ("Prices aren't final yet, levels may change"). When it
+  ends the Today tab reloads; a failure shows the error and keeps the old list.
+- The risk preview in `daily.py --risk-preview` also prints the warning above 2%.
+
+### Changed
+
+- **Tracker: same-day re-runs.** Running the list again on the same day with different settings no longer
+  loses the new picks. The earlier unfilled rows become **SUPERSEDED** (kept for audit, greyed in Results,
+  not counted in any summary, the Excel Summary or the dashboard stats) and the new rows are added. Filled
+  rows are never touched. The same settings twice adds nothing. The Excel sheet has a "Superseded by"
+  column.
+- The dashboard is no longer GET-only: it has exactly two write endpoints, `POST /api/config` and
+  `POST /api/run`. Each needs the right Host and Origin, a secret token that is new at every start, a JSON
+  body and at most 64 KB. Nothing in it places, changes or cancels an order.
+- The header says "Current settings: default@2" and "change them in the Settings tab". Large rupee amounts
+  read `₹1,000 cr`.
+
 ## v0.1.7 (2026-11-05)
 
 Fixes from the live check of the pipeline, and a read-only dashboard.

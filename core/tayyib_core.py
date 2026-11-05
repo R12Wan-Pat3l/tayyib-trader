@@ -38,7 +38,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -481,6 +481,9 @@ def _clean_user(user, defaults, prefix, notes):
     return out
 
 
+HALAL_METHOD_NOTE = "CONFIG: halal thresholds differ from TASIS"   # information, not a refused value
+
+
 def _halal_policy(cfg, notes):
     """TASIS thresholds unless the user sets their own. Stricter: free. Looser (or allow_review):
     only with a non-empty halal.loosen_note, otherwise an error and the TASIS value."""
@@ -499,7 +502,7 @@ def _halal_policy(cfg, notes):
         looser = []
     differs = [k for k in TASIS_HALAL if h[k] != TASIS_HALAL[k]]
     if differs and h.get("method") == "tasis":
-        notes.append("CONFIG: halal thresholds differ from TASIS (%s): halal.method is custom"
+        notes.append(HALAL_METHOD_NOTE + " (%s): halal.method is custom"
                      % ", ".join("%s %s" % (k, _fmt_val(h[k])) for k in differs))
         h["method"] = "custom"
     cfg["_halal_loosened"] = note if looser else None
@@ -521,6 +524,22 @@ def validate_config(user, defaults=None):
     _halal_policy(cfg, notes)
     cfg["_notes"] = notes
     return cfg, notes
+
+
+def clean_user_config(user):
+    """The valid part of a config.json -> (overlay, notes): what validate_config keeps from it. An invalid,
+    unknown or removed key is left out and named in notes."""
+    notes = []
+    if not isinstance(user, dict):
+        return {}, ["CONFIG: config.json is not an object of settings: using the defaults"]
+    return _clean_user(user, DEFAULT_CONFIG, "", notes), notes
+
+
+def config_errors(notes):
+    """The notes that mean a value would be ignored or refused (invalid, unknown, removed, a hard rule, a halal
+    threshold looser than TASIS without halal.loosen_note). A settings editor refuses to save while any is left.
+    The one informational note (thresholds differ from TASIS, so halal.method is custom) is not an error."""
+    return [n for n in notes if not n.startswith(HALAL_METHOD_NOTE)]
 
 
 def load_config():
@@ -609,6 +628,9 @@ def settings_snapshot(cfg):
             "defaults_version": DEFAULTS_VERSION, "values": vals, "differs_from_default": differs}
 
 
+RISK_WARN_PCT = 2.0      # risk_preview warns in plain words above this risk per trade
+
+
 def risk_preview(cfg, stops_pct=(2, 3, 5, 8, 10, 15), entry=1000.0):
     """What the risk settings mean in rupees: the drawdown after 3, 5 and 10 losses in a row (each
     loss is the risk % of what is left), the rupee loss per trade, and which limit sets the quantity
@@ -646,6 +668,11 @@ def risk_preview(cfg, stops_pct=(2, 3, 5, 8, 10, 15), entry=1000.0):
                         "Stops wider than %.2f%% are sized by the risk (%s at the stop); stops tighter than that "
                         "hit the %s%% max position first, so the loss at the stop is smaller."
                         % (cross or 0, fmt_rs(budget, 0), _fmt_val(cfg["max_position_pct"]))),
+            "warning": (None if cfg["max_risk_per_trade_pct"] <= RISK_WARN_PCT else
+                        "%s%% a trade is above %s%%: 10 losses in a row, which happens, would take %s%% of your capital "
+                        "(%s). Most traders keep it at 1%%." % (_fmt_val(cfg["max_risk_per_trade_pct"]),
+                                                                 _fmt_val(RISK_WARN_PCT), _fmt_val(streaks[-1]["drawdown_pct"]),
+                                                                 fmt_rs(streaks[-1]["lost_rs"], 0))),
             "note": "Before charges (STT, stamp duty, GST, DP charge). tayyib-budget includes them, so its "
                     "quantities can be a share or two lower."}
 
@@ -922,7 +949,7 @@ def parse_yahoo_chart(obj):
 
 def get_daily_bars(sym, range_="2y", exchange="NSE", use_cache=True, save=True):
     """Daily OHLCV for an NSE (or BSE) stock. Cached per day in trader/cache/ (save=False reads the
-    cache but never writes it: the read-only dashboard)."""
+    cache but never writes it: the dashboard GETs)."""
     sym = normalize_symbol(sym)
     cache_name = os.path.join("cache", "bars_%s_%s_%s.json" % (sym, exchange, range_))
     if use_cache and not fixtures_dir():

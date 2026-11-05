@@ -33,11 +33,14 @@ COLUMNS = [("date", "List date"), ("symbol", "Stock"), ("name", "Company"), ("mo
            ("expectancy_r", "Time machine R"), ("status", "Status"), ("filled", "Bought on"),
            ("fill", "Buy price"), ("exited", "Exit on"), ("exit", "Exit price"), ("days", "Days held"),
            ("r", "Result R"), ("pnl_rs", "P&L Rs"), ("last", "Last close"), ("checked", "Checked"),
-           ("settings_hash", "Settings")]
+           ("settings_hash", "Settings"), ("superseded_by", "Superseded by")]
 PRE = "pre-0.1.5"          # rows recorded before settings were tracked
 # hashes from before DEFAULTS_VERSION existed (v0.1.5 as first committed hashed every value): the
 # rows keep them, and the summary counts them under the label they stand for
 LEGACY_LABELS = {"cf8b2136": "default@1"}
+# v0.1.8: a list re-made for the same date under other settings replaces the earlier one. Its rows that never
+# filled become SUPERSEDED: kept for audit, never followed again and left out of every summary.
+SUPERSEDED = "SUPERSEDED"
 
 
 def load():
@@ -57,7 +60,44 @@ def save(store):
 
 
 def key(r):
+    """One row per list date, stock, setup and settings: a same-settings re-run adds no duplicate."""
+    return "%s|%s|%s|%s" % (r["date"], r["symbol"], r["setup"], r.get("settings_hash") or PRE)
+
+
+def pick(r):
     return "%s|%s|%s" % (r["date"], r["symbol"], r["setup"])
+
+
+def filled(r):
+    """A row that reached its buy price (or is past waiting): never touched by a re-run."""
+    return bool(r.get("filled")) or r.get("status") not in ("WAITING", "NOT TRIGGERED", SUPERSEDED)
+
+
+def counted(rows):
+    """The rows every summary counts: all but SUPERSEDED ones."""
+    return [r for r in rows if r.get("status") != SUPERSEDED]
+
+
+def supersede(store, date, h, label):
+    """A list for `date` was made again with settings `h`: earlier rows of that date with other settings that
+    never filled -> SUPERSEDED (with the new label); rows of `h` that an earlier re-run superseded come back.
+    -> (superseded, restored)."""
+    gone = back = 0
+    for r in store["rows"]:
+        if r["date"] != date:
+            continue
+        mine = (r.get("settings_hash") or PRE) == h
+        if mine and r.get("status") == SUPERSEDED:
+            r["status"] = "WAITING"
+            for k in ("superseded_by", "superseded_on"):
+                r.pop(k, None)
+            back += 1
+        elif not mine and r.get("status") != SUPERSEDED and not filled(r):
+            r["status"] = SUPERSEDED
+            r["superseded_by"] = label
+            r["superseded_on"] = tc.now_ist().isoformat(timespec="minutes")
+            gone += 1
+    return gone, back
 
 
 def add_from_daily(store, date):
@@ -70,7 +110,10 @@ def add_from_daily(store, date):
         store.setdefault("settings", {}).setdefault(h, {
             "label": st.get("label") or LEGACY_LABELS.get(h) or h, "first_seen": d["date"],
             "differs_from_default": st.get("differs_from_default") or []})
+    label = st.get("label") or LEGACY_LABELS.get(h) or h
+    store["_superseded"] = supersede(store, d["date"], h, label)[0]
     have = {key(r) for r in store["rows"]}
+    live_fills = {pick(r) for r in store["rows"] if r["date"] == d["date"] and filled(r)}
     n = 0
     for r in d.get("rows", []):
         if r.get("entry") is None or r.get("stop") is None or r.get("target") is None:
@@ -80,7 +123,7 @@ def add_from_daily(store, date):
                "target": r["target"], "qty": r.get("qty"), "risk_rs": r.get("loss_at_stop_rs"),
                "valid_until": r.get("valid_until"), "max_hold_days": r.get("max_hold_days"),
                "expectancy_r": r.get("expectancy_r"), "status": "WAITING", "settings_hash": h}
-        if key(row) not in have:
+        if key(row) not in have and pick(row) not in live_fills:   # a filled pick stays the one that counts
             store["rows"].append(row)
             have.add(key(row))
             n += 1
@@ -88,7 +131,7 @@ def add_from_daily(store, date):
 
 
 def update(store, cfg):
-    todo = [r for r in store["rows"] if r.get("status") not in tc.FINAL_OUTCOMES]
+    todo = [r for r in store["rows"] if r.get("status") not in tc.FINAL_OUTCOMES and r.get("status") != SUPERSEDED]
     bars_by, errors = {}, []
     for r in todo:
         s = r["symbol"]
@@ -118,6 +161,8 @@ def settings_group(store, h):
 
 
 def summary(rows, store=None):
+    rows = counted(rows)                       # SUPERSEDED rows are kept for audit, never counted
+
     def stats(group):
         closed = [r for r in group if r.get("status") in ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT")]
         trig = [r for r in group if r.get("filled")]
@@ -161,7 +206,7 @@ def settings_label(store, g):
 
 def settings_split(store):
     """{label: {differs, hashes, first_seen, stats}} so results can be compared settings by settings."""
-    rows = store["rows"]
+    rows = counted(store["rows"])
     out = {}
     for g in sorted({settings_group(store, r.get("settings_hash")) for r in rows}):
         mine = [r for r in rows if settings_group(store, r.get("settings_hash")) == g]
@@ -266,7 +311,7 @@ def write_xlsx(path, sheets):
 def export(store):
     rows = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)
     table = [[label for _, label in COLUMNS]] + [[r.get(k) for k, _ in COLUMNS] for r in rows]
-    widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11, 11]
+    widths = [11, 12, 26, 9, 10, 7, 10, 10, 10, 6, 9, 14, 14, 14, 11, 10, 11, 10, 9, 9, 10, 10, 11, 11, 14]
     summ = summary(store["rows"], store)
     sheads = ["Group", "Listed", "Bought (triggered)", "Closed", "Open", "Waiting", "Not triggered",
               "Target", "Stop", "Breakeven", "Time exit", "Win rate %", "Avg R", "Total R", "P&L Rs",
@@ -285,6 +330,8 @@ def export(store):
             ["'settings: ...' rows split the results by the settings each list was made with: default@1, default@2 = all "
              "defaults, a code like abcd1234 = your changes (the last column says which). pre-0.1.5 = recorded "
              "before settings were tracked."],
+            ["SUPERSEDED = the list for that date was made again with other settings before this pick filled. The row "
+             "is kept for the record, not followed and not counted in the Summary. Picks that had filled stay."],
             ["Results from a few weeks are noise. Judge after 30+ closed trades."],
             [tc.DISCLAIMER]]
     xlsx = write_xlsx(tc.path("tracker.xlsx"), [("Tracker", table, widths),
@@ -314,10 +361,13 @@ def main(argv=None):
     if a.cmd == "add":
         date = a.from_daily or tc.today_ist().isoformat()
         n, err = add_from_daily(store, date)
+        gone = store.pop("_superseded", 0)
         save(store)
         if a.json:
-            return tc.print_json({"added": n, "error": err})
+            return tc.print_json({"added": n, "superseded": gone, "error": err})
         print(err or "recorded %d stock(s) from the %s list" % (n, date))
+        if gone:
+            print("%d earlier row(s) of %s made with other settings are SUPERSEDED (kept, not counted)" % (gone, date))
         return
     if a.cmd == "update":
         n, errors = update(store, cfg)

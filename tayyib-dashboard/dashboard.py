@@ -1,27 +1,33 @@
 #!/usr/bin/env python3
-"""tayyib-dashboard: a local, read-only dashboard over your trader/ files.
+"""tayyib-dashboard: a local dashboard over your trader/ files.
 
   py tayyib-dashboard/dashboard.py              opens http://127.0.0.1:8765/ in your browser
   py tayyib-dashboard/dashboard.py --port 8800 --no-browser
 
-Four tabs: Today (the daily list, top picks, each row's Why), Results (the paper tracker, price
-charts, equity curve), Halal (the screened universe, ratios against the limits, your overrides),
-Tickets (unplaced tickets with the Kite / Groww steps to copy, and your positions journal).
+Five tabs: Today (the daily list, top picks, each row's Why, a "Run today's list" button), Results (the
+paper tracker, price charts, equity curve), Halal (the screened universe, ratios against the limits, your
+overrides), Tickets (unplaced tickets with the Kite / Groww steps to copy, your positions journal) and
+Settings (config.json, validated, with a risk preview and backups).
 
-Read-only by design: it listens on 127.0.0.1 only, answers GET and HEAD only (anything else gets
-405), refuses requests whose Host header is not 127.0.0.1 or localhost on its own port, sends no
-CORS headers, serves a fixed list of files and writes nothing. It cannot place, change or cancel an
-order, and neither can anything else in tayyib-trader. Python does every calculation (formatting,
-statuses, chart coordinates); the page only draws what the server sends.
+It listens on 127.0.0.1 only, refuses requests whose Host header is not 127.0.0.1 or localhost on its own
+port and sends no CORS headers. Everything is GET / HEAD and reads only, except exactly two POST endpoints,
+both in actions.py: /api/config (save or restore config.json) and /api/run (start tayyib-daily). A POST
+also needs an Origin of this server, the per-start token embedded in the page (X-Tayyib-Token),
+Content-Type application/json and a body of at most 64 KB. Any other method or path gets 405. This module
+itself writes nothing. Nothing here can place, change or cancel an order, and neither can anything else in
+tayyib-trader. Python does every calculation (formatting, statuses, chart coordinates, validation); the
+page only draws what the server sends.
 
 Not financial advice, not a fatwa.
 """
 import argparse
 import datetime as dt
+import hmac
 import importlib.util
 import json
 import os
 import re
+import secrets
 import sys
 import threading
 import urllib.parse
@@ -31,6 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tayyib_core as tc  # noqa: E402
+import actions as A  # noqa: E402   the only write paths: config.json and starting tayyib-daily
 
 ROOT = os.path.dirname(HERE)
 HOST = "127.0.0.1"                    # loopback only, never all interfaces: for this computer alone
@@ -42,7 +49,9 @@ CLOSED = ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT")
 NOISE_UNTIL = 30                      # closed trades before the results mean anything
 HINT = "run tayyib-daily"
 RUN_DAILY = "Run: give me today's halal list"
-SETTINGS_NOTE = "editing settings arrives in v0.1.8"
+SETTINGS_NOTE = "change them in the Settings tab"
+MAX_BODY = 64 * 1024                  # bytes a POST may carry
+TOKEN_SLOT = b"{{TAYYIB_TOKEN}}"      # index.html carries the per-start token here
 UNKNOWN = "UNKNOWN"
 
 
@@ -88,7 +97,8 @@ def inr_short(x):
         v, unit = x / 1e5, "lakh"
     else:
         return inr(x, 0 if a >= 1000 else 2)
-    t = ("%.1f" % v).rstrip("0").rstrip(".") if abs(v) < 100 else "%.1f" % v
+    t = "{:,.1f}".format(v)
+    t = t[:-2] if t.endswith(".0") else t                     # ₹2 cr, ₹523.7 cr, ₹1,000 cr
     return "₹%s %s" % (t, unit)
 
 
@@ -226,7 +236,7 @@ def api_meta(q):
     latest = tc.read_json(os.path.join("daily", dates[0] + ".json")) if dates else None
     return {"version": tc.VERSION, "data_dir": tc.data_dir(), "today": tc.today_ist().isoformat(),
             "settings_label": snap["label"], "defaults_version": snap["defaults_version"],
-            "settings_header": "Current settings: %s (%s)" % (snap["label"], SETTINGS_NOTE),
+            "settings_header": "Current settings: %s" % snap["label"],
             "settings_note": SETTINGS_NOTE,
             "differs_from_default": snap["differs_from_default"],
             "latest_date": dates[0] if dates else None,
@@ -424,6 +434,9 @@ def verdict(r):
         return {"verdict": "breakeven", "label": "BREAKEVEN (%s)" % signed_r(x), "kind": "warn"}
     if s in ("OPEN", "WAITING"):
         return {"verdict": "pending", "label": "%s: pending" % s, "kind": "info"}
+    if s == "SUPERSEDED":
+        return {"verdict": "superseded", "label": "SUPERSEDED by %s: not counted" % text(r.get("superseded_by")),
+                "kind": "unknown"}
     return {"verdict": "unknown", "label": "%s" % text(s), "kind": "unknown"}
 
 
@@ -470,6 +483,8 @@ def stats_display(s):
 def result_counts(rows):
     out = {"right": 0, "wrong": 0, "no trade": 0, "pending": 0, "other": 0}
     for r in rows:
+        if r.get("status") == "SUPERSEDED":                 # kept for the record, never counted
+            continue
         v = r["verdict"]["verdict"]
         out[v if v in out else "other"] += 1
     return out
@@ -492,17 +507,23 @@ def api_tracker(q):
     for k, r in enumerate(sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)):
         v = verdict(r)
         pending = r.get("status") in ("WAITING", "OPEN")
-        rows.append(dict(r, row_id=k, verdict=v, settings_label=tr.settings_group(store, r.get("settings_hash")),
+        sup = r.get("status") == "SUPERSEDED"
+        rows.append(dict(r, row_id=k, verdict=v, superseded=sup, settings_label=tr.settings_group(store, r.get("settings_hash")),
                          display={"entry": inr(r.get("entry")), "stop": inr(r.get("stop")),
                                   "target": inr(r.get("target")), "fill": inr(r.get("fill")),
-                                  "exit": "not yet" if pending and r.get("exit") is None else inr(r.get("exit")),
-                                  "r": "not closed" if pending and r.get("r") is None else signed_r(r.get("r")),
+                                  "exit": "not yet" if pending and r.get("exit") is None else
+                                  "not followed" if sup else inr(r.get("exit")),
+                                  "r": "not closed" if pending and r.get("r") is None else
+                                  "not counted" if sup else signed_r(r.get("r")),
                                   "pnl_rs": inr(r.get("pnl_rs")) if r.get("status") in CLOSED else (
+                                      "not counted" if sup else
                                       "not closed" if r.get("pnl_rs") is None else inr(r.get("pnl_rs"))),
-                                  "filled": "not yet" if r.get("status") == "WAITING" and not r.get("filled")
+                                  "filled": "not followed" if sup and not r.get("filled")
+                                  else "not yet" if r.get("status") == "WAITING" and not r.get("filled")
                                   else "no" if r.get("status") == "NOT TRIGGERED" and not r.get("filled")
                                   else text(r.get("filled")),
-                                  "exited": "not yet" if pending and not r.get("exited") else text(r.get("exited")),
+                                  "exited": "not yet" if pending and not r.get("exited") else
+                                  "not followed" if sup and not r.get("exited") else text(r.get("exited")),
                                   "days": text(r.get("days")),
                                   "check": text(r.get("check")), "last": inr(r.get("last"))}))
     closed = summ["all"]["closed"]
@@ -519,6 +540,9 @@ def api_tracker(q):
             "kpis": kpis, "ring": {"fraction": round(ring, 3), "closed": closed, "of": NOISE_UNTIL,
                                    "label": "%d of %d closed trades" % (closed, NOISE_UNTIL)},
             "result_counts": result_counts(rows),
+            "superseded": sum(1 for r in rows if r["superseded"]),
+            "superseded_note": "SUPERSEDED: the list for that date was made again with other settings before the pick "
+                               "filled. Kept for the record, not followed, not counted in any result.",
             "equity": equity_curve(store["rows"]), "closed": closed,
             "noise_banner": ("still noise: don't judge yet (%d of %d closed trades)" % (closed, NOISE_UNTIL))
             if closed < NOISE_UNTIL else None}
@@ -721,9 +745,230 @@ def api_chart(q):
                           inr(row.get("target")), verdict(row)["label"])}
 
 
+# --- Settings (v0.1.8): every documented key, grouped. Validation is tc.validate_config, via actions.py ------
+
+def _group_of(key):
+    if key in ("capital", "max_risk_per_trade_pct", "max_risk_per_trade_rs", "max_position_pct", "max_open_positions",
+               "max_portfolio_heat_pct", "max_positions_per_industry", "min_reward_risk", "cash_available"):
+        return "risk", "Money and limits"
+    if key.startswith("modes.swing."):
+        return "plan", "Swing trades"
+    if key.startswith("modes.delivery."):
+        return "plan", "Delivery trades"
+    if key == "tick_size":
+        return "plan", "Prices"
+    if key.startswith("scanner.setups."):
+        name = key.split(".")[2]
+        return "selection", "Setup: %s (%s)" % (name, "delivery" if name in tc.DELIVERY_SETUPS else "swing")
+    if key in ("min_price", "min_turnover_rs") or key in ("scanner.warmup_bars", "scanner.min_history_bars",
+                                                           "scanner.liquidity_days"):
+        return "selection", "Liquidity and history"
+    if key.startswith("daily."):
+        return "selection", "The daily list"
+    if key in ("broker", "exchange") or key.startswith("charges."):
+        return "broker", "Broker and charges"
+    if key.startswith("brokers."):
+        return "broker", "Brokerage: %s" % key.split(".")[1]
+    if key.startswith("halal."):
+        return "halal", ("Your source" if key in ("halal.loosen_note", "halal.allow_review") else
+                         "Thresholds" if key.startswith("halal.max_") or key.endswith("_return_pct") or key == "halal.method"
+                         else "The halal list")
+    return "data", "Data and calendar"
+
+
+SETTING_GROUPS = (
+    ("risk", "Risk", "What you can lose: per trade, per stock and in total. The preview on the right shows it in rupees."),
+    ("plan", "Plan", "Where the stop and the target go, and how long a trade may stay open, per mode."),
+    ("selection", "Selection", "Which setups are looked for, the liquidity filter and how the daily list is ranked."),
+    ("broker", "Broker & charges", "The charges every quantity and every result in R is computed after."),
+    ("halal", "Halal", "Stricter than TASIS saves freely. Looser needs your source or scholar, and every list then says so."),
+    ("data", "Data & calendar", "Holidays, news sources and the request header."),
+)
+SECTION_ORDER = {"plan": ("Swing trades", "Delivery trades", "Prices"),
+                 "selection": ("The daily list", "Liquidity and history"),
+                 "halal": ("Thresholds", "Your source", "The halal list")}
+TASIS_LOOSER = {"max_debt_to_assets_pct": "above", "max_noncompliant_income_pct": "above",
+                "max_cash_receivables_to_assets_pct": "above", "noncompliant_investment_return_pct": "below"}
+
+
+def _step(doc):
+    if doc["type"] == "int":
+        return 1
+    span = (doc.get("max") or 0) - (doc.get("min") or 0)
+    return 0.001 if span <= 0.1 else 0.01 if span <= 1 else 0.05 if span <= 10 else 0.5 if span <= 60 else 1
+
+
+def _range_text(doc):
+    if doc["type"] in ("number", "int") and doc.get("min") is not None:
+        unit = doc.get("unit") or ""
+        if unit == "Rs":
+            return "%s to %s" % (inr_short(doc["min"]), inr_short(doc["max"]))
+        return "%s–%s%s" % (tc._fmt_val(doc["min"]), tc._fmt_val(doc["max"]), (" " + unit) if unit and unit != "%" else unit)
+    return {"bool": "on or off", "enum": "one of " + ", ".join(tc._fmt_val(c) for c in doc.get("choices") or []),
+            "string": "text", "dates": "dates, YYYY-MM-DD, one a line", "map": "name: URL, one a line"}.get(doc["type"], "")
+
+
+def _value_text(v, doc):
+    if v is None:
+        return "none"
+    if doc.get("unit") == "Rs" and isinstance(v, (int, float)) and not isinstance(v, bool):
+        return inr_short(v) if abs(v) >= 1e5 else inr(v, 2 if v != int(v) else 0)
+    if isinstance(v, bool):
+        return "on" if v else "off"
+    if isinstance(v, str):
+        return v if v.strip() else "(empty)"
+    if isinstance(v, list):
+        return ", ".join(v) if v else "none"
+    if isinstance(v, dict):
+        return "%d source%s" % (len(v), "" if len(v) == 1 else "s")
+    unit = doc.get("unit") or ""
+    return tc._fmt_val(v) + ("%" if unit == "%" else (" " + unit) if unit and doc["type"] in ("number", "int") else "")
+
+
+def setting_field(key, cur, saved, raw_has):
+    doc = tc.DEFAULT_CONFIG_DOCS[key]
+    dflt = A._flat(tc.DEFAULT_CONFIG).get(key)
+    v = cur.get(key)
+    f = {"key": key, "label": re.sub(r"\s*\(null = [^)]*\)", "", doc["description"]).replace("Rs ", "₹"), "type": doc["type"], "unit": doc.get("unit"),
+         "min": doc.get("min"), "max": doc.get("max"), "choices": doc.get("choices"), "nullable": bool(doc.get("nullable")),
+         "default": dflt, "value": v, "saved": key in saved, "changed": v != dflt,
+         "default_text": _value_text(dflt, doc), "value_text": _value_text(v, doc), "range_text": _range_text(doc),
+         "slider": doc["type"] in ("number", "int") and doc.get("min") is not None and doc.get("unit") != "Rs"
+                   and (doc["max"] - doc["min"]) <= 1000, "step": _step(doc) if doc["type"] in ("number", "int") else None}
+    short = key.split(".")[-1]
+    if key.startswith("halal.") and short in TASIS_LOOSER:
+        f["tasis"] = tc.TASIS_HALAL[short]
+        f["looser"] = TASIS_LOOSER[short]
+        f["tasis_text"] = "TASIS %s%%: %s it is looser and needs your source" % (
+            tc._fmt_val(tc.TASIS_HALAL[short]), "higher" if TASIS_LOOSER[short] == "above" else "lower")
+    if key == "halal.allow_review":
+        f["tasis_text"] = "on is looser than TASIS and needs your source"
+    if key == "halal.loosen_note":
+        f["label"] = "Source / scholar: who allowed thresholds looser than TASIS"
+        f["multiline"] = True
+    if key.startswith("scanner.setups.") and short == "enabled":
+        f["toggle_section"] = True
+    return f
+
+
+def api_settings(q):
+    raw, problem = A.raw_config()
+    base, dropped = tc.clean_user_config(raw)
+    cfg, notes = tc.validate_config(base)
+    cur, saved = A._flat(cfg), A._flat(base)
+    groups = {g: {"id": g, "title": t, "intro": i, "sections": []} for g, t, i in SETTING_GROUPS}
+    for key, doc in tc.DEFAULT_CONFIG_DOCS.items():
+        if doc["type"] == "locked":
+            continue                                        # hard rules: in the "Always on" card, not an option
+        g, sec = _group_of(key)
+        secs = groups[g]["sections"]
+        if not secs or secs[-1]["title"] != sec:
+            found = [x for x in secs if x["title"] == sec]
+            if found:
+                secs.append(secs.pop(secs.index(found[0])))
+            else:
+                secs.append({"title": sec, "fields": []})
+        f = setting_field(key, cur, saved, key in saved)
+        if f.get("toggle_section"):
+            secs[-1]["toggle"] = f
+        else:
+            secs[-1]["fields"].append(f)
+    for g in groups.values():
+        order = SECTION_ORDER.get(g["id"], ())
+        g["sections"].sort(key=lambda x: order.index(x["title"]) if x["title"] in order else len(order))
+        for sec in g["sections"]:
+            sec["changed"] = sum(1 for f in sec["fields"] + ([sec["toggle"]] if sec.get("toggle") else []) if f["changed"])
+    snap = tc.settings_snapshot(cfg)
+    return {"groups": [groups[g] for g, _, _ in SETTING_GROUPS], "version": A.config_version(),
+            "label": snap["label"], "changed": len(snap["differs_from_default"]),
+            "always_on": list(tc.HARD_RULES) + ["only halal-compliant stocks can pass (review needs your source; "
+                                                "excluded and unknown never pass)"],
+            "notes": ([problem] if problem else []) + dropped + tc.config_errors(notes),
+            "banner": tc.halal_banner(cfg), "backups": A.list_backups(), "keep_backups": A.KEEP_BACKUPS,
+            "apply_note": A.APPLY_NOTE, "data_dir": tc.data_dir(),
+            "preview": preview_view(tc.risk_preview(cfg))}
+
+
+def preview_view(rp):
+    """tc.risk_preview, formatted for the page."""
+    binding = {"risk": "risk per trade", "position": "max position", "both": "both"}
+    return {"risk_rs": inr(rp["risk_per_trade_rs"], 0), "risk_pct": tc._fmt_val(rp["risk_per_trade_pct"]) + "%",
+            "capital": inr_short(rp["capital"]), "max_position": "%s%% = %s" % (tc._fmt_val(rp["max_position_pct"]),
+                                                                              inr(rp["max_position_rs"], 0)),
+            "streaks": [{"losses": x["losses"], "label": "%d losses in a row" % x["losses"],
+                         "drawdown": "−%s%%" % tc._fmt_val(round(x["drawdown_pct"], 1)),
+                         "fraction": min(1.0, x["drawdown_pct"] / 100.0),
+                         "detail": "%s lost, %s left" % (inr(x["lost_rs"], 0), inr(x["capital_left_rs"], 0))}
+                        for x in rp["losing_streaks"]],
+            "samples": [{"stop": tc._fmt_val(x["stop_pct"]) + "%", "qty": str(x["qty"]), "binding": binding[x["binding"]],
+                         "position": "%s (%s%%)" % (inr(x["position_rs"], 0), tc._fmt_val(round(x["position_pct"], 1))),
+                         "loss": inr(x["loss_at_stop_rs"], 0)} for x in rp["samples"]],
+            "sample_entry": inr(rp["samples"][0]["entry"], 0) if rp["samples"] else UNKNOWN,
+            "binding_stop": None if rp["binding_stop_pct"] is None else tc._fmt_val(rp["binding_stop_pct"]) + "%",
+            "explain": rp["explain"].replace("Rs ", "₹"), "note": rp["note"],
+            "warning": rp["warning"].replace("Rs ", "₹") if rp.get("warning") else None}
+
+
+def diff_view(diff):
+    for d in diff:
+        doc = tc.DEFAULT_CONFIG_DOCS[d["key"]]
+        d["from_text"], d["to_text"] = _value_text(d["from"], doc), _value_text(d["to"], doc)
+        d["default_text"] = _value_text(d["default"], doc)
+    return diff
+
+
+def api_risk_preview(q):
+    """What a pending change would do, without saving: the risk preview in rupees, the diff, the validator's
+    messages per key, the halal banner and the settings label after saving."""
+    raw = (q.get("change") or ["{}"])[0]
+    if len(raw) > MAX_BODY:
+        return {"error": "change too large"}
+    try:
+        change = json.loads(raw)
+        plan = A.plan_change(change)
+    except ValueError:
+        return {"error": "change must be JSON"}
+    except A.Refused as e:
+        return {"error": "; ".join(e.errors)}
+    return {"ok": plan["ok"], "errors": plan["errors"], "diff": diff_view(plan["diff"]), "dropped": plan["dropped"],
+            "label": plan["label"], "label_now": plan["label_now"], "banner": plan["banner"], "info": plan["info"],
+            "preview": preview_view(tc.risk_preview(plan["cfg"])), "apply_note": A.APPLY_NOTE}
+
+
+def api_backups(q):
+    return {"backups": A.list_backups(), "keep": A.KEEP_BACKUPS}
+
+
+def api_backup_diff(q):
+    """What restoring a backup would change (read only; restoring is POST /api/config {"restore": NAME})."""
+    try:
+        plan = A.plan_change(A.restore_change((q.get("name") or [""])[0]))
+    except A.Refused as e:
+        return {"error": "; ".join(e.errors)}
+    except ValueError as e:
+        return {"error": "the backup could not be read: %s" % e}
+    return {"ok": plan["ok"], "errors": plan["errors"], "diff": diff_view(plan["diff"]), "label": plan["label"],
+            "label_now": plan["label_now"], "dropped": plan["dropped"], "info": plan["info"], "banner": plan["banner"]}
+
+
+def run_status(runner):
+    st = runner.status()
+    e = st.get("elapsed_s")
+    st["elapsed_text"] = "" if e is None else "%d:%02d" % (e // 60, e % 60)
+    try:
+        st["started_text"] = dt.datetime.fromisoformat(st["started"]).strftime("%I:%M %p").lstrip("0")
+    except (TypeError, ValueError):
+        st["started_text"] = ""
+    st["advice"] = A.run_advice()
+    return st
+
+
 ROUTES = {"/api/meta": api_meta, "/api/dates": api_dates, "/api/today": api_today, "/api/tracker": api_tracker,
-          "/api/halal": api_halal, "/api/tickets": api_tickets, "/api/chart": api_chart}
+          "/api/halal": api_halal, "/api/tickets": api_tickets, "/api/chart": api_chart, "/api/settings": api_settings,
+          "/api/risk-preview": api_risk_preview, "/api/config/backups": api_backups,
+          "/api/config/backup-diff": api_backup_diff}
 PAGES = {"/": INDEX, "/index.html": INDEX}             # the only files served
+POST_ROUTES = ("/api/config", "/api/run")             # the only two requests that change anything (actions.py)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -763,7 +1008,12 @@ class Handler(BaseHTTPRequestHandler):
         p = u.path
         if p in PAGES:
             with open(PAGES[p], "rb") as f:
-                return self._send(200, f.read(), "text/html; charset=utf-8", head)
+                page = f.read().replace(TOKEN_SLOT, self.server.token.encode("ascii"))
+            return self._send(200, page, "text/html; charset=utf-8", head)
+        if p in POST_ROUTES:
+            return self._refuse()
+        if p == "/api/run/status":
+            return self._json(200, run_status(self.server.runner), head)
         fn = ROUTES.get(p)
         if fn is None:
             return self._json(404, {"error": "not found"}, head)
@@ -778,17 +1028,87 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self._get(head=True)
 
+    def _length(self):
+        try:
+            n = int(self.headers.get("Content-Length") or "")
+        except ValueError:
+            return None
+        return n if n >= 0 else None
+
+    def _drain(self):
+        """Read and drop a refused request's body (at most 1 MB, briefly) so the connection closes cleanly."""
+        n = self._length()
+        left = min(MAX_BODY if n is None else n, 1 << 20)      # no usable length: whatever arrives, briefly
+        try:
+            self.connection.settimeout(0.5)
+            while left > 0:
+                chunk = self.rfile.read1(min(left, 65536))
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except (OSError, ValueError):
+            pass
+
+    def _no(self, code, msg):
+        self._drain()
+        return self._json(code, {"error": msg})
+
     def _refuse(self):
+        self._drain()
+        p = urllib.parse.urlsplit(self.path).path
         self.send_response(405)
-        self.send_header("Allow", "GET, HEAD")
+        self.send_header("Allow", "POST" if p in POST_ROUTES else "GET, HEAD")
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_TRACE = do_CONNECT = _refuse
+    def _origin_ok(self):
+        port = self.server.server_address[1]
+        return (self.headers.get("Origin") or "") in ("http://127.0.0.1:%d" % port, "http://localhost:%d" % port)
+
+    def do_POST(self):
+        """Exactly two POST routes. Each needs: the Host check, an Origin of this server, the per-start token,
+        Content-Type application/json and a body of at most 64 KB."""
+        if not self._host_ok():
+            return self._no(403, "forbidden host")
+        p = urllib.parse.urlsplit(self.path).path
+        if p not in POST_ROUTES:
+            return self._refuse()
+        if not self._origin_ok():
+            return self._no(403, "forbidden origin")
+        if not hmac.compare_digest((self.headers.get("X-Tayyib-Token") or "").encode("utf-8"),
+                                   self.server.token.encode("ascii")):
+            return self._no(403, "missing or wrong token: reload the page")
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self._no(415, "Content-Type must be application/json")
+        n = self._length()
+        if n is None:
+            return self._no(411, "Content-Length required")
+        if n > MAX_BODY:
+            return self._no(413, "body larger than %d bytes" % MAX_BODY)
+        try:
+            body = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return self._json(400, {"error": "body must be JSON"})
+        try:
+            if p == "/api/config":
+                out = A.save_config(body)
+            else:
+                self.server.runner.start(body)
+                out = run_status(self.server.runner)
+        except A.Refused as e:
+            return self._json(e.code, {"error": e.errors[0] if len(e.errors) == 1 else "refused", "errors": e.errors})
+        except Exception as e:                           # never a stack trace in the page
+            return self._json(500, {"error": "%s: %s" % (type(e).__name__, str(e)[:200])})
+        return self._json(200, out)
+
+    do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_TRACE = do_CONNECT = _refuse
 
 
-def make_server(port=DEFAULT_PORT):
-    return ThreadingHTTPServer((HOST, port), Handler)
+def make_server(port=DEFAULT_PORT, runner=None):
+    srv = ThreadingHTTPServer((HOST, port), Handler)
+    srv.token = secrets.token_urlsafe(32)               # new on every start; only the served page knows it
+    srv.runner = runner or A.Runner()
+    return srv
 
 
 def main(argv=None):
@@ -802,7 +1122,9 @@ def main(argv=None):
         tc.die("cannot listen on %s:%d (%s): is the dashboard already running? Try --port %d"
                % (HOST, a.port, e, a.port + 1))
     url = "http://%s:%d/" % (HOST, srv.server_address[1])
-    print("tayyib dashboard (read-only) on %s  data: %s" % (url, tc.data_dir()))
+    print("tayyib dashboard on %s  data: %s" % (url, tc.data_dir()))
+    print("It reads your files; it changes only config.json (Settings, with backups) and runs tayyib-daily when you "
+          "press Run. It never places an order.")
     print("Press Ctrl+C to stop. Not financial advice, not a fatwa.")
     sys.stdout.flush()
     if not a.no_browser:

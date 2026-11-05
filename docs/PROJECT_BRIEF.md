@@ -37,7 +37,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | skill | job |
 |---|---|
 | tayyib-daily | one command: today's list, top 3 PASS picks, `trader/daily/DATE.md` + `.json` |
-| tayyib-dashboard | read-only local web page over the `trader/` files (127.0.0.1, GET only): Today, Results, Halal, Tickets |
+| tayyib-dashboard | local web page over the `trader/` files (127.0.0.1): Today, Results, Halal, Tickets, Settings; GET only except `POST /api/config` and `POST /api/run` |
 | tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json` |
 | tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), plus user overrides; `compare` against a trusted fund list |
 | tayyib-scanner | swing setups (breakout, pullback, oversold, squeeze) and delivery (trend) |
@@ -119,8 +119,14 @@ over MCP (stdio), none of which place orders.
   design).
 - **Dashboard redesign (v0.1.7 review):** design system version 2 in `design-system/tayyib/MASTER.md` (petrol teal +
   warm off-white, serif display, bento tiles, drawer / bottom sheet, phone tab bar, no sideways scroll from 375px).
-- **Run button: not before v0.1.8.** The v0.1.7 dashboard is read-only. v0.1.8 may add a button that
-  runs `tayyib-daily` locally (analysis only); it will never place, modify or cancel an order.
+- **Two write endpoints (v0.1.8):** `POST /api/config` (settings) and `POST /api/run` (tayyib-daily,
+  analysis only), and no others. Each needs Host + Origin + a per-start token (`X-Tayyib-Token`) + JSON +
+  ≤ 64 KB. The server calls `tc.validate_config` and never re-implements it; all-or-nothing saves, atomic
+  write, backups in `trader/config_backups/` (last 20), 409 on a stale version. Nothing places, modifies or
+  cancels an order.
+- **Tracker re-runs (v0.1.8):** key `date|symbol|setup|settings_hash`. A same-day re-run under other
+  settings marks the earlier unfilled rows SUPERSEDED (kept, not counted anywhere); filled rows are never
+  touched; same settings add nothing.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
@@ -137,14 +143,12 @@ over MCP (stdio), none of which place orders.
   `why[]` on every row, settings hash in the daily list and tracker, `--risk-preview`.
 - **v0.1.6:** fix for Windows: ₹ in output crashed the risk check (cp1252); all scripts now print and
   read UTF-8.
-- **v0.1.7** (this release): pipeline fixes from the live check (ranking on thin evidence = default@2,
+- **v0.1.7:** pipeline fixes from the live check (ranking on thin evidence = default@2,
   the news source-failure banner, why[] additions: capped stop, setup context, near halal limit;
   `halal.list_url` removed) and the read-only local dashboard (Today, Results, Halal, Tickets).
-- **v0.1.8:** a settings page (rendered from `DEFAULT_CONFIG_DOCS`, with the risk preview) and a run
-  button for `tayyib-daily` (local, analysis only, never an order). **Note for v0.1.8:** the tracker key is
-  `date|symbol|setup` and keeps the first row; a same-day re-run under different settings (which the run
-  button makes easy) is silently not recorded. Decide how to keep both: e.g. add the settings hash to the
-  key, or record the re-run as a separate row and show the split.
+- **v0.1.8** (this release): the Settings tab (rendered from `DEFAULT_CONFIG_DOCS`, risk preview with a
+  warning above 2%, review before save, backups and restore, halal loosening needs a source), the
+  "Run today's list" button, and SUPERSEDED rows for same-day re-runs under other settings.
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

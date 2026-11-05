@@ -29,7 +29,8 @@ class Repo(unittest.TestCase):
 
     def test_each_skill_runs_alone(self):
         for d in SKILLS:
-            scripts = [f for f in os.listdir(os.path.join(ROOT, d)) if f.endswith(".py") and f != "tayyib_core.py"]
+            helpers = {"tayyib_core.py", "actions.py"} if d == "tayyib-dashboard" else {"tayyib_core.py"}
+            scripts = [f for f in os.listdir(os.path.join(ROOT, d)) if f.endswith(".py") and f not in helpers]
             self.assertEqual(len(scripts), 1, d)
             p = subprocess.run([sys.executable, os.path.join(ROOT, d, scripts[0]), "--help"],
                                capture_output=True, text=True)

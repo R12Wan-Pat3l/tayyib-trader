@@ -78,8 +78,9 @@ Or ask Claude: **"How did yesterday's picks do?"**. This is paper only: nothing 
 30 or more closed trades, not after a few days.
 
 ### Your dashboard (in the browser)
-Everything above, on one page in your browser. It only **shows** your files: it cannot buy, sell or change
-anything, and it runs on your own computer only (nobody else can open it).
+Everything above, on one page in your browser. It cannot buy or sell anything, and it runs on your own
+computer only (nobody else can open it). The only two things it can change are your settings (the
+Settings tab) and today's list (the **Run today's list** button), both explained below.
 
 **Open it on Windows:**
 - In Claude Code (in your `tayyib-live` folder), ask: **"Show my dashboard"**. Your browser opens
@@ -121,9 +122,26 @@ On a phone the tabs are at the bottom of the screen.
   steps (they say "Copied ✓"), then the blocked ones folded away under "Blocked (not tickets)", then your
   open and closed positions. Copying is the only thing the buttons do: you still place every order yourself.
 
+- **Settings:** change your numbers in the browser. See [Changing your settings](#changing-your-settings).
+
 If a stock's halal status has changed since a list was made, that row only says "halal status changed
-since this list: re-check", without prices. Settings are shown at the top right; changing them from the
-dashboard arrives in v0.1.8 (until then, edit `trader\config.json`).
+since this list: re-check", without prices.
+
+### Run from the dashboard
+On the Today tab, press **Run today's list**. It runs the same thing as asking Claude for today's list, on
+your computer, with your data folder. You can tick **Skip news** to make it faster (the HALAL-WATCH and
+results checks are then not done for today). A panel shows the progress; you can close it and the run
+goes on. Only one run at a time.
+
+- Before 3:30 PM IST on a weekday, or on a market holiday in your settings, it asks first: "Prices aren't
+  final yet, levels may change". You can still run it.
+- When it finishes, the Today tab shows the new list.
+- If it fails, the panel shows the error and your old list stays as it was: nothing half-written.
+- It never places an order. You still place every order yourself.
+
+If you run it twice on one day with different settings, the tracker keeps the first run's unfilled picks
+as **SUPERSEDED** (greyed in Results, "not counted") and follows the new ones. Picks that had already
+reached their buy price are never touched.
 
 ### While you hold a trade
 - **"Check my alerts"**: tells you if a stop, target or time limit was hit.
@@ -164,8 +182,26 @@ On an NSE holiday there is no new price data, so it repeats the previous day's l
 
 ## Changing your settings
 
-Your settings live in `tayyib-live\trader\config.json`. Ask Claude, for example: **"set my risk per
-trade to 0.5%"** or **"turn off the squeeze setup"**. Anything you don't set keeps its default.
+Your settings live in `tayyib-live\trader\config.json`. Anything you don't set keeps its default. There
+are two easy ways to change them:
+
+**In the dashboard (Settings tab).** Every setting is listed by group (Risk, Plan, Selection, Broker &
+charges, Halal), with its default, its allowed range and its unit. Move a slider or type a number:
+- a changed value is marked **changed**, with **Reset** to go back to the default;
+- a value outside its range is marked in red at once, with the reason;
+- on the right (below, on a phone), **What this means in rupees** shows your loss per trade and after 3, 5
+  and 10 losses in a row, with a warning above 2% a trade;
+- **Review & save** lists every change (old → new) first. Nothing is saved until you press **Save
+  settings**. Then it says "Changes apply from the next run."
+
+Every save keeps a copy of your old `config.json` in `trader\config_backups\` (the last 20). Under
+**Backups** you can see what each one would change and restore it, the same safe way.
+
+The rules that keep it halal and cash-only are shown under **Always on**: they are not settings, and the
+page cannot switch them off.
+
+**By asking Claude**, for example: **"set my risk per trade to 0.5%"** or **"turn off the squeeze
+setup"**.
 
 **Risk per trade is not the stop.** They are two different things:
 - The **stop** is how far the price may fall before you sell (for example 5% under your buy price).
@@ -212,7 +248,8 @@ only halal-compliant stocks. These are rules in the code, not settings.
 
 **Halal thresholds.** You may make them stricter (for example debt under 20%) at any time. To make them
 *looser* than TASIS, you must write down who says so (your scholar or the method you follow) in
-`loosen_note`; without it the tool refuses and keeps the TASIS limits. With it, every daily list starts
+`loosen_note` (in the dashboard: the **Source / scholar** box); without it the tool refuses and keeps the
+TASIS limits, and the dashboard will not save. With it, every daily list starts
 with a line saying the thresholds are looser than TASIS, and why. See the [FAQ](FAQ.md#can-i-loosen-the-halal-thresholds).
 
 Every daily list records a short code for the settings it used: `default@1` when you changed nothing,

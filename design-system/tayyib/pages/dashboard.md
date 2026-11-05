@@ -5,7 +5,7 @@
 
 ## Page-specific rules
 
-- **Layout:** max width 1440px; 24px gutter (16px on a phone). Four tabs: Today, Results, Halal, Tickets. Pill tabs
+- **Layout:** max width 1440px; 24px gutter (16px on a phone). Five tabs: Today, Results, Halal, Tickets, Settings (sliders icon). Pill tabs
   in the sticky top bar on a desktop; a bottom tab bar with icons below 760px.
 - **Breakpoints:** 375 (designed first), 760 (bottom tab bar, single-column cards), 900 (tables become cards: two
   columns on a phone, four from 600px), 1180 (hero above the tiles; settings chip hidden), 1366 / 1440.

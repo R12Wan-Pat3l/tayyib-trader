@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="tayyib-token" content="{{TAYYIB_TOKEN}}">
 <title>tayyib dashboard</title>
 <style>
 /* design-system/tayyib/MASTER.md (v0.1.7 redesign): plain CSS, offline, system fonts, light + dark,
@@ -88,6 +89,8 @@ footer.foot b { color:var(--fg); font-weight:600; }
 .banner.k-block { background:var(--block-bg); border-color:color-mix(in srgb, var(--block) 30%, transparent); }
 .banner.k-info { background:var(--info-bg); border-color:color-mix(in srgb, var(--info) 30%, transparent); }
 .banner.k-unknown { background:var(--unknown-bg); }
+.banner.k-pass { background:var(--pass-bg); border-color:color-mix(in srgb, var(--pass) 30%, transparent); }
+.banner.k-pass > .ico { color:var(--pass); }
 .banner .ico.k-warn, .banner.k-warn > .ico { color:var(--warn); } .banner.k-block > .ico { color:var(--block); }
 .banner.k-info > .ico { color:var(--info); } .banner.k-unknown > .ico { color:var(--unknown); }
 .badge { display:inline-flex; align-items:center; gap:5px; font:700 11.5px/1 var(--sans); letter-spacing:.05em; text-transform:uppercase;
@@ -313,6 +316,104 @@ details.blocked > summary { font:600 18px var(--serif); color:var(--fg); }
 details.blocked > summary::before, details.more > summary::before { content:"\25B8"; color:var(--muted); transition:transform var(--t) var(--ease); }
 details.blocked[open] > summary::before, details.more[open] > summary::before { transform:rotate(90deg); }
 
+/* --- settings (v0.1.8) --- */
+.set-head { display:flex; flex-wrap:wrap; gap:14px 24px; align-items:flex-end; justify-content:space-between; margin-bottom:18px; }
+.set-head h1 { font-size:32px; line-height:1.1; margin-top:4px; }
+.set-head .eyebrow { font:700 11.5px/1 var(--sans); letter-spacing:.12em; text-transform:uppercase; color:var(--accent); }
+.set-head p { margin-top:8px; max-width:720px; }
+.group-nav { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 18px; }
+.group-nav button { font:600 13px var(--sans); color:var(--fg); background:var(--surface); border:1px solid var(--line); border-radius:999px;
+  min-height:40px; padding:0 14px; cursor:pointer; display:inline-flex; gap:6px; align-items:center; transition:border-color var(--t) var(--ease), background var(--t) var(--ease); }
+.group-nav button:hover { border-color:var(--primary); }
+.group-nav .n { font:700 11px/1 var(--sans); background:var(--primary); color:var(--on-primary); border-radius:999px; padding:3px 6px; }
+.set-layout { display:grid; grid-template-columns:minmax(0, 1fr) 380px; gap:24px; align-items:start; }
+.set-aside { position:sticky; top:84px; display:grid; gap:16px; min-width:0; }
+.sgroup { scroll-margin-top:84px; margin-bottom:26px; }
+.sgroup > h2.section { margin-top:0; }
+.sgroup > p.intro { margin:-8px 0 14px; color:var(--muted); font-size:14px; }
+.ssec { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow-1); margin-bottom:14px; overflow:clip; }
+.ssec > header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 18px; min-height:56px; background:var(--surface-2); }
+.ssec > header h3 { font-size:17px; } .ssec > header .chips { margin-left:auto; }
+.ssec.off > header h3 { color:var(--muted); }
+.ssec.dirty > header { box-shadow:inset 3px 0 0 var(--primary); }
+.ssec details.more { padding:0 18px; border-top:1px solid var(--line); }
+.ssec details.more[open] { padding-bottom:4px; }
+.ssec details.more .fields { margin:0 -18px; }
+.fields { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.field { padding:14px 18px 16px; border-top:1px solid var(--line); min-width:0; position:relative; transition:background var(--t) var(--ease); }
+.fields > .field:nth-child(odd) { border-right:1px solid var(--line); }
+.field.dirty { background:color-mix(in srgb, var(--primary) 5%, var(--surface)); box-shadow:inset 3px 0 0 var(--primary); }
+.field.has-err { background:var(--block-bg); box-shadow:inset 3px 0 0 var(--block); }
+.field .fh { display:flex; gap:8px; align-items:flex-start; justify-content:space-between; }
+.field .fl { font-weight:600; font-size:14px; line-height:1.35; min-width:0; }
+.field .fh .chips { flex:none; }
+.field .fc { display:flex; gap:12px; align-items:center; margin-top:8px; min-width:0; }
+.field input[type=range] { flex:1; min-width:0; accent-color:var(--primary); height:44px; margin:0; cursor:pointer; }
+.field input.numin, .field input.txt, .field select, .field textarea { font:500 15px var(--sans); color:var(--fg); background:var(--surface);
+  border:1px solid var(--line-strong); border-radius:var(--r-sm); min-height:44px; padding:0 12px; min-width:0; }
+.field input.numin { width:132px; flex:none; font-variant-numeric:tabular-nums; text-align:right; }
+.field input.txt, .field select, .field textarea { width:100%; }
+.field textarea { padding:10px 12px; min-height:84px; resize:vertical; font:500 13.5px/1.45 var(--mono); }
+.field textarea.prose { font:500 14px/1.45 var(--sans); }
+.field .pre { font:600 14px var(--sans); color:var(--muted); flex:none; }
+.field .pre.eq { font-weight:500; font-size:13px; white-space:nowrap; }
+.field .fm { font-size:12.5px; color:var(--muted); margin-top:6px; overflow-wrap:anywhere; }
+.field .fm .mono { font-size:11.5px; }
+.field .ferr { color:var(--block); font-size:13px; font-weight:600; margin-top:8px; display:flex; gap:6px; align-items:flex-start; overflow-wrap:anywhere; }
+.field .ferr .ico { flex:none; margin-top:2px; }
+.field .dirt { font-size:12px; color:var(--primary); font-weight:600; margin-top:6px; }
+.field .none { display:inline-flex; gap:8px; align-items:center; font-size:13px; color:var(--fg); min-height:44px; cursor:pointer; flex:none; }
+.field .none input, label.check input { width:20px; height:20px; accent-color:var(--primary); margin:0; flex:none; }
+button.switch { flex:none; min-width:60px; min-height:44px; background:none; border:0; padding:0; cursor:pointer; display:inline-flex; align-items:center; gap:10px;
+  font:600 13px var(--sans); color:var(--fg); }
+button.switch .trk { position:relative; width:48px; height:28px; border-radius:999px; background:var(--surface-3); border:1px solid var(--line-strong);
+  transition:background var(--t) var(--ease); flex:none; }
+button.switch .trk::after { content:""; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:var(--surface);
+  box-shadow:0 1px 3px rgba(0,0,0,.3); transition:transform var(--t) var(--ease); }
+button.switch[aria-checked=true] .trk { background:var(--primary); border-color:var(--primary); }
+button.switch[aria-checked=true] .trk::after { transform:translateX(20px); }
+.panel.lock h3, .panel.pv h3 { display:flex; gap:8px; align-items:center; }
+ul.lock { list-style:none; margin:0; padding:0; display:grid; gap:8px; font-size:13.5px; }
+ul.lock li { display:grid; grid-template-columns:18px minmax(0, 1fr); gap:8px; }
+ul.lock svg { margin-top:2px; color:var(--primary); }
+.pv .big { font:600 34px/1.05 var(--serif); font-variant-numeric:tabular-nums; }
+.pv .streak { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:2px 10px; margin-top:12px; font-size:13px; }
+.pv .streak .bar { grid-column:1 / -1; height:8px; border-radius:999px; background:var(--surface-3); position:relative; overflow:hidden; }
+.pv .streak .bar i { position:absolute; left:0; top:0; bottom:0; background:var(--block); border-radius:999px; }
+.pv .streak b { font-variant-numeric:tabular-nums; color:var(--block); }
+.pv .streak .d { grid-column:1 / -1; color:var(--muted); font-size:12px; }
+.pv table { font-size:12.5px; } .pv th, .pv td { padding:6px 8px; }
+.pv thead th { position:static; }
+.savebar { position:sticky; bottom:calc(var(--nav-h) + 12px); z-index:15; display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; justify-content:space-between;
+  background:var(--surface); border:1px solid var(--line-strong); box-shadow:var(--shadow-3); border-radius:var(--r-lg); padding:12px 16px; margin:8px 0 20px; }
+.savebar .what { min-width:0; font-size:14px; } .savebar .what b { display:block; font-size:15px; }
+.savebar .what .bad { color:var(--block); font-weight:600; }
+.savebar .acts { display:flex; gap:8px; flex-wrap:wrap; }
+button.act { font:600 14px/1 var(--sans); border-radius:999px; min-height:44px; padding:0 20px; cursor:pointer; color:var(--on-primary); background:var(--primary);
+  border:1px solid var(--primary); display:inline-flex; align-items:center; gap:8px; white-space:nowrap; transition:background var(--t) var(--ease); }
+button.act:hover { background:var(--primary-strong); }
+button.act[disabled], button.link[disabled] { opacity:.55; cursor:not-allowed; }
+button.onhero { font:600 14px/1 var(--sans); border-radius:999px; min-height:44px; padding:0 18px; cursor:pointer; color:var(--hero-b); background:var(--on-hero);
+  border:0; display:inline-flex; align-items:center; gap:8px; white-space:nowrap; transition:transform var(--t) var(--ease); }
+button.onhero:hover { transform:translateY(-1px); }
+.runrow { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.runstate { font-size:12.5px; background:rgba(255,255,255,.14); border-radius:999px; padding:6px 10px; }
+ul.diff { list-style:none; margin:0 0 14px; padding:0; }
+ul.diff li { display:grid; grid-template-columns:minmax(0, 1fr); gap:2px; padding:10px 0; border-bottom:1px dashed var(--line); }
+ul.diff .k { font-weight:600; font-size:14px; } ul.diff .v { font-size:14px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+ul.diff .v s { color:var(--muted); } ul.diff .mono { color:var(--muted); font-size:11.5px; }
+.dacts { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+label.check { display:flex; gap:12px; align-items:flex-start; padding:12px 14px; border:1px solid var(--line); border-radius:var(--r-md); cursor:pointer; min-height:44px; margin:14px 0 4px; }
+label.check input { margin-top:2px; }
+pre.log { margin:12px 0 0; max-height:46vh; overflow:auto; font:12px/1.5 var(--mono); background:var(--surface-2); color:var(--fg); border:1px solid var(--line);
+  padding:12px; border-radius:var(--r-md); white-space:pre-wrap; overflow-wrap:anywhere; }
+.runhead { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+.runhead .el { font:600 22px var(--serif); font-variant-numeric:tabular-nums; }
+.bk { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:10px; align-items:center; padding:10px 0; border-top:1px dashed var(--line); }
+.bk:first-of-type { border-top:0; }
+tr.sup > td { color:var(--muted); background:var(--surface-2); }
+tr.sup > td b { font-weight:600; }
+
 /* empty and skeleton */
 .empty-state { text-align:center; padding:48px 20px; background:var(--surface); border:1.5px dashed var(--line-strong); border-radius:var(--r-lg); }
 .empty-state h3 { font-size:20px; margin-bottom:6px; }
@@ -325,6 +426,8 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
 /* --- responsive --- */
 @media (max-width: 1180px) {
   .hero { grid-template-columns:1fr; }
+  .set-layout { grid-template-columns:1fr; }
+  .set-aside { position:static; order:-1; grid-template-columns:repeat(2, minmax(0, 1fr)); align-items:start; }
   .setchip { display:none; }
   .span-3 { grid-column:span 6; } .span-4, .span-5, .span-7, .span-8 { grid-column:span 12; }
 }
@@ -339,7 +442,10 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
   table.rt td.wide, table.rt td.empty { grid-column:1 / -1; }
   table.rt td.nolabel::before { display:none; }
   table.rt td.hide-sm { display:none; }
+  .fields { grid-template-columns:1fr; }
+  .fields > .field:nth-child(odd) { border-right:0; }
 }
+@media (max-width: 1024px) { nav.tabs button { padding:0 12px; } }
 @media (min-width: 600px) and (max-width: 900px) {
   table.rt tr { grid-template-columns:repeat(4, minmax(0, 1fr)); }
   table.rt tr.hl > td:first-child { box-shadow:none; }
@@ -369,6 +475,14 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
   .drawer .dh { padding:12px 16px 12px; } .drawer .db { padding:14px 16px calc(24px + env(safe-area-inset-bottom)); }
   footer.foot { padding:20px 16px 24px; }
   .safe { padding:16px; } .safe svg { width:32px; height:32px; }
+  .set-aside { grid-template-columns:1fr; }
+  .set-head h1 { font-size:26px; }
+  button.link.slim { min-height:44px; }
+  .field input.numin { width:112px; }
+  .savebar { padding:10px 12px; gap:8px; bottom:calc(var(--nav-h) + 8px); }
+  .savebar .what .muted { display:none; }
+  .savebar .acts { width:100%; flex-wrap:nowrap; } .savebar .acts button { flex:1; justify-content:center; padding:0 12px; }
+  .field .fh { flex-direction:column; gap:6px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition:none !important; animation:none !important; }
@@ -386,7 +500,7 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
         <path class="leaf" d="M18 10.5c4.2 2.6 5.6 6.3 3.8 10.4-.9 2-2.3 3.5-3.8 4.6-1.5-1.1-2.9-2.6-3.8-4.6-1.8-4.1-.4-7.8 3.8-10.4z"></path>
         <circle class="dot" cx="18" cy="18" r="1.9"></circle>
       </svg>
-      <span><span class="word">tayyib</span><span class="sub">dashboard <span id="ver"></span> · read-only</span></span>
+      <span><span class="word">tayyib</span><span class="sub">dashboard <span id="ver"></span> · local</span></span>
     </a>
     <nav class="tabs" role="tablist" aria-label="Dashboard sections">
       <button role="tab" id="tab-today" aria-controls="p-today" aria-selected="true">
@@ -397,6 +511,8 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6"/></svg>Halal</button>
       <button role="tab" id="tab-tickets" aria-controls="p-tickets" aria-selected="false" tabindex="-1">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M14 6v12" stroke-dasharray="2 2.2"/></svg>Tickets</button>
+      <button role="tab" id="tab-settings" aria-controls="p-settings" aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg>Settings</button>
     </nav>
     <div class="setchip" id="settings"><b>Current settings: UNKNOWN</b></div>
   </div>
@@ -408,10 +524,11 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
     <section role="tabpanel" id="p-results" aria-labelledby="tab-results" hidden></section>
     <section role="tabpanel" id="p-halal" aria-labelledby="tab-halal" hidden></section>
     <section role="tabpanel" id="p-tickets" aria-labelledby="tab-tickets" hidden></section>
+    <section role="tabpanel" id="p-settings" aria-labelledby="tab-settings" hidden></section>
   </main>
 </div>
 <footer class="foot">
-  <span><b id="disclaimer">Not financial advice, not a fatwa.</b> This page only shows your files: it cannot place, change or cancel an order.</span>
+  <span><b id="disclaimer">Not financial advice, not a fatwa.</b> This page reads your files, saves only your settings (with a backup) and runs today's list when you ask. It cannot place, change or cancel an order.</span>
   <span>Data: <span class="mono" id="datadir">UNKNOWN</span></span>
 </footer>
 <dialog class="drawer" id="drawer" aria-labelledby="drawerTitle">
@@ -423,8 +540,9 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
 <div class="sr" aria-live="polite" id="live"></div>
 <script>
 "use strict";
-// The server does every calculation (formatting, statuses, chart coordinates); this script only draws.
-// GET requests only, same origin. Text always goes in with textContent.
+// The server does every calculation (formatting, statuses, chart coordinates, validation); this script only
+// draws. GET requests, same origin, except two POSTs (postJSON): /api/config (save your settings) and /api/run
+// (make today's list). Text always goes in with textContent.
 var SVGNS = "http://www.w3.org/2000/svg";
 var KIND = { PASS:"pass", WARN:"warn", BLOCK:"block", FILTERED:"unknown", "NOT SIZED":"unknown",
   TARGET:"pass", STOP:"block", BREAKEVEN:"warn", "TIME EXIT":"warn", OPEN:"info", WAITING:"info",
@@ -495,9 +613,21 @@ function skeleton(panel) {
   add(panel, el("div", { cls:"sk sk-hero", "aria-hidden":"true" }), el("div", { cls:"sk sk-line", "aria-hidden":"true" }),
     el("div", { cls:"sk sk-row", style:"margin-top:16px", "aria-hidden":"true" }), el("p", { cls:"sr", text:"Loading" }));
 }
-function getJSON(url) {   // GET only, same origin
-  return fetch(url, { cache:"no-store", credentials:"same-origin" }).then(function (r) { return r.json(); });
+var TOKEN = (document.querySelector('meta[name="tayyib-token"]') || {}).content || "";
+function request(url, opts) {   // the one fetch: same origin; a refused request comes back with failed + status
+  return fetch(url, opts).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (d) {
+      if (!r.ok) { d = d || {}; d.failed = true; d.status = r.status; }
+      return d;
+    });
+  });
 }
+function getJSON(url) { return request(url, { cache:"no-store", credentials:"same-origin" }); }
+function postJSON(url, body) {   // only "/api/config" and "/api/run"; the server checks origin, token and type too
+  return request(url, { method:"POST", cache:"no-store", credentials:"same-origin",
+    headers:{ "Content-Type":"application/json", "X-Tayyib-Token":TOKEN }, body:JSON.stringify(body) });
+}
+function errText(r) { return (r.errors && r.errors.length ? r.errors.join(" ") : r.error) || ("refused (" + r.status + ")"); }
 function announce(t) { var l = document.getElementById("live"); l.textContent = ""; setTimeout(function () { l.textContent = t; }, 30); }
 function copyText(text, btn) {
   function done() {
@@ -516,7 +646,7 @@ function fallbackCopy(text) {
 // --- drawer: slide-over (desktop) / bottom sheet (phone) --------------------------------------------
 var drawer = document.getElementById("drawer"), lastFocus = null;
 function openDrawer(title, sub, build) {
-  lastFocus = document.activeElement;
+  lastFocus = document.activeElement; RUN.view = false;
   document.getElementById("drawerTitle").textContent = title;
   document.getElementById("drawerSub").textContent = sub || "";
   var body = document.getElementById("drawerBody"); body.textContent = ""; body.scrollTop = 0;
@@ -527,7 +657,7 @@ function openDrawer(title, sub, build) {
 function closeDrawer() { if (drawer.close) drawer.close(); else drawer.removeAttribute("open"); }
 document.getElementById("drawerClose").addEventListener("click", closeDrawer);
 drawer.addEventListener("click", function (e) { if (e.target === drawer) closeDrawer(); });
-drawer.addEventListener("close", function () { if (lastFocus && lastFocus.focus) lastFocus.focus(); });
+drawer.addEventListener("close", function () { RUN.view = false; if (lastFocus && lastFocus.focus) lastFocus.focus(); });
 
 // --- responsive table: a real table on a desktop, cards below 900px (data-label) --------------------
 function table(cols, rows, opts) {
@@ -665,7 +795,11 @@ function tile(label, value, sub, cls, ico) {
 }
 function renderToday(panel, d, dates) {
   panel.textContent = "";
-  if (d.missing) return missing(panel, d);
+  if (d.missing) {
+    missing(panel, d);
+    panel.querySelector(".empty-state").appendChild(el("div", { style:"margin-top:16px" }, runButton("act")));
+    return;
+  }
   var sel = el("select", { id:"dateSel", "aria-label":"List date", onchange:function () { loadToday(this.value); } });
   dates.forEach(function (x) { var o = el("option", { value:x, text:x }); if (x === d.date) o.selected = true; sel.appendChild(o); });
   var c = d.counts || {};
@@ -675,7 +809,7 @@ function renderToday(panel, d, dates) {
       el("h1", { text:d.date_long }),
       el("div", { cls:"line", text:"Written " + d.asof_time + " IST · " + d.scanned + " halal-compliant stocks scanned (list of " + d.universe_updated + ")" }),
       el("span", { cls:"made" }, d.made_with),
-      el("div", null, sel)),
+      el("div", { cls:"runrow" }, sel, runButton("onhero"), el("span", { cls:"runstate", id:"runState", hidden:"hidden" }))),
     el("div", { cls:"tiles" },
       tile("Capital", d.capital_short, d.capital_short !== d.capital ? d.capital : "your trading money"),
       tile("Risk per trade", d.risk_per_trade_pct, "of capital, at the stop"),
@@ -859,7 +993,9 @@ function renderResults(panel, d) {
         b.addEventListener("click", function () { openDrawer(r.symbol + " chart", r.date + " list · " + r.mode + " " + r.setup + " · " + r.verdict.label, function (box) { priceChart(box, r); }); });
         return b; } }
   ];
-  add(panel, table(cols, d.rows, { empty:"Nothing tracked yet. Run: give me today's halal list." }));
+  add(panel, table(cols, d.rows, { empty:"Nothing tracked yet. Run: give me today's halal list.",
+    rowClass:function (r) { return r.superseded ? "sup" : null; } }));
+  if (d.superseded) add(panel, el("p", { cls:"small muted", style:"margin-top:10px", text:d.superseded + " greyed row" + (d.superseded === 1 ? "" : "s") + ". " + d.superseded_note }));
 }
 
 // --- Halal ------------------------------------------------------------------------------------------
@@ -1018,6 +1154,329 @@ function renderTickets(panel, d) {
   add(panel, el("p", { cls:"small muted", style:"margin-top:10px", text:"Closed " + d.totals.closed + ", winners " + d.totals.winners + ". Total: " + d.totals.pnl_rs + ". Average: " + d.totals.avg_r + " (after charges)." }));
 }
 
+// --- Settings (v0.1.8) ------------------------------------------------------------------------------
+// The server validates (tc.validate_config). The page keeps the pending change {set, reset} and shows what the
+// server says about it: errors per field, the risk preview, the diff and the settings label after saving.
+var SET = null;
+function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function fid(key) { return "f-" + key.replace(/[^A-Za-z0-9]/g, "-"); }
+function effective(key) { var F = SET.fields[key]; return key in SET.set ? SET.set[key] : SET.reset[key] ? F.f.default : F.f.value; }
+function editField(key, v) {
+  var F = SET.fields[key];
+  delete SET.reset[key];
+  if (same(v, F.f.value)) delete SET.set[key]; else SET.set[key] = v;
+  refreshField(key); schedulePreview();
+}
+function resetField(key) {
+  var F = SET.fields[key];
+  delete SET.set[key];
+  if (F.f.saved && !same(F.f.value, F.f.default)) SET.reset[key] = true;
+  F.put(F.f.default); refreshField(key); schedulePreview();
+}
+function refreshField(key) {
+  var F = SET.fields[key], v = effective(key), ch = !same(v, F.f.default), dirty = key in SET.set || !!SET.reset[key];
+  F.chg.hidden = !ch; F.rst.hidden = !ch;
+  F.box.classList.toggle("dirty", dirty); F.dirt.hidden = !dirty;
+  if (F.toggle && F.section) F.section.classList.toggle("off", v === false);
+}
+function switchEl(on, label, onchange) {
+  var b = el("button", { cls:"switch", type:"button", role:"switch", "aria-checked":on ? "true" : "false", "aria-label":label }, el("span", { cls:"trk", "aria-hidden":"true" }), el("span", { cls:"st", text:on ? "On" : "Off" }));
+  b.addEventListener("click", function () { var v = b.getAttribute("aria-checked") !== "true"; b.setAttribute("aria-checked", v ? "true" : "false"); b.lastChild.textContent = v ? "On" : "Off"; onchange(v); });
+  b.setOn = function (v) { b.setAttribute("aria-checked", v ? "true" : "false"); b.lastChild.textContent = v ? "On" : "Off"; };
+  return b;
+}
+function numVal(t) { t = String(t).trim(); if (t === "") return t; var n = Number(t); return isFinite(n) ? n : t; }
+function fieldEl(f, opts) {
+  opts = opts || {};
+  var id = fid(f.key), box = el("div", { cls:"field", "data-key":f.key }), fc = el("div", { cls:"fc" });
+  var get, put, k = f.key, v0 = f.value;
+  if (f.type === "bool") {
+    var sw = switchEl(v0 === true, f.label, function (v) { editField(k, v); });
+    sw.id = id; add(fc, sw);
+    get = function () { return sw.getAttribute("aria-checked") === "true"; }; put = function (v) { sw.setOn(v === true); };
+  } else if (f.type === "enum") {
+    var se = el("select", { id:id }); (f.choices || []).forEach(function (c) { var o = el("option", { value:JSON.stringify(c), text:String(c) }); if (same(c, v0)) o.selected = true; se.appendChild(o); });
+    se.addEventListener("change", function () { editField(k, JSON.parse(se.value)); });
+    add(fc, se); get = function () { return JSON.parse(se.value); }; put = function (v) { se.value = JSON.stringify(v); };
+  } else if (f.type === "number" || f.type === "int") {
+    var ni = el("input", { cls:"numin", id:id, type:"text", inputmode:f.type === "int" ? "numeric" : "decimal", autocomplete:"off", spellcheck:"false" });
+    ni.value = v0 === null ? "" : String(v0);
+    var rg = f.slider ? el("input", { type:"range", min:f.min, max:f.max, step:f.step, "aria-label":f.label + " (slider)", tabindex:"-1" }) : null;
+    var none = f.nullable ? el("input", { type:"checkbox" }) : null;
+    if (rg) rg.value = v0 === null ? f.min : v0;
+    function sync() { if (none) { ni.disabled = none.checked; if (rg) rg.disabled = none.checked; } }
+    ni.addEventListener("input", function () { var n = numVal(ni.value); if (rg && typeof n === "number") rg.value = n; editField(k, n); });
+    if (rg) rg.addEventListener("input", function () { ni.value = rg.value; editField(k, numVal(rg.value)); });
+    if (none) { none.checked = v0 === null; none.addEventListener("change", function () { sync(); editField(k, none.checked ? null : numVal(ni.value)); }); }
+    if (f.unit === "Rs") add(fc, el("span", { cls:"pre", text:"₹", "aria-hidden":"true" }));
+    var eq = f.unit === "Rs" && f.max >= 1e6 ? el("span", { cls:"pre eq", "aria-live":"polite", text:v0 === null ? "" : "= " + f.value_text }) : null;
+    add(fc, rg, ni, f.unit && f.unit !== "Rs" ? el("span", { cls:"pre", text:f.unit === "%" ? "%" : f.unit }) : null, eq,
+      none ? el("label", { cls:"none" }, none, f.key === "daily.min_expectancy_r" ? "no filter" : "none") : null);
+    sync();
+    get = function () { return none && none.checked ? null : numVal(ni.value); };
+    put = function (v) { if (none) { none.checked = v === null; sync(); } ni.value = v === null ? "" : String(v); if (rg && v !== null) rg.value = v; };
+  } else if (f.type === "dates" || f.type === "map") {
+    var ta = el("textarea", { id:id, rows:"3", spellcheck:"false" });
+    var toText = function (v) { return f.type === "dates" ? (v || []).join("\n") : Object.keys(v || {}).map(function (n) { return n + ": " + v[n]; }).join("\n"); };
+    var fromText = function (t) {
+      var lines = t.split(/[\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+      if (f.type === "dates") return lines;
+      var o = {}, bad = false;
+      t.split("\n").map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (x) { var i = x.indexOf(":"); if (i < 1) bad = true; else o[x.slice(0, i).trim()] = x.slice(i + 1).trim(); });
+      return bad ? t : o;
+    };
+    ta.value = toText(v0); ta.addEventListener("input", function () { editField(k, fromText(ta.value)); });
+    add(fc, ta); get = function () { return fromText(ta.value); }; put = function (v) { ta.value = toText(v); };
+  } else {
+    var ti = f.multiline ? el("textarea", { id:id, rows:"2", cls:"prose" }) : el("input", { id:id, type:"text", cls:"txt", spellcheck:"false" });
+    ti.value = v0 === null ? "" : String(v0);
+    ti.addEventListener("input", function () { editField(k, ti.value); });
+    add(fc, ti); get = function () { return ti.value; }; put = function (v) { ti.value = v === null ? "" : String(v); };
+  }
+  var chg = chip("changed", "info", "differs from the default"), rst = el("button", { cls:"link slim", type:"button", text:"Reset", title:"Back to the default: " + f.default_text });
+  rst.addEventListener("click", function () { resetField(k); });
+  var err = el("div", { cls:"ferr", role:"alert", hidden:"hidden" }), dirt = el("div", { cls:"dirt", text:"Not saved yet", hidden:"hidden" });
+  add(box, el("div", { cls:"fh" }, el("label", { cls:"fl", "for":id, text:f.label }), el("div", { cls:"chips" }, chg, rst)), fc,
+    el("div", { cls:"fm" }, "Default " + f.default_text + (f.range_text ? " · " + f.range_text : "") + (f.tasis_text ? " · " + f.tasis_text : "") + " · ", el("span", { cls:"mono", text:f.key })),
+    err, dirt);
+  SET.fields[k] = { f:f, box:box, err:err, chg:chg, rst:rst, dirt:dirt, get:get, put:put, section:opts.section || null, toggle:!!opts.toggle, eq:eq || null };
+  refreshField(k);
+  return box;
+}
+function sectionEl(sec, group) {
+  var box = el("div", { cls:"ssec" }), tally = el("div", { cls:"chips" });
+  if (sec.changed) tally.appendChild(chip(sec.changed + " changed", "info"));
+  var head = el("header", null, el("h3", { text:sec.title }), tally);
+  box.appendChild(head);
+  if (sec.toggle) {
+    var t = sec.toggle, sw = switchEl(t.value === true, sec.title + " on or off", function (v) { editField(t.key, v); });
+    var dummyChg = el("span", { hidden:"hidden" }), dummyRst = el("span", { hidden:"hidden" });
+    SET.fields[t.key] = { f:t, box:box, err:el("div", { hidden:"hidden" }), chg:dummyChg, rst:dummyRst, dirt:el("span", { hidden:"hidden" }), section:box, toggle:true,
+      get:function () { return sw.getAttribute("aria-checked") === "true"; }, put:function (v) { sw.setOn(v === true); } };
+    head.appendChild(sw); refreshField(t.key);
+  }
+  var fields = el("div", { cls:"fields" }, sec.fields.map(function (f) { return fieldEl(f, { section:box }); }));
+  var collapse = sec.toggle || (group.id === "broker" && sec.title.indexOf("Brokerage: ") === 0 && sec.title.slice(11) !== SET.broker);
+  if (collapse) box.appendChild(el("details", { cls:"more" }, el("summary", { text:sec.fields.length + " settings" + (sec.toggle ? " for this setup" : "") }), fields));
+  else box.appendChild(fields);
+  return box;
+}
+function lockIcon() {
+  var g = svg("svg", { width:16, height:16, viewBox:"0 0 16 16", "aria-hidden":"true", focusable:"false" });
+  g.appendChild(svg("rect", { x:3, y:7, width:10, height:7, rx:1.6, fill:"none", stroke:"currentColor", "stroke-width":1.6 }));
+  g.appendChild(svg("path", { d:"M5.5 7V5a2.5 2.5 0 015 0v2", fill:"none", stroke:"currentColor", "stroke-width":1.6 }));
+  return g;
+}
+function previewEl(pv, banners) {
+  var box = el("div", { cls:"panel pv", id:"pvBox" });
+  add(box, el("h3", { text:"What this means in rupees" }),
+    el("div", { cls:"big", text:pv.risk_rs }), el("p", { cls:"small muted", text:"lost when one stop is hit: " + pv.risk_pct + " of " + pv.capital + " (before charges)" }));
+  if (pv.warning) add(box, el("div", { style:"margin-top:12px" }, banner(pv.warning, "warn")));
+  pv.streaks.forEach(function (x) {
+    add(box, el("div", { cls:"streak" }, el("span", { text:x.label }), el("b", { text:x.drawdown }),
+      el("div", { cls:"bar", role:"img", "aria-label":x.label + ": " + x.drawdown }, el("i", { style:"width:" + (x.fraction * 100).toFixed(1) + "%" })),
+      el("span", { cls:"d", text:x.detail })));
+  });
+  add(box, el("p", { cls:"small", style:"margin-top:14px", text:"Max position " + pv.max_position + "." }),
+    el("p", { cls:"small muted", style:"margin-top:4px", text:pv.explain }),
+    el("details", { cls:"more" }, el("summary", { text:"Which limit sets the quantity" }),
+      el("div", { cls:"tcard", style:"margin-top:4px" }, el("table", null,
+        el("thead", null, el("tr", null, ["Stop", "Qty", "Set by", "Position", "Loss"].map(function (h, i) { return el("th", { cls:i === 0 || i === 2 ? null : "num", text:h }); }))),
+        el("tbody", null, pv.samples.map(function (x) { return el("tr", null, el("td", { text:x.stop }), el("td", { cls:"num", text:x.qty }), el("td", { text:x.binding }), el("td", { cls:"num", text:x.position }), el("td", { cls:"num", text:x.loss })); })))),
+      el("p", { cls:"small muted", style:"margin-top:8px", text:"Sample entry " + pv.sample_entry + ". " + pv.note })));
+  (banners || []).forEach(function (b) { add(box, el("div", { style:"margin-top:12px" }, banner(["Every list will start with: ", b], "warn"))); });
+  return box;
+}
+function schedulePreview() { clearTimeout(SET.timer); SET.timer = setTimeout(runPreview, 250); }
+function changeBody() { return { set:SET.set, reset:Object.keys(SET.reset) }; }
+function runPreview() {
+  var mine = SET.seq = (SET.seq || 0) + 1;
+  getJSON("/api/risk-preview?change=" + encodeURIComponent(JSON.stringify(changeBody()))).then(function (p) {
+    if (!SET || mine !== SET.seq) return;
+    SET.plan = p;
+    if (p.error) { drawSavebar({ ok:false, errors:[{ key:null, message:p.error }], diff:[], dropped:[] }); return; }
+    var old = document.getElementById("pvBox");
+    if (old) old.replaceWith(previewEl(p.preview, p.banner ? [p.banner] : []));
+    var to = {}; (p.diff || []).forEach(function (x) { to[x.key] = x.to === null ? "" : "= " + x.to_text; });
+    Object.keys(SET.fields).forEach(function (k) {
+      var F = SET.fields[k]; F.err.hidden = true; F.err.textContent = ""; F.box.classList.remove("has-err");
+      if (F.eq) F.eq.textContent = k in to ? to[k] : effective(k) === null ? "" : "= " + (SET.reset[k] ? F.f.default_text : F.f.value_text);
+    });
+    p.errors.forEach(function (e) {
+      var keys = e.key ? [e.key] : [];
+      if (/needs halal\.loosen_note/.test(e.message)) keys.push("halal.loosen_note");
+      keys.forEach(function (key) {
+        var F = SET.fields[key]; if (!F) return;
+        if (F.eq) F.eq.textContent = "";
+        F.err.hidden = false; add(F.err, icon("block", 14), el("span", { text:key === e.key ? e.message : "Needed: " + e.message }));
+        if (!F.toggle) F.box.classList.add("has-err");
+      });
+    });
+    drawSavebar(p);
+  });
+}
+function drawSavebar(p) {
+  var bar = document.getElementById("saveBar"); if (!bar) return;
+  var pend = Object.keys(SET.set).length + Object.keys(SET.reset).length;
+  var n = Math.max((p.diff || []).length + (p.dropped || []).length, pend), bad = !p.ok;
+  bar.hidden = !n && !bad;
+  bar.textContent = "";
+  var what = el("div", { cls:"what" }, el("b", { text:n ? n + " change" + (n === 1 ? "" : "s") + " not saved yet" : "Nothing to save" }),
+    bad ? el("span", { cls:"bad", text:(p.errors || []).length + " problem" + ((p.errors || []).length === 1 ? "" : "s") + ": fix the marked fields first." })
+        : el("span", { cls:"muted", text:"Settings label after saving: " + p.label + ". " + SET.d.apply_note }));
+  var review = el("button", { cls:"act", type:"button", text:"Review & save", disabled:bad || !n ? "disabled" : null });
+  review.addEventListener("click", function () { reviewChanges("Review your changes", p, changeBody()); });
+  var undo = el("button", { cls:"close", type:"button", text:"Undo all" });
+  undo.addEventListener("click", function () { loaded.settings = false; LOADERS.settings(); });
+  add(bar, what, el("div", { cls:"acts" }, undo, review));
+}
+function diffList(p) {
+  return el("ul", { cls:"diff" }, (p.diff || []).map(function (d) {
+    return el("li", null, el("span", { cls:"k", text:d.description }),
+      el("span", { cls:"v" }, el("s", { text:d.from_text }), " → ", el("b", { text:d.to_text }), d.to === d["default"] ? el("span", { cls:"muted", text:" (the default)" }) : null),
+      el("span", { cls:"mono", text:d.key }));
+  }), (p.dropped || []).map(function (n) { return el("li", null, el("span", { cls:"k", text:"Left out (it was already ignored)" }), el("span", { cls:"v", text:n })); }));
+}
+function reviewChanges(title, p, body) {
+  openDrawer(title, "Settings label " + (p.label_now || SET.d.label) + " → " + p.label, function (b) {
+    add(b, el("p", { cls:"small muted", style:"margin-bottom:8px", text:"Check each change. Saving keeps a copy of your current config.json in config_backups." }), diffList(p));
+    if (p.banner) add(b, banner(["Every list and halal list will start with: ", p.banner], "warn"));
+    (p.info || []).forEach(function (n) { add(b, banner(n, "info")); });
+    add(b, el("p", { cls:"small", text:SET.d.apply_note }));
+    var msg = el("div", { style:"margin-top:12px" });
+    var go = el("button", { cls:"act", type:"button", text:body.restore ? "Restore this backup" : "Save settings" });
+    var back = el("button", { cls:"close", type:"button", text:"Keep editing" });
+    back.addEventListener("click", closeDrawer);
+    go.addEventListener("click", function () {
+      go.disabled = true; msg.textContent = "";
+      var send = { version:SET.d.version }; Object.keys(body).forEach(function (x) { send[x] = body[x]; });
+      postJSON("/api/config", send).then(function (r) {
+        if (r.failed) { go.disabled = false; add(msg, banner(["Not saved. ", errText(r)], "block")); return; }
+        b.textContent = "";
+        add(b, el("div", { cls:"empty-state", style:"padding:28px 16px" }, el("h3", { text:r.saved ? "Saved ✓" : "Nothing changed" }),
+          el("p", { text:r.message }), el("p", { cls:"small muted", style:"margin-top:8px", text:"Settings label now: " + r.label + (r.backup ? ". Your previous config.json is kept as config_backups/" + r.backup + "." : ".") })),
+          el("div", { cls:"dacts" }, el("button", { cls:"close", type:"button", text:"Close", onclick:closeDrawer })));
+        announce(r.saved ? "Settings saved" : "Nothing changed");
+        loaded.settings = false; LOADERS.settings(); loadMeta();
+      }, function (e) { go.disabled = false; add(msg, banner("Not saved: " + e, "block")); });
+    });
+    add(b, msg, el("div", { cls:"dacts" }, go, back));
+  });
+}
+function backupsEl(d) {
+  var box = el("div", { cls:"panel", id:"g-backups", style:"scroll-margin-top:84px" }, el("h3", { text:"Restore a backup" }),
+    el("p", { cls:"small muted", style:"margin:-4px 0 8px", text:"Each save keeps your previous config.json (the last " + d.keep_backups + "). Restoring is a save too, so it is backed up first." }));
+  if (!d.backups.length) add(box, el("p", { cls:"small muted", text:"No backups yet: the first one is made when you save." }));
+  d.backups.forEach(function (bk) {
+    var btn = el("button", { cls:"link slim", type:"button", text:"Restore…" });
+    btn.addEventListener("click", function () {
+      getJSON("/api/config/backup-diff?name=" + encodeURIComponent(bk.name)).then(function (p) {
+        if (p.error) { openDrawer("Restore " + bk.saved, bk.name, function (b) { add(b, banner(p.error, "block")); }); return; }
+        if (!p.ok) { openDrawer("Restore " + bk.saved, bk.name, function (b) { add(b, banner("This backup has settings that are no longer valid:", "block"), el("ul", null, p.errors.map(function (e) { return el("li", { text:e.message }); }))); }); return; }
+        reviewChanges("Restore the settings of " + bk.saved, p, { restore:bk.name });
+      });
+    });
+    add(box, el("div", { cls:"bk" }, el("div", null, el("b", { text:bk.saved }), el("span", { cls:"sub mono small muted", style:"display:block", text:bk.name })), btn));
+  });
+  return box;
+}
+function renderSettings(panel, d) {
+  panel.textContent = "";
+  if (d.error || d.failed) { add(panel, banner("Could not read your settings: " + errText(d), "block")); return; }
+  SET = { d:d, set:{}, reset:{}, fields:{}, plan:null, timer:null, seq:0, broker:null };
+  d.groups.forEach(function (g) { g.sections.forEach(function (s) { s.fields.forEach(function (f) { if (f.key === "broker") SET.broker = f.value; }); }); });
+  add(panel, el("div", { cls:"set-head" }, el("div", null, el("span", { cls:"eyebrow", text:"config.json" }), el("h1", { text:"Settings" }),
+      el("p", { cls:"muted", text:"Current settings: " + d.label + (d.changed ? " (" + d.changed + " changed from the defaults)" : " (all defaults)") + ". Every value is checked before it is saved. " + d.apply_note }))));
+  d.notes.forEach(function (n) { add(panel, banner(n, n.indexOf("CONFIG ERROR") === 0 ? "block" : "warn")); });
+  if (d.banner) add(panel, banner(d.banner, "warn"));
+  var nav = el("div", { cls:"group-nav", role:"navigation", "aria-label":"Setting groups" });
+  d.groups.concat([{ id:"backups", title:"Backups" }]).forEach(function (g) {
+    var n = 0; (g.sections || []).forEach(function (s) { n += s.changed; });
+    var b = el("button", { type:"button" }, g.title, n ? el("span", { cls:"n", text:String(n) }) : null);
+    b.addEventListener("click", function () { var t = document.getElementById("g-" + g.id); if (t) t.scrollIntoView({ block:"start", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+    nav.appendChild(b);
+  });
+  add(panel, nav);
+  var main = el("div", { style:"min-width:0" });
+  d.groups.forEach(function (g) {
+    var gb = el("div", { cls:"sgroup", id:"g-" + g.id }, el("h2", { cls:"section", text:g.title }), el("p", { cls:"intro", text:g.intro }));
+    g.sections.forEach(function (sec) { gb.appendChild(sectionEl(sec, g)); });
+    main.appendChild(gb);
+  });
+  main.appendChild(backupsEl(d));
+  var aside = el("aside", { cls:"set-aside", "aria-label":"Always on, and what your risk settings mean" },
+    el("div", { cls:"panel lock" }, el("h3", null, lockIcon(), "Always on"),
+      el("p", { cls:"small muted", style:"margin:-4px 0 10px", text:"Rules in the code, not settings. Nothing on this page can switch them off." }),
+      el("ul", { cls:"lock" }, d.always_on.map(function (t) { return el("li", null, icon("pass", 14), el("span", { text:t })); }))),
+    previewEl(d.preview, []));
+  add(panel, el("div", { cls:"set-layout" }, main, aside), el("div", { cls:"savebar", id:"saveBar", hidden:"hidden", role:"region", "aria-label":"Unsaved changes" }));
+}
+
+// --- Run today's list (POST /api/run: tayyib-daily on this computer, analysis only) ------------------
+var RUN = { timer:null, last:null, view:false };
+function runButton(cls) {
+  var b = el("button", { cls:cls || "act", type:"button", text:"Run today's list" });
+  b.addEventListener("click", openRun);
+  return b;
+}
+function openRun() {
+  getJSON("/api/run/status").then(function (s) {
+    if (s.state === "running") return openRunProgress(s);
+    openDrawer("Run today's list", "tayyib-daily on this computer · analysis only", function (b) {
+      if (s.advice && s.advice.confirm) add(b, banner(s.advice.message, "warn"));
+      var cb = el("input", { type:"checkbox", id:"skipNews" }), msg = el("div");
+      add(b, el("p", { text:"It scans your halal list, plans, sizes and checks each setup, writes today's list and updates the paper tracker. It takes a few minutes. It never places an order." }),
+        el("label", { cls:"check", "for":"skipNews" }, cb, el("span", null, el("b", { text:"Skip news" }), el("span", { cls:"small muted", style:"display:block", text:"Faster, but the HALAL-WATCH and results checks are not done today." }))));
+      var go = el("button", { cls:"act", type:"button", text:s.advice && s.advice.confirm ? "Run anyway" : "Run today's list" });
+      var no = el("button", { cls:"close", type:"button", text:"Not now", onclick:closeDrawer });
+      go.addEventListener("click", function () {
+        go.disabled = true;
+        postJSON("/api/run", { skip_news:cb.checked }).then(function (r) {
+          if (r.failed) { go.disabled = false; msg.textContent = ""; add(msg, banner(errText(r), "block")); return; }
+          openRunProgress(r);
+        }, function (e) { go.disabled = false; add(msg, banner("Could not start: " + e, "block")); });
+      });
+      add(b, msg, el("div", { cls:"dacts" }, go, no));
+    });
+  });
+}
+function openRunProgress(s) {
+  openDrawer("Today's list", s.command || "tayyib-daily", function (b) { drawRun(b, s); });
+  RUN.view = true; RUN.last = s; runPill(s);
+  if (s.state === "running") pollRun();
+}
+function drawRun(b, s) {
+  b.textContent = "";
+  var kind = s.state === "running" ? "info" : s.state === "ok" ? "pass" : "block";
+  var word = s.state === "running" ? "Running" : s.state === "ok" ? "Done" : "Failed";
+  add(b, el("div", { cls:"runhead" }, badge(word, kind), el("span", { cls:"el", text:s.elapsed_text || "" }), el("span", { cls:"small muted", text:s.started_text ? "started " + s.started_text : "" })));
+  if (s.state === "ok") add(b, el("div", { style:"margin-top:14px" }, banner("Today's list (" + s.list_date + ") is ready. The Today tab shows it now.", "pass")),
+    el("div", { cls:"dacts" }, el("button", { cls:"act", type:"button", text:"Show today's list", onclick:function () { closeDrawer(); show("today"); } })));
+  if (s.state === "failed") add(b, el("div", { style:"margin-top:14px" }, banner(["The list was not changed. ", s.error || "UNKNOWN error"], "block")));
+  var pre = el("pre", { cls:"log", "aria-label":"Output of tayyib-daily", tabindex:"0", text:(s.lines || []).join("\n") || "Starting…" });
+  add(b, el("p", { cls:"small muted", style:"margin-top:14px", text:"Output (last " + ((s.lines || []).length) + " lines)" }), pre);
+  pre.scrollTop = pre.scrollHeight;
+}
+function runPill(s) {
+  var p = document.getElementById("runState"); if (!p) return;
+  p.hidden = !s || s.state === "idle";
+  if (!s) return;
+  p.textContent = s.state === "running" ? "Running · " + s.elapsed_text : s.state === "ok" ? "Last run: done" : "Last run: failed";
+}
+function pollRun() {
+  clearTimeout(RUN.timer);
+  RUN.timer = setTimeout(function () {
+    getJSON("/api/run/status").then(function (s) {
+      RUN.last = s; runPill(s);
+      if (RUN.view && drawer.open) drawRun(document.getElementById("drawerBody"), s);
+      if (s.state === "running") return pollRun();
+      if (s.state === "ok") {                         // the Today tab reloads to the new list; other tabs refetch
+        loaded = { today:true }; LOADERS.today(); announce("Today's list is ready");
+      } else announce("The run failed: " + (s.error || ""));
+    }, function () { pollRun(); });
+  }, 1500);
+}
+
 // --- tabs, header -----------------------------------------------------------------------------------
 function load(url, id, render) {
   var p = document.getElementById(id);
@@ -1027,7 +1486,8 @@ var LOADERS = {
   today:function () { loadToday(null); },
   results:function () { load("/api/tracker", "p-results", renderResults); },
   halal:function () { load("/api/halal", "p-halal", renderHalal); },
-  tickets:function () { load("/api/tickets", "p-tickets", renderTickets); }
+  tickets:function () { load("/api/tickets", "p-tickets", renderTickets); },
+  settings:function () { load("/api/settings", "p-settings", renderSettings); }
 };
 var loaded = {}, current = null;
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";   // a reload starts at the top too
@@ -1055,17 +1515,21 @@ names.forEach(function (n, i) {
   });
 });
 window.addEventListener("hashchange", function () { show(location.hash.slice(1)); });
+function loadMeta() {
 getJSON("/api/meta").then(function (m) {
   document.getElementById("ver").textContent = "v" + m.version;
   document.getElementById("datadir").textContent = m.data_dir;
   var s = document.getElementById("settings"); s.textContent = "";
   add(s, el("b", { text:"Current settings: " + m.settings_label }), m.settings_note);
   document.getElementById("disclaimer").textContent = m.disclaimer;
-  var g = document.getElementById("globalBanners");
+  var g = document.getElementById("globalBanners"); g.textContent = "";
   if (m.halal_banner) g.appendChild(banner(m.halal_banner, "warn"));
   (m.config_notes || []).forEach(function (n) { g.appendChild(banner(n, n.indexOf("CONFIG ERROR") === 0 ? "block" : "warn")); });
 }).catch(function () { document.getElementById("globalBanners").appendChild(banner("The dashboard server is not answering.", "block")); });
+}
+loadMeta();
 show(location.hash.slice(1) || "today");
+getJSON("/api/run/status").then(function (s) { RUN.last = s; runPill(s); if (s.state === "running") pollRun(); }, function () {});
 </script>
 </body>
 </html>

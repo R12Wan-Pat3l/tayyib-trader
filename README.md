@@ -47,7 +47,7 @@ market closes. You decide, and you place the order yourself.
 3. Every trading day after 3:30 PM, ask: **"Give me today's halal list"**.
 4. Pick a stock you like, ask **"show me the ticket for SYMBOL"**, and place it yourself in Kite or Groww.
 5. Open `tayyib-live\trader\tracker.xlsx` any time to see how every earlier pick did, or ask
-   **"show my dashboard"** to see everything in your browser (read-only).
+   **"show my dashboard"** to see everything in your browser, change your settings safely and run today's list.
 
 The first run builds the halal list (about 5 minutes). After that it refreshes itself every month.
 
@@ -57,7 +57,7 @@ The first run builds the halal list (about 5 minutes). After that it refreshes i
 |---|---|
 | `tayyib-daily` | **The one you use:** today's halal list with entry, stop, target, quantity and PASS/WARN/BLOCK |
 | `tayyib-tracker` | **Excel record:** did each earlier pick hit its target or its stop? Win rate and average result |
-| `tayyib-dashboard` | **Your dashboard** in the browser (read-only, on your own computer): today's list with the why, results, halal ratios, tickets |
+| `tayyib-dashboard` | **Your dashboard** in the browser (on your own computer, places no order): today's list with the why, results, halal ratios, tickets, settings, a run button |
 | `tayyib-halal` | Builds and checks the halal (Shariah-screened) stock list |
 | `tayyib-scanner` | Finds trade setups on halal stocks |
 | `tayyib-news` | Indian market news per stock, with HALAL-WATCH flags |

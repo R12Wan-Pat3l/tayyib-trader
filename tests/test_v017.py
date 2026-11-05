@@ -337,7 +337,7 @@ class Server(OfflineCase):
         self.assertIn("text/html", r.getheader("Content-Type"))
         meta = self.get("/api/meta")
         self.assertEqual(meta["version"], tc.VERSION)
-        self.assertEqual(meta["settings_header"], "Current settings: default@2 (editing settings arrives in v0.1.8)")
+        self.assertEqual(meta["settings_header"], "Current settings: default@2")
         self.assertEqual(meta["data_dir"], os.path.abspath(self.dir))
         for k in ("banners", "halal_banner", "settings_label", "disclaimer"):
             self.assertIn(k, meta)
@@ -534,12 +534,15 @@ class NoOrderCodeInDashboard(unittest.TestCase):
         self.assertNotIn("<form", html.lower())
         self.assertNotIn("sendBeacon", html)
         self.assertNotIn("WebSocket", html)
-        self.assertIsNone(re.search(r"method\s*:", html), "fetch with a method other than GET")
-        calls = re.findall(r"fetch\(([^,)]*)", html)
-        self.assertEqual(len(calls), 1)                                       # one helper, getJSON
-        self.assertIn('fetch(url, { cache:"no-store", credentials:"same-origin" })', html)
+        # v0.1.8: one fetch (request); GET everywhere except postJSON, which only goes to the two write routes
+        self.assertEqual(re.findall(r"method\s*:\s*\"?(\w+)", html), ["POST"])
+        self.assertEqual(re.findall(r"fetch\(([^,)]*)", html), ["url"])
+        self.assertIn('return request(url, { cache:"no-store", credentials:"same-origin" });', html)
         for u in re.findall(r"getJSON\(\"([^\"]+)", html):
             self.assertTrue(u.startswith("/api/"), u)
+        posts = re.findall(r"postJSON\(\"([^\"]+)", html)
+        self.assertEqual(set(posts), {"/api/config", "/api/run"})
+        self.assertEqual(len(re.findall(r"postJSON\(", html)), len(posts) + 1)   # + its definition: no computed URL
         self.assertIsNone(re.search(r"https?://(?!www\.w3\.org/2000/svg)", html), "external URL in the page")
         self.assertNotIn("fonts.googleapis", html)
         self.assertIn("Not financial advice, not a fatwa.", html)
@@ -549,6 +552,8 @@ class NoOrderCodeInDashboard(unittest.TestCase):
         labels = re.findall(r'el\("button", \{[^}]*text:"([^"]*)', html)
         self.assertTrue(labels)
         for t in labels:                                                      # Why?, Chart, Ratios, Copy ...
+            if t in ("Run today's list", "Run anyway"):                       # v0.1.8: runs tayyib-daily, no order
+                continue
             self.assertNotRegex(t.lower(), r"\b(buy|sell|place|cancel|modify|order|submit|run)\b", t)
 
 

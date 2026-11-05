@@ -54,8 +54,11 @@ python3 tayyib-risk/check.py                        # PASS / WARN / BLOCK
 python3 tayyib-broker/ticket.py show                # the ticket the user places themselves
 ```
 
-Dashboard (read-only, 127.0.0.1 only, GET only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
-Never add a button, endpoint or request that places, modifies or cancels an order, or writes a file.
+Dashboard (127.0.0.1 only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
+Everything is GET / HEAD except exactly two write endpoints: `POST /api/config` (saves `trader/config.json`
+through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib-daily`, analysis only).
+Both need the Host, Origin, per-start token, JSON type and 64 KB checks. Never add another write endpoint,
+and never a button, endpoint or request that places, modifies or cancels an order or talks to a broker.
 
 While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions`.
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.

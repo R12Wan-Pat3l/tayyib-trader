@@ -471,6 +471,8 @@ def render_risk_preview(rp):
                                                          x["qty"], x["binding"], tc.fmt_rs(x["position_rs"], 0),
                                                          tc.fmt_rs(x["loss_at_stop_rs"], 0)))
     L.append("(sample entry %s) %s" % (tc.fmt_rs(rp["samples"][0]["entry"] if rp["samples"] else 0, 0), rp["note"]))
+    if rp.get("warning"):
+        L.append("Warning: " + rp["warning"])
     for n in rp.get("config_notes") or []:
         L.append(n)
     return "\n".join(L)

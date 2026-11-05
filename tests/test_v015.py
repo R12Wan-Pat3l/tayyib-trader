@@ -638,24 +638,28 @@ class Settings(OfflineCase):
         self.assertEqual(t["summary"]["settings: pre-0.1.5"]["target"], 1)
         self.assertIn("all defaults", t["settings_split"]["default@2"]["differs"])
         self.assertIn("before v0.1.5", t["settings_split"]["pre-0.1.5"]["differs"])
-        # a second settings set
-        self.write("config.json", {"max_risk_per_trade_pct": 0.5})
-        out2 = self.run_script(DAILY, "--no-news", "--no-rebuild", "--mode", "swing")
-        h2 = out2["settings"]["hash"]
-        self.assertNotEqual(h2, h)
-        rep = self.run_script(TR, "report")
-        split = rep["settings_split"]
-        self.assertEqual(set(split), {"default@2", h2, "pre-0.1.5"})
-        self.assertIn("max_risk_per_trade_pct 0.5 (default 1)", split[h2]["differs"])
-        txt = self.run_script(TR, "report", as_json=False)
-        self.assertIn("By settings:", txt)
-        self.assertIn("default@2", txt)
         with zipfile.ZipFile(os.path.join(self.dir, "tracker.xlsx")) as z:
             summ = z.read("xl/worksheets/sheet2.xml").decode()
         self.assertIn("settings: pre-0.1.5", summ)
         self.assertIn("settings: default@2", summ)
         self.assertIn("all defaults", summ)
         self.assertIn("Settings vs defaults", summ)
+        # a second settings set, the same day: the unfilled default@2 rows are SUPERSEDED (v0.1.8)
+        self.write("config.json", {"max_risk_per_trade_pct": 0.5})
+        out2 = self.run_script(DAILY, "--no-news", "--no-rebuild", "--mode", "swing")
+        h2 = out2["settings"]["hash"]
+        self.assertNotEqual(h2, h)
+        rows = self.read("tracker.json")["rows"]
+        first = [r for r in rows if r["settings_hash"] == h]
+        self.assertTrue(first)
+        self.assertTrue(all(r["status"] == "SUPERSEDED" for r in first if not r.get("filled")))
+        rep = self.run_script(TR, "report")
+        split = rep["settings_split"]
+        self.assertEqual(set(split), {h2, "pre-0.1.5"})
+        self.assertIn("max_risk_per_trade_pct 0.5 (default 1)", split[h2]["differs"])
+        txt = self.run_script(TR, "report", as_json=False)
+        self.assertIn("By settings:", txt)
+        self.assertIn(h2, txt)
 
 
 class Encoding(OfflineCase):

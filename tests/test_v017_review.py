@@ -132,7 +132,7 @@ class ServerLabels(OfflineCase):
 
     def test_current_vs_list_settings(self):
         self.assertEqual(D.api_meta({})["settings_header"],
-                         "Current settings: default@2 (editing settings arrives in v0.1.8)")
+                         "Current settings: default@2")
         t = D.api_today({})
         self.assertEqual(t["made_with"], "This list was made with: default@2")
         self.assertFalse(t["older_list"])

@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.1.7"
+VERSION = "0.1.8"
 PROTOCOL = "2025-06-18"
 
 

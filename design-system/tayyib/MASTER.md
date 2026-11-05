@@ -3,7 +3,7 @@
 > **LOGIC:** When building a specific page, first check `design-system/tayyib/pages/[page-name].md`.
 > If that file exists, its rules **override** this Master file. If not, follow the rules below.
 
-**Project:** tayyib (tayyib-trader's local, read-only dashboard)
+**Project:** tayyib (tayyib-trader's local dashboard)
 **Version:** 2, the v0.1.7 redesign (2026-11-05). Version 1 (the first, plain v0.1.7 page) is described in git history.
 **Generated with UI/UX Pro Max 2.15.0** (development-time aid; nothing from it ships or runs):
 - `search.py "premium fintech portfolio dashboard calm trustworthy" --design-system -p tayyib --density 7`: off target
@@ -33,7 +33,7 @@
 | Indian numbers | Formatted by the server: `₹1,00,000.00`; large money as `₹523.7 cr`, `₹12.5 lakh` |
 | Missing data | **UNKNOWN** for a data failure; "not checked (business excluded)" when the screen never needed the number; "not yet" / "not closed" for a paper trade still pending; "no closed trades" instead of a 0 or ₹0.00 that looks real; "price data unavailable" instead of a guessed line |
 | No sideways scroll | At every width from 375px. Tables use `table-layout: fixed` on a desktop and become cards below 900px |
-| Read-only | Buttons only switch tabs, sort, filter, open a drawer or **copy** text. No form, no write request |
+| Two writes only | Buttons switch tabs, sort, filter, open a drawer or **copy** text. The only writes are **Save settings** (after a review drawer) and **Run today's list** (confirm drawer before 3:30 PM IST). Nothing places an order |
 | Motion | ≤ 200ms, transform / opacity / colour only; all off under `prefers-reduced-motion: reduce` |
 | Tap targets | ≥ 44px for every button on a phone (tabs 56px) |
 

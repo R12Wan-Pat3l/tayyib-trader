@@ -34,7 +34,7 @@ core/tayyib_core.py      shared library (config, data, indicators, setups, charg
 tools/sync_core.py       copies the core into every skill folder (--check verifies)
 tayyib-<skill>/          SKILL.md (instructions for Claude) + one script + a copy of tayyib_core.py
 mcp/server.py            stdio MCP server wrapping the scripts
-tayyib-dashboard/        dashboard.py (read-only local web server) + index.html (one page, inline CSS/JS/SVG)
+tayyib-dashboard/        dashboard.py (local web server) + actions.py (save settings, backups, run) + index.html (one page, inline CSS/JS/SVG)
 design-system/tayyib/    the dashboard's design system (MASTER.md, pages/dashboard.md); not shipped code
 tests/                   offline unittest suite + make_fixtures.py (synthetic data, real formats)
 AGENTS.md                rules and commands for non-Claude agents
@@ -244,16 +244,24 @@ the rupee loss per trade, the drawdown after 3, 5 and 10 losses in a row (each l
 is left), and for sample stop distances whether the risk % or the max position % sets the quantity
 (they cross at `risk % / max position %`, 5% by default). Before charges. It runs nothing else.
 
-## Dashboard (`tayyib-dashboard`, v0.1.7)
+## Dashboard (`tayyib-dashboard`, v0.1.7, settings and run v0.1.8)
 
 `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]` serves one page and a JSON API over
 the files in `TAYYIB_DIR` (or `./trader`), and opens the browser unless `--no-browser`.
 
 **Server and security:**
 - `http.server.ThreadingHTTPServer` bound to **127.0.0.1** only (no option to change it).
-- **GET and HEAD only.** POST, PUT, PATCH, DELETE (and OPTIONS, TRACE, CONNECT) return 405 with
-  `Allow: GET, HEAD`. The module has no write call: it reads JSON, and fetches price bars with
-  `tc.get_daily_bars(..., save=False)` (it reads the cache but never writes it).
+- **GET and HEAD, plus exactly two POSTs** (`POST_ROUTES = ("/api/config", "/api/run")`). Every other
+  method returns 405 with `Allow: GET, HEAD`; POST to any other path returns 405 too, and GET on a POST
+  route returns 405 with `Allow: POST`. GETs never write: they read JSON and fetch price bars with
+  `tc.get_daily_bars(..., save=False)` (they read the cache but never write it).
+- **Every POST must pass, in this order:** the Host check (403); a known POST path (405); `Origin` equal
+  to `http://127.0.0.1:<port>` or `http://localhost:<port>` (403); `X-Tayyib-Token` equal to the
+  per-start token (`secrets.token_urlsafe(32)`, compared with `hmac.compare_digest`; 403); `Content-Type:
+  application/json` (415); a `Content-Length` (411) of at most 64 KB (413); a JSON object body (400). The
+  token is new each time the server starts and is written into the served page
+  (`<meta name="tayyib-token">`); it is never sent in a URL, a cookie or a GET API response. A refused
+  body is drained so the client gets the error, not a reset connection.
 - **Host check** against DNS rebinding: a request whose `Host` header is not `127.0.0.1:<port>` or
   `localhost:<port>` gets 403.
 - **No CORS headers.** Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
@@ -272,12 +280,16 @@ issues same-origin GETs to `/api/...`.
 
 | endpoint | returns |
 |---|---|
-| `/api/meta` | version, data folder, settings label and header ("Current settings: default@2 (editing settings arrives in v0.1.8)"), the latest list's `banners[]`, the halal banner, config notes |
+| `/api/meta` | version, data folder, settings label and header ("Current settings: default@2"), the latest list's `banners[]`, the halal banner, config notes |
 | `/api/dates` | the dates of every `daily/DATE.json`, newest first |
 | `/api/today?date=` | that day's list (default the newest): rows with `display` strings, `why_view` (groups with ✓ / ✗ / UNKNOWN), `stop_capped`, `near_limit`, `ranked_by`, `expectancy_use`; top picks; `staleness {stale, reasons[]}` (not today's list, or `asof` before 15:30 IST) |
 | `/api/tracker` | rows with a labelled `verdict` (TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending, BREAKEVEN), `summary` from `tracker.summary()` (the function the Excel Summary sheet uses, so the numbers match), `settings_split`, the equity curve (cumulative R by exit date), and `noise_banner` until 30 closed trades |
 | `/api/halal` | every stock with its current status (overrides applied), ratio bars against the limits in config, reported vs assumed-8% income, `near_limit[]`, override note and date, reasons; counts; the loosened-thresholds banner |
 | `/api/tickets` | unplaced orders with status, expiry and the Kite and Groww steps from `tc.broker_steps` (the text `ticket.py show` prints); open and closed positions with totals |
+| `/api/settings` | every editable key from `DEFAULT_CONFIG_DOCS` grouped as Risk, Plan, Selection, Broker & charges, Halal, Data & calendar: value, default, range, unit, `changed`, the per-key `CONFIG:` errors; `always_on` (the hard rules, not options); the halal loosened banner; the risk preview; `version` (sha1 of config.json) and the backups |
+| `/api/risk-preview?change=` | `tc.risk_preview` for the config with the pending change (`{"set": {key: value}, "reset": [key]}`) applied, plus that change's `diff`, `errors` by key, the new settings label and the loosened banner. Writes nothing |
+| `/api/config/backups`, `/api/config/backup-diff?name=` | the backups (newest first), and what restoring one would change |
+| `/api/run/status` | `state` (idle / running / ok / failed), start time, elapsed, the last ~200 output lines, the exit code or error, and the before-15:30 `advice` |
 | `/api/chart?symbol=&from=` | for one tracker row: daily bars around it, as SVG coordinates for the close line, the entry / stop / target lines and the fill / exit markers. Live fetch, else the last cached bars (labelled); else `{"status": "unknown", "message": "price data unavailable"}`. Never a guessed line |
 
 **Labels (v0.1.7 review):** today's response has `made_with` ("This list was made with: default@1") next to
@@ -292,14 +304,44 @@ tracker sends `kpis`, `ring` (closed of 30) and `result_counts`; with no closed 
 Tickets come as `ready` (PASS, then WARN) and `blocked` ("Blocked (not tickets)": BLOCK, expired, changed).
 NEWS headlines are shown in full (older lists that stored them cut short are completed from `news.json`).
 
+**Settings (`POST /api/config`, `actions.save_config`):** the body is `{"version", "set": {dotted key: value},
+"reset": [dotted key], "loosen_note"?}` or `{"version", "restore": "<backup name>"}`. The base is the valid
+part of the current `config.json`; the change is applied, then **`tc.validate_config` is the only judge**
+(through `tc.clean_user_config` / `tc.config_errors`): any error refuses the whole save (400, the messages
+keyed by setting) and nothing is written. Halal values looser than TASIS need `halal.loosen_note`, or
+they are refused. A stale `version` (config.json changed since the page loaded) is 409. On success the
+current file is copied to `trader/config_backups/config-YYYYmmdd-HHMMSS.json` (the newest 20 kept), the
+new file is written atomically (`tc.write_json`: temp file + `os.replace`) under a lock, and the response
+has the new settings label and "Changes apply from the next run." Restoring a backup goes through the same
+path. The hard rules are code, not keys: the page lists them as "Always on".
+
+**Run (`POST /api/run`, `actions.Runner`):** the only option is `{"skip_news": bool}` (→ `--no-news`); any
+other key is 400. It starts `tayyib-daily/daily.py` with `sys.executable`, the same `TAYYIB_DIR`, UTF-8 and
+unbuffered output, no window on Windows. One run at a time: a second POST while running is 409. A reader
+thread keeps the last 200 lines. The state is `ok` only for exit code 0 and a fresh `daily/<today>.json`;
+otherwise `failed` with the error text (daily.py writes the list at the end, so a failed run leaves the
+previous list). Before 15:30 IST on a weekday, or on a configured holiday, the page asks first ("Prices
+aren't final yet, levels may change") and never blocks. When the run ends the Today tab reloads.
+
 **Compliance cross-check:** every today row and every ticket is checked against the **current** universe
 plus overrides. A stock that is no longer `compliant` is replaced by `{"halal_changed": true, "message":
 "halal status changed since this list: re-check", "halal_now": <status>}` with no levels and no steps.
 
-Tests: `tests/test_v017.py` (every endpoint, 405s, bad Host 403, traversal, 127.0.0.1 bind, missing
+Tests: `tests/test_v018.py` (each POST rejection reason, no other path or method accepts POST, GETs
+write nothing, settings grouping / save / invalid / halal note / stale 409 / 20 backups and restore, the
+runner with fake scripts and a real offline run, the tracker re-run cases), `tests/test_v017.py` (every endpoint, 405s, bad Host 403, traversal, 127.0.0.1 bind, missing
 files, null to UNKNOWN, the cross-check, tracker numbers equal `tracker.py report`, no write calls) and
 `tests/test_safety.py` (no broker API hosts or order code in any `.py` or `.html`; the page has no
-`XMLHttpRequest`, no `<form>` and no fetch with a method).
+`XMLHttpRequest`, no `<form>`; one `fetch`, whose only POSTs go to the two routes).
+
+### Tracker: same-day re-runs (v0.1.8)
+
+The tracker key is `date|symbol|setup|settings_hash`. When `add --from-daily` brings a list whose settings
+hash differs from earlier rows of the same date, those earlier rows that never filled become
+**SUPERSEDED** (`superseded_by` = the new label): kept for audit, skipped by `update`, excluded from
+`summary`, `settings_split`, the Excel Summary and the dashboard stats, and shown greyed ("not counted").
+Rows that filled are never touched, and no new row is added for a pick that already has a filled row. A
+re-run with the same settings adds nothing. Re-running the earlier settings restores its rows.
 
 ## Data endpoints (free, unofficial)
 

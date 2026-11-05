@@ -18,8 +18,9 @@ Think of it as a careful assistant who does your homework every evening:
 ```
 
 Steps 1 to 7 and 9 run automatically when you ask for **today's halal list**. Step 8 is always yours.
-To see it all in your browser, ask **"show my dashboard"**: a read-only page on your own computer with
-today's list (and why each stock is there), the results so far, the halal ratios and your tickets.
+To see it all in your browser, ask **"show my dashboard"**: a page on your own computer with today's
+list (and why each stock is there), the results so far, the halal ratios, your tickets, your settings
+(to change safely) and a button to run today's list.
 
 **How the list is ordered:** PASS first, then WARN, then BLOCK. Inside each, stocks with at least 8 past
 trades of their setup come first, best time-machine result first; the rest follow by how cleanly the
@@ -64,11 +65,13 @@ tayyib-risk       -> statuses in trader/orders.json, trader/risk.json
 tayyib-broker     -> trader/positions.json (your journal)
 tayyib-tracker    -> trader/tracker.json, trader/tracker.xlsx, trader/tracker.csv
 tayyib-daily      -> runs all of the above, writes trader/daily/DATE.md and .json
-tayyib-dashboard  -> reads all of the above (writes nothing), serves http://127.0.0.1:8765/
+tayyib-dashboard  -> reads all of the above, serves http://127.0.0.1:8765/; writes only config.json (+ backup)
 ```
 
 The dashboard is a small standard-library web server (`ThreadingHTTPServer`) bound to 127.0.0.1. It
-answers GET and HEAD only, so the page can read but never change anything. The Python side does every
+reads with GET; it has exactly two write endpoints, saving settings (checked by the same validator as
+every skill, with a backup) and running tayyib-daily, each guarded by the origin, a per-start token and a
+JSON-only body. Neither can place an order. The Python side does every
 calculation (number formatting, statuses, chart coordinates) and the page only draws them.
 
 Each skill has a `SKILL.md` that tells Claude when and how to run it, and `AGENTS.md` does the same

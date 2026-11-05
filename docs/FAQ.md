@@ -237,6 +237,21 @@ No. There is no broker connection, and no code that places orders. You get a tic
 and you place the order yourself. A read-only connection (to see your holdings) is on the roadmap.
 Placing orders will always need your explicit yes for each one.
 
+### Is it safe that the page can save settings?
+Yes. It is built so that only you, on your computer, can do it, and only within safe limits:
+- The dashboard listens on `127.0.0.1` only: other computers, and your phone, cannot reach it.
+- It accepts exactly two kinds of change: saving your settings and running today's list. Everything
+  else can only be read. Neither can place, change or cancel an order, and it has no broker connection.
+- Each change must come from the dashboard page itself: the server checks the address, where the request
+  came from and a secret code that is new every time the dashboard starts. Another website open in your
+  browser cannot send one.
+- Every value goes through the same check as everywhere else (allowed ranges, halal loosening needs your
+  source). Anything invalid is refused and nothing is partly saved.
+- Before saving it shows you every change, it keeps a backup of your old settings (the last 20), and you
+  can restore any of them.
+- The rules that keep it halal and cash-only (CNC only, no short selling, no F&O, no margin, compliant
+  stocks only, your yes for every order) are in the code, not in the settings.
+
 ### How accurate are the charges?
 For Zerodha delivery, they match Zerodha's published rates to the paisa: STT, NSE transaction charge,
 SEBI fee, stamp duty, GST and DP charge. For Groww, the brokerage is set to 0.1% (minimum Rs 5, maximum
@@ -244,7 +259,8 @@ Rs 20 per order). Rates change, so check your broker's charges page now and then
 
 ### When should I run it?
 After 3:30 PM IST on a trading day, once the day's prices are final. If you run it during market hours it
-still works, but it warns you that the levels can change. You can schedule it: see the
+still works, but it warns you that the levels can change (the dashboard's **Run today's list** button asks
+first). You can schedule it: see the
 [User guide](USER_GUIDE.md#part-3-optional-run-it-automatically-every-day).
 
 ### Where is my data stored? Is it private?

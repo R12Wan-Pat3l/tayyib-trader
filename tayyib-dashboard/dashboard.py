@@ -388,7 +388,7 @@ def api_today(q):
             changed.append(r["symbol"])
             continue
         heads = [it.get("title") or "" for it in ((news.get("symbols") or {}).get(r["symbol"]) or [])]
-        rows.append(row_view(r, k_min, older, heads))
+        rows.append(dict(row_view(r, k_min, older, heads), links=tc.manual_links(r["symbol"], h)))
     by = {r["symbol"]: r for r in rows}
     picks = [dict(by[s], sparkline=sparkline(s)) for s in d.get("top_picks") or [] if s in by]
     st = d.get("settings") or {}
@@ -655,7 +655,7 @@ def api_tickets(q):
                                     "target": inr(o.get("target")), "position": inr(o.get("position_value_rs")),
                                     "charges": inr(o.get("buy_charges_rs")), "loss": inr(o.get("loss_at_stop_rs")),
                                     "gain": inr(o.get("gain_at_target_rs"))},
-                        "steps": steps})
+                        "steps": steps, "links": tc.manual_links(o.get("symbol"), h)})
     rank = {"PASS": 0, "WARN": 1}
     order = sorted(range(len(tickets)), key=lambda k: (0 if tickets[k].get("is_ticket") else 1,
                                                        rank.get(tickets[k].get("status"), 2), k))

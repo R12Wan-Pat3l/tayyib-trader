@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.9 (2026-11-05)
+
+Honest requests, and clear about what it could not check. No decision changes (still default@2).
+
+### Changed
+
+- **No browser imitation.** Requests to NSE now say who they are (`tayyib-trader/0.1.9` with a link to
+  this project): no browser user agent, no browser headers, no homepage cookie visit. NSE usually refuses
+  automated requests; when it does, the NEWS checks are UNKNOWN, as before. After the first refusal in a
+  run the tool stops asking NSE (one polite attempt per run).
+- **Clearer banner:** "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and
+  results checks are incomplete for 10 of 10 stocks: check the announcements yourself for any stock you
+  plan to buy."
+- **Why? names its sources:** the NEWS lines say which sources answered (Google News, NSE announcements,
+  the RSS feeds) and which failed and why.
+
+### Added
+
+- **Check announcements yourself** links: on every top-pick card, every ticket card, in the Why panel's
+  NEWS section and under each top pick in the daily `.md`. The stock's NSE company page, and BSE: its page
+  when the scrip code is known, otherwise BSE's search with the ISIN to type in. They open in a new tab;
+  the tool never reads them.
+- FAQ: "Why do news checks often say UNKNOWN?". TECHNICAL: an audit of every request and its headers.
+
 ## v0.1.8 (2026-11-05)
 
 Change your settings and run today's list from the dashboard, safely.

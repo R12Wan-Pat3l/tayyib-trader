@@ -52,7 +52,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 
 | file | contents |
 |---|---|
-| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (v0.1.7: list-level warnings, e.g. "NSE announcements unavailable today: HALAL-WATCH and results checks are incomplete for N of M stocks."), `settings{hash, label ("default@2" when nothing differs; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
+| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (list-level warnings; v0.1.9 wording: "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy."), `settings{hash, label ("default@2" when nothing differs; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
 | `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result`. v0.1.7 flags: HALAL ratio items `near_limit` (at or above `halal.near_limit_pct` = 90% of the limit), PLAN `stop capped` item with `stop_capped: true`, SETUP context items with `op: "info"` (% above the 200-day average, 126-day return) |
 | `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
 | `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys from 90% of their limit up to it), over_limit[] (at or over it); v0.1.7}}` |
@@ -127,6 +127,11 @@ over MCP (stdio), none of which place orders.
 - **Tracker re-runs (v0.1.8):** key `date|symbol|setup|settings_hash`. A same-day re-run under other
   settings marks the earlier unfilled rows SUPERSEDED (kept, not counted anywhere); filled rows are never
   touched; same settings add nothing.
+- **No bot-check circumvention (v0.1.9):** the project never imitates a browser or works around a site's
+  bot checks. NSE and BSE get only the honest user agent (`tayyib-trader/<version> (+github URL)`), no
+  browser headers, no cookie warm-up; a refusal is UNKNOWN, with a banner and "Check announcements
+  yourself" links (opened by the user, never fetched). niftyindices.com still gets a browser user agent from
+  tayyib-halal: reported, decision pending.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
@@ -146,11 +151,17 @@ over MCP (stdio), none of which place orders.
 - **v0.1.7:** pipeline fixes from the live check (ranking on thin evidence = default@2,
   the news source-failure banner, why[] additions: capped stop, setup context, near halal limit;
   `halal.list_url` removed) and the read-only local dashboard (Today, Results, Halal, Tickets).
-- **v0.1.8** (this release): the Settings tab (rendered from `DEFAULT_CONFIG_DOCS`, risk preview with a
+- **v0.1.8:** the Settings tab (rendered from `DEFAULT_CONFIG_DOCS`, risk preview with a
   warning above 2%, review before save, backups and restore, halal loosening needs a source), the
   "Run today's list" button, and SUPERSEDED rows for same-day re-runs under other settings.
+
+- **v0.1.9** (this release): honest requests to NSE (no browser imitation, no cookie warm-up), why[] NEWS
+  names the sources that answered and failed, the clearer banner, and "Check announcements yourself"
+  links. No decision changes (still default@2).
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)
 - Read-only Zerodha / Groww connection (holdings, positions)
+- Results-due dates and company announcements via the read-only broker API, if the API offers them
+  (instead of NSE / BSE, which refuse automated access)
 - Zakat calculator; automatic import of the official Nifty Shariah lists; NSE holiday calendar

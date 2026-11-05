@@ -25,7 +25,6 @@ import csv
 import datetime as dt
 import gzip
 import hashlib
-import http.cookiejar
 import io
 import json
 import math
@@ -38,7 +37,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -861,39 +860,90 @@ def fetch_json(url, fixture=None, **kw):
         raise FetchError("%s did not return JSON" % url)
 
 
+# Still sent by tayyib-halal to niftyindices.com (reported in v0.1.9, decision pending). Never for NSE or BSE.
 BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
+# What we are, honestly. NSE and BSE get only this: no browser user agent, no browser-fingerprint headers,
+# no homepage cookie warm-up. If they refuse automated access, the check is UNKNOWN (v0.1.9 decision:
+# no bot-check circumvention anywhere in the project).
+HONEST_UA = "tayyib-trader/%s (+https://github.com/R12Wan-Pat3l/tayyib-trader)" % VERSION
+EXCHANGE_HEADERS = {"User-Agent": HONEST_UA, "Accept": "application/json"}
+
+
+def fetch_reason(err, who="the source"):
+    """A failed fetch in plain words: 'NSE refused automated access', 'NSE did not answer', 'NSE failed: HTTP 500'."""
+    t = str(err or "")
+    m = re.search(r"HTTP (\d{3})", t)
+    if m and m.group(1) in ("401", "403"):
+        return "%s refused automated access" % who
+    if m and m.group(1) == "429":
+        return "%s refused: too many requests" % who
+    if m:
+        return "%s failed: HTTP %s" % (who, m.group(1))
+    if re.search(r"timed out|timeout", t, re.I):
+        return "%s did not answer" % who
+    if re.search(r"JSON", t):
+        return "%s answered with something that is not data" % who
+    if t.startswith("not tried"):
+        return t
+    return "%s could not be reached" % who
+
 
 class NSESession:
-    """nseindia.com's JSON API needs cookies from a page visit first.
+    """nseindia.com's public JSON API, asked honestly (HONEST_UA, no cookie warm-up, no browser headers).
 
-    These endpoints are public but unofficial: they can change or block
-    automated clients without notice. Keep request rates low."""
+    NSE often refuses automated clients: then every call raises FetchError and the checks that needed it
+    are UNKNOWN. After the first refusal or timeout in a run, the rest are not tried (one polite attempt
+    per run, not one per stock); they raise FetchError with the same reason."""
 
     BASE = "https://www.nseindia.com"
 
     def __init__(self):
-        self.jar = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
-        self.warm = False
-
-    def _warm(self):
-        if self.warm or fixtures_dir():
-            return
-        fetch(self.BASE + "/", headers={"User-Agent": BROWSER_UA, "Accept": "text/html"},
-              opener=self.opener)
-        self.warm = True
+        self.refused = None                        # the first failure's reason, once NSE refused or timed out
 
     def get_json(self, api_path, params=None, fixture=None):
         if fixtures_dir():
-            return json.loads(_read_fixture(fixture).decode("utf-8"))
-        self._warm()
+            body = _read_fixture(fixture)
+            if body.startswith(b"HTTP "):          # a fixture can stand for a refusal: b"HTTP 403"
+                raise FetchError("%s%s -> %s" % (self.BASE, api_path, body.decode().strip()))
+            return json.loads(body.decode("utf-8"))
+        if self.refused:
+            raise FetchError("not tried: %s earlier in this run" % self.refused)
         q = ("?" + urllib.parse.urlencode(params)) if params else ""
-        body = fetch(self.BASE + api_path + q, opener=self.opener, headers={
-            "User-Agent": BROWSER_UA, "Accept": "application/json",
-            "Referer": self.BASE + "/"})
-        return json.loads(body.decode("utf-8"))
+        try:
+            body = fetch(self.BASE + api_path + q, headers=EXCHANGE_HEADERS, timeout=15, retries=1)
+        except FetchError as e:
+            r = fetch_reason(e, "NSE")
+            if "refused" in r or "did not answer" in r:
+                self.refused = r
+            raise
+        try:
+            return json.loads(body.decode("utf-8"))
+        except ValueError:
+            raise FetchError("%s%s did not return JSON" % (self.BASE, api_path))
+
+
+NSE_QUOTE_URL = "https://www.nseindia.com/get-quotes/equity?symbol=%s"
+BSE_QUOTE_URL = "https://m.bseindia.com/StockReach.aspx?scripcd=%s"
+BSE_SEARCH_URL = "https://www.bseindia.com/getquote.aspx"
+
+
+def manual_links(sym, rec=None):
+    """"Check announcements yourself": links the user opens; the tool never fetches them.
+    NSE: the company's quote page (its announcements are there). BSE: the stock page when the scrip code
+    is known locally (rec["bse_code"]), otherwise BSE's Get Quote search with the ISIN to type in."""
+    rec = rec or {}
+    sym = normalize_symbol(sym)
+    out = [{"label": "NSE company page", "url": NSE_QUOTE_URL % urllib.parse.quote(sym, safe=""), "hint": None}]
+    code = str(rec.get("bse_code") or "").strip()
+    if code.isdigit():
+        out.append({"label": "BSE company page", "url": BSE_QUOTE_URL % code, "hint": None})
+    else:
+        isin = rec.get("isin")
+        out.append({"label": "BSE search", "url": BSE_SEARCH_URL,
+                    "hint": ("search for ISIN %s" % isin) if isin else ("search for %s" % sym)})
+    return out
 
 
 # ---------------------------------------------------------------------------

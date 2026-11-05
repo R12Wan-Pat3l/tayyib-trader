@@ -9,6 +9,21 @@ For developers and anyone who wants to run the scripts directly. For the plain-w
 - Windows: use `py` wherever this guide says `python3` (on many machines, `python3` opens the Microsoft Store).
 - Network access to Yahoo Finance, niftyindices.com, nseindia.com, news.google.com and the RSS feeds.
 
+**Requests (v0.1.9 audit).** No bot-check circumvention anywhere in the project.
+
+| source | sent by | headers |
+|---|---|---|
+| NSE API (announcements, insider PIT, bulk / block deals) | `tc.NSESession` (tayyib-news, tayyib-insider) | `User-Agent: tayyib-trader/<VERSION> (+https://github.com/R12Wan-Pat3l/tayyib-trader)` (`tc.HONEST_UA`), `Accept: application/json`. No cookie warm-up, no Referer, no browser headers |
+| BSE | nothing fetches BSE | (links only, opened by the user) |
+| Yahoo Finance charts and fundamentals | `tc.fetch` | `User-Agent: tayyib-trader/0.1 (+https://github.com/...)` (the default `user_agent`), `Accept: */*`, `Accept-Encoding: gzip` |
+| Google News RSS, Moneycontrol / ET / Livemint RSS | `tc.fetch` | the same as Yahoo |
+| niftyindices.com Nifty 500 list | tayyib-halal `build` | **a browser user agent** (`tc.BROWSER_UA`): reported in v0.1.9, unchanged, decision pending |
+
+NSE refusals: after the first refusal or timeout in a run, `NSESession` does not ask again (one polite
+attempt per run); each later call fails with "not tried: NSE refused automated access earlier in this
+run". `tc.fetch_reason` turns an error into plain words ("NSE refused automated access", "NSE did not
+answer", "NSE failed: HTTP 503").
+
 ## Install
 
 | way | how |
@@ -75,9 +90,24 @@ What `daily` does:
   tickets the position, heat, cash and industry limits block. With the key at 0 the order is the v0.1.4
   one (expectancy only), and the baseline test proves every decision is then identical.
 - When NSE announcements or Google News failed for any of today's stocks, the list gets one banner in
-  `banners[]` (`.json`) and at the top of the `.md`: "NSE announcements unavailable today: HALAL-WATCH and
-  results checks are incomplete for N of M stocks." Per row, the NEWS `why[]` items stay UNKNOWN. No
-  verdict changes.
+  `banners[]` (`.json`) and at the top of the `.md` (v0.1.9 wording): "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy." With Google News too:
+  "Exchange filings and Google News unavailable today (NSE refused automated access; Google News did not
+  answer). ...". Per row, the NEWS `why[]` items stay UNKNOWN. No verdict changes.
+- **Sources in why[] NEWS (v0.1.9):** `news.json` has `sources{SYM: {answered[], failed{source: reason}}}`
+  (Google News, NSE announcements) and `feeds{answered[], failed{}}` (the market RSS feeds, fetched once).
+  A check with no flagged headline says "N headlines in the last 72 hours checked (news of ...; answered:
+  Google News, NSE announcements, 4 RSS feeds)" or, when a source needed for the stock failed, "UNKNOWN: a
+  source for this stock failed (NSE announcements: NSE refused automated access); ...; answered: Google
+  News, 4 RSS feeds". A failed market feed is named but does not make the check UNKNOWN (as before).
+- **Check announcements yourself (v0.1.9):** `tc.manual_links(sym, rec)`: the NSE company page
+  `https://www.nseindia.com/get-quotes/equity?symbol=SYM`, and on BSE the stock page
+  `https://m.bseindia.com/StockReach.aspx?scripcd=CODE` when a scrip code is already known locally
+  (`bse_code` in the universe record; none is today), otherwise BSE's Get Quote search
+  `https://www.bseindia.com/getquote.aspx` with "search for ISIN ..." (BSE has no verified URL that takes an
+  ISIN, so none is guessed). In the `.md` under each top pick; in the dashboard on top-pick cards, ticket
+  cards and the Why drawer's NEWS section (`target="_blank" rel="noopener noreferrer"`, and the page
+  accepts only `https://www|m.nseindia.com|bseindia.com/` URLs). The tool never fetches them; the daily
+  JSON rows are unchanged.
 - It then risk-checks the whole orders file, so its statuses always match a plain `check.py`.
 - Earlier unplaced tickets are removed, and it reports which ones. Placed orders are never touched.
 - Finally it records the list in the tracker, follows every unfinished earlier row (`tc.trade_outcome`)
@@ -369,7 +399,7 @@ re-run with the same settings adds nothing. Re-running the earlier settings rest
 | bars | `query1.finance.yahoo.com/v8/finance/chart/SYM.NS?range=2y&interval=1d` |
 | fundamentals | `query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/SYM.NS` |
 | universe | `niftyindices.com/IndexConstituent/ind_nifty500list.csv` |
-| NSE | `/api/corporate-announcements`, `/api/corporates-pit`, `/api/historical/bulk-deals` and `block-deals` (cookie from a page visit; 403s are common) |
+| NSE | `/api/corporate-announcements`, `/api/corporates-pit`, `/api/historical/bulk-deals` and `block-deals` (asked honestly, no cookie warm-up; NSE usually refuses: the checks are then UNKNOWN) |
 | news | Google News India RSS search, plus the feeds in `config.news.feeds` |
 
 Failures are reported and never filled with guesses: missing data gives `unknown` or `UNKNOWN`, never zero.

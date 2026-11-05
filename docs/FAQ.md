@@ -160,6 +160,28 @@ These sources are free but unofficial, so they can lag or block automated reques
 a source fails, the tool says so: insider data shows "UNKNOWN", never zero. It never fills gaps with
 guesses. Check anything important in your broker app.
 
+The tool always says who it is when it asks (`tayyib-trader/<version>` with a link to this project). It
+never pretends to be a web browser to get past a site's checks.
+
+### Why do news checks often say UNKNOWN?
+Because NSE (and BSE) usually refuse automated requests for company announcements, and we don't get around
+that: the tool asks honestly, and if the exchange says no, the check is **UNKNOWN**, not "no news". A
+missing announcement could be the one that matters (new borrowing, results tomorrow), so the tool never
+treats "couldn't look" as "nothing there".
+
+What you see:
+- a banner at the top of the list, for example "Exchange filings unavailable today (NSE refused automated
+  access). HALAL-WATCH and results checks are incomplete for 10 of 10 stocks: check the announcements
+  yourself for any stock you plan to buy.";
+- in each stock's **Why?**, the NEWS lines name the sources that answered (Google News, the RSS feeds) and
+  the one that failed;
+- **Check announcements yourself** links on every top pick, every ticket and in the Why panel: the stock's
+  NSE company page and BSE (the BSE link opens BSE's search; type the ISIN shown next to it). They open in
+  your browser; the tool never reads those pages.
+
+Before you buy, open those links and look at the last few days of announcements and any board meeting
+coming up. A read-only broker API may give us announcements and results dates later.
+
 ### How does it pick stocks?
 Every day it looks at every compliant stock that trades at least Rs 2 crore a day on average:
 - **Swing setups:**

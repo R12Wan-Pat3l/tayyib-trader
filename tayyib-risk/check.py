@@ -40,6 +40,7 @@ def news_why(sym, news, today=None):
         when += ", not today's"
     errs = [e for e in (news.get("errors") or []) if e.startswith(("google %s:" % sym, "nse %s:" % sym))]
     items = syms.get(sym) or []
+    said = sources_text(news, sym)
     out, found = [], {"watch": False, "results": False}
     for it in items:
         if it.get("halal_watch"):
@@ -51,19 +52,39 @@ def news_why(sym, news, today=None):
             found["results"] = True
             out.append(W("NEWS", "results news in the window", it["title"], None, None, False, None,
                          "gaps are likely: WARN (%s, %s)" % (it.get("source") or "?", it.get("published") or "no date")))
-    failed = "; ".join(e[:80] for e in errs)
+    src = ((news.get("sources") or {}).get(sym) or {})
+    failed = ("; ".join("%s: %s" % kv for kv in src["failed"].items()) if src.get("failed")
+              else "; ".join(e[:80] for e in errs))
     for key, check in (("watch", "HALAL-WATCH news"), ("results", "results news in the window")):
         if found[key]:
             continue
         if errs:
             out.append(W("NEWS", check, None, None, None, None, None,
                          "UNKNOWN: a source for this stock failed (%s); %d headline%s from the others, none "
-                         "flagged" % (failed, len(items), "" if len(items) == 1 else "s")))
+                         "flagged%s" % (failed, len(items), "" if len(items) == 1 else "s",
+                                        "; answered: " + said["answered"] if said["answered"] else "")))
         else:
             out.append(W("NEWS", check, "none", None, None, True, None,
-                         "%d headline%s in the %s checked (%s)" % (len(items), "" if len(items) == 1 else "s",
-                                                                   window, when)))
+                         "%d headline%s in the %s checked (%s%s%s)" % (
+                             len(items), "" if len(items) == 1 else "s", window, when,
+                             "; answered: " + said["answered"] if said["answered"] else "",
+                             "; failed: " + said["failed"] if said["failed"] else "")))
     return out
+
+
+def sources_text(news, sym):
+    """{"answered": "Google News, NSE announcements, 4 RSS feeds", "failed": "et_markets: ..."} for why[] NEWS.
+    Empty strings for a news.json written before v0.1.9 (no "sources")."""
+    src = ((news or {}).get("sources") or {}).get(sym)
+    if src is None:
+        return {"answered": "", "failed": ""}
+    feeds = (news or {}).get("feeds") or {}
+    ok = list(src.get("answered") or [])
+    n = len(feeds.get("answered") or [])
+    if n:
+        ok.append("%d RSS feed%s" % (n, "" if n == 1 else "s"))
+    bad = ["%s: %s" % kv for kv in (feeds.get("failed") or {}).items()]   # market feeds: not needed per stock
+    return {"answered": ", ".join(ok) or "none", "failed": "; ".join(bad)}
 
 
 def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, extra_ind=None, extra_value=0.0,

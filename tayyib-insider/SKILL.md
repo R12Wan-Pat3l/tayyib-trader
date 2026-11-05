@@ -22,9 +22,10 @@ python3 "${CLAUDE_SKILL_DIR}/insider.py" TCS
 python3 "${CLAUDE_SKILL_DIR}/insider.py" ALFA,CHRL --days 180
 ```
 
-These are public filings, not inside information. NSE's JSON endpoints are unofficial: they need a
-cookie from a page visit (handled) and can block automated clients or change field names; errors are
-reported per source and the rest still runs.
+These are public filings, not inside information. NSE's JSON endpoints are unofficial and usually refuse
+automated clients. The tool asks honestly (its own user agent, no browser imitation, no cookie warm-up)
+and never works around a refusal: the data is then UNKNOWN, errors are reported per source and the rest
+still runs. Check the stock's NSE page yourself when it matters.
 
 Reading it: promoters buying in the open market with their own money is often watched; pledge creation
 can mean borrowing against shares (and forced selling if the price falls); a single bulk deal says who

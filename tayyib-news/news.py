@@ -147,27 +147,35 @@ def main(argv=None):
 
     cutoff = tc.now_ist() - dt.timedelta(hours=a.hours)
     errors, general = [], []
+    feeds = {"answered": [], "failed": {}}           # market-wide RSS feeds, fetched once
     for name, url in (cfg["news"]["feeds"] or {}).items():
         try:
             general += tc.parse_feed(tc.fetch(url, fixture="rss/%s.xml" % name), name)
+            feeds["answered"].append(name)
         except tc.FetchError as e:
             errors.append("%s: %s" % (name, e))
+            feeds["failed"][name] = tc.fetch_reason(e, name)
     sess = tc.NSESession()
-    result = {}
+    result, sources = {}, {}                         # sources: per stock, who answered and who failed (why[] NEWS)
     for s in syms:
         rec = tc.halal_status(s, uni)
         name = rec.get("name", "")
-        items = []
+        items, src = [], {"answered": [], "failed": {}}
         if cfg["news"]["google_news"]:
             try:
                 items += [g for g in google_news(name, s) if mentions(g, s, name)]
+                src["answered"].append("Google News")
             except tc.FetchError as e:
                 errors.append("google %s: %s" % (s, e))
+                src["failed"]["Google News"] = tc.fetch_reason(e, "Google News")
         if cfg["news"]["nse_announcements"]:
             try:
                 items += nse_announcements(sess, s)
+                src["answered"].append("NSE announcements")
             except (tc.FetchError, ValueError) as e:
                 errors.append("nse %s: %s" % (s, e))
+                src["failed"]["NSE announcements"] = tc.fetch_reason(e, "NSE")
+        sources[s] = src
         items += [g for g in general if mentions(g, s, name)]
         seen, kept = [], []
         for it in items:
@@ -191,7 +199,7 @@ def main(argv=None):
         market.sort(key=lambda x: x["published"] or "", reverse=True)
         market = market[:30]
     out = {"asof": tc.now_ist().isoformat(timespec="minutes"), "hours": a.hours,
-           "symbols": result, "market": market, "errors": errors}
+           "symbols": result, "market": market, "errors": errors, "sources": sources, "feeds": feeds}
     tc.write_json("news.json", out)
     if a.json:
         return tc.print_json(out)

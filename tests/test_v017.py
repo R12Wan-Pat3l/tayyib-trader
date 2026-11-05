@@ -164,11 +164,13 @@ class SourceBanner(OfflineCase):
         sb = sys.modules.get("daily") or _import("tayyib-daily", "daily")
         self.assertIsNone(sb.source_banner(["moneycontrol_business: offline"], ["A", "B"]))
         self.assertEqual(sb.source_banner(["nse A: HTTP 403", "nse B: HTTP 403", "nse Z: x"], ["A", "B", "C"]),
-                         "NSE announcements unavailable today: HALAL-WATCH and results checks are incomplete for "
-                         "2 of 3 stocks.")
+                         "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and "
+                         "results checks are incomplete for 2 of 3 stocks: check the announcements yourself for any "
+                         "stock you plan to buy.")
         self.assertEqual(sb.source_banner(["nse A: 403", "google C: timeout"], ["A", "B", "C"]),
-                         "NSE announcements and Google News unavailable today: HALAL-WATCH and results checks are "
-                         "incomplete for 2 of 3 stocks.")
+                         "Exchange filings and Google News unavailable today (NSE could not be reached; Google News "
+                         "did not answer). HALAL-WATCH and results checks are incomplete for 2 of 3 stocks: check the "
+                         "announcements yourself for any stock you plan to buy.")
 
     def test_banner_on_nse_failure_and_verdicts_unchanged(self):
         self.build_universe()
@@ -180,10 +182,11 @@ class SourceBanner(OfflineCase):
         finally:
             shutil.rmtree(broken, ignore_errors=True)
         n = len(failed["rows"])
-        self.assertEqual(failed["banners"], ["NSE announcements unavailable today: HALAL-WATCH and results checks "
-                                             "are incomplete for %d of %d stocks." % (n, n)])
+        self.assertEqual(failed["banners"], ["Exchange filings unavailable today (NSE could not be reached). "
+                                             "HALAL-WATCH and results checks are incomplete for %d of %d stocks: check "
+                                             "the announcements yourself for any stock you plan to buy." % (n, n)])
         md = open(os.path.join(self.dir, "daily", failed["date"] + ".md"), encoding="utf-8").read()
-        self.assertIn("NSE announcements unavailable today", md.split("# Halal trade list")[0])   # above the list
+        self.assertIn("Exchange filings unavailable today", md.split("# Halal trade list")[0])   # above the list
         for r in failed["rows"]:                                               # per row: UNKNOWN, not "none"
             news = [w for w in r["why"] if w["group"] == "NEWS"]
             self.assertTrue(news and all(w["ok"] is None for w in news if w["value"] is None), r["symbol"])

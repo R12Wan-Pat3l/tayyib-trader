@@ -256,7 +256,7 @@ def main(argv=None):
             tc.write_json(os.path.join("daily", today + ".json"), out)
         except RuntimeError as e:
             notes.append("tracker update failed: %s" % str(e)[:120])
-    md = render_md(out)
+    md = render_md(out, uni)
     with open(tc.path("daily", today + ".md"), "w", encoding="utf-8") as f:
         f.write(md)
     if a.json:
@@ -268,7 +268,16 @@ def fmt(x, d=2):
     return "-" if x is None else ("%." + str(d) + "f") % x
 
 
-def render_md(out):
+def links_md(sym, uni):
+    """'Check announcements yourself: [NSE company page](...) · [BSE search](...) (search for ISIN ...)'.
+    Links the user opens; the tool never fetches them."""
+    rec = ((uni or {}).get("stocks") or {}).get(sym)
+    parts = ["[%s](%s)%s" % (x["label"], x["url"], " (%s)" % x["hint"] if x["hint"] else "")
+             for x in tc.manual_links(sym, rec)]
+    return "  Check announcements yourself: " + " · ".join(parts)
+
+
+def render_md(out, uni=None):
     banners = ["**%s**" % b for b in out.get("banners") or []] + ([""] if out.get("banners") else [])
     L = ([out["banner"], ""] if out.get("banner") else []) + banners + ["# Halal trade list, %s" % out["date"], "",
          "Capital %s, risk %s%% a trade, %s. Scanned %d halal-compliant stocks (list of %s)."
@@ -284,6 +293,7 @@ def render_md(out):
             L.append("- **%s** (%s %s): buy above %s, stop %s, target %s, %s shares, risk %s"
                      % (r["symbol"], r["mode"], r["setup"], fmt(r["entry"]), fmt(r["stop"]), fmt(r["target"]),
                         r["qty"], tc.fmt_rs(r["loss_at_stop_rs"], 0)))
+            L.append(links_md(r["symbol"], uni))
             L += why_md(r.get("why") or [])
         L.append("")
     elif rows:
@@ -345,18 +355,25 @@ def _placeholder(group, why):
 
 def source_banner(errors, syms):
     """One list-level line when NSE announcements or Google News failed for any of today's stocks
-    (news.py errors look like "nse SYM: ..." and "google SYM: ...")."""
-    names = (("nse", "NSE announcements"), ("google", "Google News"))
-    failed, hit = set(), []
-    for key, label in names:
-        mine = {e.split(":", 1)[0][len(key) + 1:] for e in errors if e.startswith(key + " ")} & set(syms)
-        if mine:
-            hit.append(label)
-            failed |= mine
+    (news.py errors look like "nse SYM: ..." and "google SYM: ..."), saying why and what to do:
+    "Exchange filings unavailable today (NSE refused automated access (HTTP 403)). HALAL-WATCH and results
+    checks are incomplete for 10 of 10 stocks: check the announcements yourself for any stock you plan to buy." """
+    names = (("nse", "Exchange filings", "NSE"), ("google", "Google News", "Google News"))
+    failed, hit, why = set(), [], []
+    for key, label, who in names:
+        mine = [e for e in errors if e.startswith(key + " ") and e.split(":", 1)[0][len(key) + 1:] in set(syms)]
+        if not mine:
+            continue
+        hit.append(label)
+        failed |= {e.split(":", 1)[0][len(key) + 1:] for e in mine}
+        reasons = [tc.fetch_reason(e.split(":", 1)[1].strip(), who) for e in mine]
+        first = [r for r in reasons if not r.startswith("not tried")] or reasons
+        why.append(max(set(first), key=first.count))
     if not hit:
         return None
-    return ("%s unavailable today: HALAL-WATCH and results checks are incomplete for %d of %d stocks."
-            % (" and ".join(hit), len(failed), len(syms)))
+    return ("%s unavailable today (%s). HALAL-WATCH and results checks are incomplete for %d of %d stocks: check the "
+            "announcements yourself for any stock you plan to buy." % (" and ".join(hit), "; ".join(why),
+                                                                      len(failed), len(syms)))
 
 
 def build_why(c, pl, o, r, sim, reasons, min_exp=None, exp_value=None, min_trades=8):

@@ -37,7 +37,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -694,6 +694,21 @@ def risk_preview(cfg, stops_pct=(2, 3, 5, 8, 10, 15), entry=1000.0):
 # ---------------------------------------------------------------------------
 
 WHY_GROUPS = ("HALAL", "LIQUIDITY", "SETUP", "NEWS", "PLAN", "HISTORY", "RISK")
+
+
+# The two NEWS lines (v0.1.10, display only). "Exchange filings (NSE)" has one extra state: NSE refused
+# automated access -> value NOT_AVAILABLE, op NA_OP, ok None ("check yourself"), never a pass.
+NEWS_MEDIA = "Media news"
+NEWS_FILINGS = "Exchange filings (NSE)"
+NOT_AVAILABLE = "Not available"
+NA_OP = "not_available"
+
+
+def nse_blocked(reason):
+    """True when a failure is NSE refusing automated access (401 / 403 / 429, or not asked again after one),
+    not a real outage: those stay UNKNOWN."""
+    t = str(reason or "")
+    return "refused" in t or bool(re.search(r"HTTP (401|403|429)\b", t))
 
 
 def why_item(group, check, value=None, limit=None, op=None, ok=None, unit=None, note=None):

@@ -157,9 +157,12 @@ over MCP (stdio), none of which place orders.
   warning above 2%, review before save, backups and restore, halal loosening needs a source), the
   "Run today's list" button, and SUPERSEDED rows for same-day re-runs under other settings.
 
-- **v0.1.9** (this release): honest requests to NSE (no browser imitation, no cookie warm-up), why[] NEWS
+- **v0.1.9:** honest requests to NSE (no browser imitation, no cookie warm-up), why[] NEWS
   names the sources that answered and failed, the clearer banner, and "Check announcements yourself"
   links. No decision changes (still default@2).
+- **v0.1.10** (this release): NEWS shown as two lines, "Media news" and "Exchange filings (NSE)"; when NSE
+  refuses, "Not available: NSE blocks automated access → check yourself" (neutral mark, ok=null, never a
+  ✓); real failures stay UNKNOWN. Display only: no decision changes (still default@2).
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

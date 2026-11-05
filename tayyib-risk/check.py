@@ -20,71 +20,98 @@ REQUIRED = ("id", "symbol", "side", "product", "qty", "trigger_price", "stop", "
 
 
 def news_why(sym, news, today=None):
-    """NEWS items for one stock from trader/news.json, the same headlines that raise the risk check's
-    HALAL-WATCH and "results news in the window" WARNs (Google News India, NSE corporate announcements
-    including board-meeting notices, and the RSS feeds, inside news.py's --hours window).
+    """NEWS items for one stock from trader/news.json, in two lines (v0.1.10, display only):
 
-    A headline found: ok=False (it is a WARN). Nothing found: ok=True, unless news was not fetched for
-    this stock or one of its own sources (Google News, NSE announcements) failed: then ok=None and
-    UNKNOWN, because a headline in the failed source would have been missed."""
+    - "Media news" (Google News India for this stock + the market RSS feeds): one ok=False item per flagged
+      headline (HALAL-WATCH, or results news: the same headlines that raise the risk check's WARNs);
+      otherwise ok=True "none flagged"; UNKNOWN (ok=None) when Google News failed for this stock or no media
+      source answered, because a flagged headline there would have been missed.
+    - "Exchange filings (NSE)" (NSE corporate announcements, incl. board-meeting notices): flagged items,
+      "none flagged", or, when NSE refused automated access, value "Not available" with op "not_available"
+      and ok=None ("check yourself"; never a pass). Any other NSE failure is UNKNOWN.
+
+    The warn[] list (and so PASS / WARN / BLOCK) is decided in check_order, not here."""
     W = tc.why_item
+    MEDIA, FILINGS = tc.NEWS_MEDIA, tc.NEWS_FILINGS
     syms = (news or {}).get("symbols")
     if not news or syms is None or sym not in syms:
         why = "UNKNOWN: no news fetched for %s (news step skipped or failed)" % sym
-        return [W("NEWS", "HALAL-WATCH news", None, None, None, None, None, why),
-                W("NEWS", "results news in the window", None, None, None, None, None, why)]
+        return [W("NEWS", MEDIA, None, None, None, None, None, why),
+                W("NEWS", FILINGS, None, None, None, None, None, why)]
     asof, hours = news.get("asof"), news.get("hours")
     window = "last %s hours" % tc._fmt_val(hours) if hours is not None else "the news window"
     when = "news of %s" % (asof or "UNKNOWN date")
     if asof and today and asof[:10] < today:
         when += ", not today's"
-    errs = [e for e in (news.get("errors") or []) if e.startswith(("google %s:" % sym, "nse %s:" % sym))]
     items = syms.get(sym) or []
-    said = sources_text(news, sym)
-    out, found = [], {"watch": False, "results": False}
-    for it in items:
-        if it.get("halal_watch"):
-            found["watch"] = True
-            out.append(W("NEWS", "HALAL-WATCH news", it["title"], None, None, False, None,
-                         "%s: WARN (%s, %s)" % (", ".join(it["halal_watch"]), it.get("source") or "?",
-                                               it.get("published") or "no date")))
-        if "results" in it.get("tags", []):
-            found["results"] = True
-            out.append(W("NEWS", "results news in the window", it["title"], None, None, False, None,
-                         "gaps are likely: WARN (%s, %s)" % (it.get("source") or "?", it.get("published") or "no date")))
-    src = ((news.get("sources") or {}).get(sym) or {})
-    failed = ("; ".join("%s: %s" % kv for kv in src["failed"].items()) if src.get("failed")
-              else "; ".join(e[:80] for e in errs))
-    for key, check in (("watch", "HALAL-WATCH news"), ("results", "results news in the window")):
-        if found[key]:
-            continue
-        if errs:
-            out.append(W("NEWS", check, None, None, None, None, None,
-                         "UNKNOWN: a source for this stock failed (%s); %d headline%s from the others, none "
-                         "flagged%s" % (failed, len(items), "" if len(items) == 1 else "s",
-                                        "; answered: " + said["answered"] if said["answered"] else "")))
-        else:
-            out.append(W("NEWS", check, "none", None, None, True, None,
-                         "%d headline%s in the %s checked (%s%s%s)" % (
-                             len(items), "" if len(items) == 1 else "s", window, when,
-                             "; answered: " + said["answered"] if said["answered"] else "",
-                             "; failed: " + said["failed"] if said["failed"] else "")))
-    return out
-
-
-def sources_text(news, sym):
-    """{"answered": "Google News, NSE announcements, 4 RSS feeds", "failed": "et_markets: ..."} for why[] NEWS.
-    Empty strings for a news.json written before v0.1.9 (no "sources")."""
-    src = ((news or {}).get("sources") or {}).get(sym)
+    src = ((news.get("sources") or {}).get(sym))
+    feeds = news.get("feeds") or {}
+    errs = news.get("errors") or []
+    old_err = {k: next((e.split(": ", 1)[-1] for e in errs if e.startswith("%s %s:" % (k, sym))), None)
+               for k in ("google", "nse")}                        # news.json written before v0.1.9
     if src is None:
-        return {"answered": "", "failed": ""}
-    feeds = (news or {}).get("feeds") or {}
-    ok = list(src.get("answered") or [])
-    n = len(feeds.get("answered") or [])
-    if n:
-        ok.append("%d RSS feed%s" % (n, "" if n == 1 else "s"))
-    bad = ["%s: %s" % kv for kv in (feeds.get("failed") or {}).items()]   # market feeds: not needed per stock
-    return {"answered": ", ".join(ok) or "none", "failed": "; ".join(bad)}
+        g_fail, n_fail = old_err["google"], old_err["nse"]
+        g_on, n_on = True, True
+        f_ok, f_bad = None, {}
+    else:
+        g_fail = (src.get("failed") or {}).get("Google News")
+        n_fail = (src.get("failed") or {}).get("NSE announcements")
+        g_on = g_fail is not None or "Google News" in (src.get("answered") or [])
+        n_on = n_fail is not None or "NSE announcements" in (src.get("answered") or [])
+        f_ok, f_bad = feeds.get("answered") or [], feeds.get("failed") or {}
+
+    def flags(check, mine):
+        out = []
+        for it in mine:
+            what = []
+            if it.get("halal_watch"):
+                what.append("HALAL-WATCH: %s" % ", ".join(it["halal_watch"]))
+            if "results" in it.get("tags", []):
+                what.append("results news in the window: gaps are likely")
+            if what:
+                out.append(W("NEWS", check, it["title"], None, None, False, None, "%s: WARN (%s, %s)" % (
+                    "; ".join(what), it.get("source") or "?", it.get("published") or "no date")))
+        return out
+
+    def n_text(n, word):
+        return "%d %s%s" % (n, word, "" if n == 1 else "s")
+
+    out = []
+    # Media news
+    media = [it for it in items if it.get("source") != "NSE announcement"]
+    answered = (["Google News"] if g_on and not g_fail else []) + (
+        [n_text(len(f_ok), "RSS feed")] if f_ok else [])
+    failed = (["Google News: %s" % g_fail] if g_fail else []) + ["%s: %s" % kv for kv in f_bad.items()]
+    tail = "%s%s" % ("; answered: " + ", ".join(answered) if answered else "",
+                     "; failed: " + "; ".join(failed) if failed else "")
+    got = flags(MEDIA, media)
+    if got:
+        out += got
+    elif g_fail or (src is not None and not answered):
+        out.append(W("NEWS", MEDIA, None, None, None, None, None,
+                     "UNKNOWN: %s; %s from the others, none flagged%s" % (
+                         "Google News failed for this stock" if g_fail else "no media source answered",
+                         n_text(len(media), "headline"), tail)))
+    else:
+        out.append(W("NEWS", MEDIA, "none flagged", None, None, True, None, "%s in the %s checked (%s%s)" % (
+            n_text(len(media), "headline"), window, when, tail)))
+    # Exchange filings (NSE)
+    filings = [it for it in items if it.get("source") == "NSE announcement"]
+    if not n_on:
+        out.append(W("NEWS", FILINGS, "not checked", None, None, None, None,
+                     "not checked: NSE announcements are turned off in Settings; check yourself"))
+    elif n_fail and tc.nse_blocked(n_fail):
+        plain = n_fail if str(n_fail).startswith(("NSE ", "not tried")) else tc.fetch_reason(n_fail, "NSE")
+        out.append(W("NEWS", FILINGS, tc.NOT_AVAILABLE, None, tc.NA_OP, None, None,
+                     "NSE blocks automated access \u2192 check yourself (%s)" % plain))
+    elif n_fail:
+        out.append(W("NEWS", FILINGS, None, None, None, None, None,
+                     "UNKNOWN: NSE announcements failed (%s)" % n_fail))
+    else:
+        got = flags(FILINGS, filings)
+        out += got or [W("NEWS", FILINGS, "none flagged", None, None, True, None,
+                         "%s in the %s checked (%s)" % (n_text(len(filings), "announcement"), window, when))]
+    return out
 
 
 def check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0, extra_ind=None, extra_value=0.0,

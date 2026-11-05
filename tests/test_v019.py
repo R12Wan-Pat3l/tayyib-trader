@@ -132,20 +132,24 @@ class WhySources(unittest.TestCase):
         news["errors"] = ["nse CHRL: https://www.nseindia.com/api/x -> HTTP 403",
                           "moneycontrol_business: https://m -> timed out"]
         ok = CHECK.news_why("ALFA", news, "2026-10-30")
-        self.assertEqual([w["ok"] for w in ok], [True, True])
-        self.assertIn("answered: Google News, NSE announcements, 3 RSS feeds", ok[0]["note"])
+        self.assertEqual([(w["check"], w["value"], w["ok"]) for w in ok],
+                         [(tc.NEWS_MEDIA, "none flagged", True), (tc.NEWS_FILINGS, "none flagged", True)])
+        self.assertIn("answered: Google News, 3 RSS feeds", ok[0]["note"])
         self.assertIn("failed: moneycontrol_business: moneycontrol_business did not answer", ok[0]["note"])
+        self.assertIn("0 announcements in the last 72 hours checked", ok[1]["note"])
         bad = CHECK.news_why("CHRL", news, "2026-10-30")
-        self.assertEqual([w["ok"] for w in bad], [None, None])                 # a needed source failed: UNKNOWN
-        self.assertTrue(bad[0]["note"].startswith("UNKNOWN: a source for this stock failed (NSE announcements: "
-                                                  "NSE refused automated access)"))
-        self.assertIn("answered: Google News, 3 RSS feeds", bad[0]["note"])
+        self.assertEqual([(w["check"], w["value"], w["op"], w["ok"]) for w in bad],
+                         [(tc.NEWS_MEDIA, "none flagged", None, True),       # media answered: still checked
+                          (tc.NEWS_FILINGS, "Not available", "not_available", None)])   # never a pass
+        self.assertEqual(bad[1]["note"], "NSE blocks automated access \u2192 check yourself "
+                                         "(NSE refused automated access)")
 
     def test_older_news_json_still_works(self):
         news = {"asof": "2026-10-30T18:00+05:30", "hours": 72, "errors": ["nse ALFA: HTTP 403"], "symbols": {"ALFA": []}}
         w = CHECK.news_why("ALFA", news, "2026-10-30")
-        self.assertEqual([x["ok"] for x in w], [None, None])
-        self.assertNotIn("answered", w[0]["note"])
+        self.assertEqual([(x["check"], x["ok"]) for x in w], [(tc.NEWS_MEDIA, True), (tc.NEWS_FILINGS, None)])
+        self.assertEqual(w[1]["value"], tc.NOT_AVAILABLE)                # HTTP 403 in an old error string
+        self.assertIn("answered: Google News", w[0]["note"])
 
     def test_news_py_records_sources(self):
         """End to end, offline: NSE refuses for ALFA (a b"HTTP 403" fixture), answers for CHRL."""
@@ -169,11 +173,9 @@ class WhySources(unittest.TestCase):
                                                   "failed": {"NSE announcements": "NSE refused automated access"}})
         self.assertEqual(out["sources"]["CHRL"], {"answered": ["Google News", "NSE announcements"], "failed": {}})
         self.assertIn("nse ALFA: https://www.nseindia.com/api/corporate-announcements -> HTTP 403", out["errors"])
-        w = [x for x in CHECK.news_why("ALFA", out, "2026-10-30") if x["value"] is None]
-        self.assertTrue(w)                                   # a check with no flagged headline: UNKNOWN, not "none"
-        for x in w:
-            self.assertIsNone(x["ok"])
-            self.assertIn("NSE announcements: NSE refused automated access", x["note"])
+        w = {x["check"]: x for x in CHECK.news_why("ALFA", out, "2026-10-30") if x["ok"] is not False}
+        self.assertEqual((w[tc.NEWS_FILINGS]["value"], w[tc.NEWS_FILINGS]["ok"]), (tc.NOT_AVAILABLE, None))
+        self.assertIn("NSE refused automated access", w[tc.NEWS_FILINGS]["note"])
 
 
 class ManualLinks(OfflineCase):
@@ -224,8 +226,9 @@ class ManualLinks(OfflineCase):
         page = open(os.path.join(ROOT, "tayyib-dashboard", "index.html"), encoding="utf-8").read()
         self.assertIn('el("a", { href:x.url, target:"_blank", rel:"noopener noreferrer"', page)
         self.assertIn("Check announcements yourself:", page)
-        self.assertIn("linksEl(r.links)", page)                      # top-pick cards
-        self.assertIn("linksEl(t.links)", page)                      # ticket cards
+        self.assertIn("newsEl(r.news_lines, r.links)", page)         # top-pick cards (with the news lines)
+        self.assertIn("newsEl(t.news_lines, t.links)", page)         # ticket cards
+        self.assertIn("linksEl(links)", page[page.index("function newsEl"):page.index("function whyGroups")])
         self.assertIn("whyGroups(b, r.why_view, r.links)", page)     # the Why drawer, in its NEWS section
         self.assertIn(r"var MANUAL_HOSTS = /^https:\/\/(www|m)\.(nseindia|bseindia)\.com\//;", page)
         # the dashboard itself never fetches them: no exchange host in dashboard.py or actions.py
@@ -337,7 +340,7 @@ class NiftyListFallbacks(OfflineCase):
 class NoDecisionChange(unittest.TestCase):
     def test_defaults_version_unchanged(self):
         self.assertEqual(tc.DEFAULTS_VERSION, 2)
-        self.assertEqual(tc.VERSION, "0.1.9")
+        self.assertEqual(tc.VERSION, "0.1.10")
 
 
 if __name__ == "__main__":

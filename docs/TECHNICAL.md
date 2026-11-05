@@ -110,6 +110,22 @@ What `daily` does:
   Google News, NSE announcements, 4 RSS feeds)" or, when a source needed for the stock failed, "UNKNOWN: a
   source for this stock failed (NSE announcements: NSE refused automated access); ...; answered: Google
   News, 4 RSS feeds". A failed market feed is named but does not make the check UNKNOWN (as before).
+- **Two NEWS lines (v0.1.10, display only):** `news_why` (tayyib-risk) writes the NEWS items per source,
+  not per check: `check` is `tc.NEWS_MEDIA` "Media news" (Google News for the stock + the market RSS
+  feeds) or `tc.NEWS_FILINGS` "Exchange filings (NSE)" (NSE corporate announcements, incl. board-meeting
+  notices). Each line is one ok=False item per flagged headline (note "HALAL-WATCH: new debt: WARN (...)"
+  or "results news in the window: gaps are likely: WARN (...)"), else ok=True value "none flagged".
+  Media news is UNKNOWN (ok=None) when Google News failed for the stock or no media source answered; a
+  failed market feed alone is only named. Exchange filings: when NSE refused automated access
+  (`tc.nse_blocked`: "refused", HTTP 401 / 403 / 429, or "not tried" after a refusal) the item is
+  value "Not available", `op` "not_available" (`tc.NA_OP`), ok=None, note "NSE blocks automated access →
+  check yourself (reason)": never a pass. Any other NSE failure (5xx, unreachable, not JSON, timeout) is
+  UNKNOWN: "UNKNOWN: NSE announcements failed (reason)". NSE turned off in Settings: value "not checked",
+  ok=None. The dashboard's `why_view` gives that item mark "na" and symbol "–" (a neutral circle-dash
+  icon); `news_lines(why)` gives the cards and tickets `[{label, state ok/failed/unknown/na, text}]`
+  (tickets read the why[] from `risk.json`); the daily `.md` writes one sub-line per item under
+  "NEWS:". The WARNs (and so PASS / WARN / BLOCK) still come from the headlines in `check_order`, not
+  from these lines; lists written before v0.1.10 keep their per-check items and show no card lines.
 - **Check announcements yourself (v0.1.9):** `tc.manual_links(sym, rec)`: the NSE company page
   `https://www.nseindia.com/get-quotes/equity?symbol=SYM`, and on BSE the stock page
   `https://m.bseindia.com/StockReach.aspx?scripcd=CODE` when a scrip code is already known locally

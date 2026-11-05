@@ -173,15 +173,17 @@ def why_view(items, headlines=None):
             mark = "ok" if ok is True else "failed" if ok is False else "unknown"
             if x.get("op") == "info" and ok is not None:
                 mark = "info"
+            if x.get("op") == tc.NA_OP:                     # NSE refused automated access: neutral, never a pass
+                mark = "na"
             limit = None
-            if x.get("op") in OPS and x.get("limit") is not None:
+            if x.get("op") in OPS and x.get("limit") is not None and x.get("op") != tc.NA_OP:
                 limit = "%s %s" % (OPS[x["op"]], why_value(x["limit"], x.get("unit")))
             value = why_value(x.get("value"), x.get("unit"))
             if g == "NEWS" and isinstance(x.get("value"), str) and headlines:
                 value = next((t for t in headlines if t.startswith(x["value"])), value)
             rows.append({"check": x.get("check"), "value": value,
                          "limit": limit, "mark": mark,
-                         "symbol": {"ok": "✓", "failed": "✗", "unknown": UNKNOWN, "info": "i"}[mark],
+                         "symbol": {"ok": "✓", "failed": "✗", "unknown": UNKNOWN, "info": "i", "na": "–"}[mark],
                          "note": x.get("note"), "near_limit": near_of(x),
                          "over_limit": over_of(x),
                          "stop_capped": bool(x.get("stop_capped"))})
@@ -388,7 +390,8 @@ def api_today(q):
             changed.append(r["symbol"])
             continue
         heads = [it.get("title") or "" for it in ((news.get("symbols") or {}).get(r["symbol"]) or [])]
-        rows.append(dict(row_view(r, k_min, older, heads), links=tc.manual_links(r["symbol"], h)))
+        rows.append(dict(row_view(r, k_min, older, heads), links=tc.manual_links(r["symbol"], h),
+                         news_lines=news_lines(r.get("why"), heads)))
     by = {r["symbol"]: r for r in rows}
     picks = [dict(by[s], sparkline=sparkline(s)) for s in d.get("top_picks") or [] if s in by]
     st = d.get("settings") or {}
@@ -643,6 +646,31 @@ def parent_list_view(p):
             "stale": p.get("kind") in ("cache", "user_file") or (age is not None and age > 45)}
 
 
+def news_lines(why, headlines=None):
+    """The two NEWS lines for a card: [{label, state (ok / failed / unknown / na), text}]. Empty for lists
+    written before v0.1.10 (their NEWS items are per check, not per source: the Why drawer still shows them)."""
+    out = []
+    for label in (tc.NEWS_MEDIA, tc.NEWS_FILINGS):
+        mine = [x for x in why or [] if x.get("group") == "NEWS" and x.get("check") == label]
+        if not mine:
+            continue
+        bad = [x for x in mine if x.get("ok") is False]
+        if bad:
+            t = bad[0].get("value") or ""
+            t = next((h for h in headlines or [] if t and h.startswith(t)), t)
+            out.append({"label": label, "state": "failed",
+                        "text": "flagged: %s%s" % (t, " (+%d more)" % (len(bad) - 1) if len(bad) > 1 else "")})
+        elif any(x.get("op") == tc.NA_OP for x in mine):
+            out.append({"label": label, "state": "na",
+                        "text": "Not available: NSE blocks automated access → check yourself"})
+        elif all(x.get("ok") is True for x in mine):
+            out.append({"label": label, "state": "ok", "text": "none flagged"})
+        else:
+            note = re.sub(r"^UNKNOWN: ", "", mine[0].get("note") or "")
+            out.append({"label": label, "state": "unknown", "text": "UNKNOWN: " + note.split(";")[0]})
+    return out
+
+
 def api_tickets(q):
     orders, miss_o = read("orders.json")
     pos, _ = read("positions.json")
@@ -651,6 +679,8 @@ def api_tickets(q):
     _, status_of = current()
     today = tc.today_ist()
     tickets = []
+    risk_why = {x.get("id"): x.get("why") for x in ((tc.read_json("risk.json", {}) or {}).get("results") or [])}
+    news = tc.read_json("news.json", {}) or {}
     for o in (orders or {}).get("orders") or []:
         if o.get("status") == "PLACED":
             continue
@@ -673,7 +703,10 @@ def api_tickets(q):
                                     "target": inr(o.get("target")), "position": inr(o.get("position_value_rs")),
                                     "charges": inr(o.get("buy_charges_rs")), "loss": inr(o.get("loss_at_stop_rs")),
                                     "gain": inr(o.get("gain_at_target_rs"))},
-                        "steps": steps, "links": tc.manual_links(o.get("symbol"), h)})
+                        "steps": steps, "links": tc.manual_links(o.get("symbol"), h),
+                        "news_lines": news_lines(risk_why.get(o.get("id")),
+                                                 [it.get("title") or "" for it in
+                                                  ((news.get("symbols") or {}).get(o.get("symbol")) or [])])})
     rank = {"PASS": 0, "WARN": 1}
     order = sorted(range(len(tickets)), key=lambda k: (0 if tickets[k].get("is_ticket") else 1,
                                                        rank.get(tickets[k].get("status"), 2), k))

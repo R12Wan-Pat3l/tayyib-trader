@@ -13,6 +13,7 @@ list is a set of tickets for you to review, then place yourself.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -455,6 +456,19 @@ def why_text(it, with_note=False):
     return s
 
 
+def news_md(x):
+    """'Media news: none flagged (...)', 'Exchange filings (NSE): Not available: NSE blocks automated access
+    -> check yourself', '...: flagged: <headline> (...)' or '...: UNKNOWN (...)'."""
+    note = re.sub(r"^UNKNOWN: ", "", x.get("note") or "")
+    if x.get("op") == tc.NA_OP:
+        return "%s: %s: NSE blocks automated access → check yourself" % (x["check"], tc.NOT_AVAILABLE)
+    if x.get("ok") is False:
+        return "%s: flagged: %s (%s)" % (x["check"], x["value"], note)
+    if x.get("ok") is True:
+        return "%s: ✓ %s (%s)" % (x["check"], x["value"], note)
+    return "%s: UNKNOWN (%s)" % (x["check"], note)
+
+
 def why_md(why):
     """A compact Why: block for the daily .md: one line per group. The full list is in the .json."""
     L = ["  - Why:"]
@@ -466,6 +480,10 @@ def why_md(why):
             items = [x for x in items if x["check"] != "score"]
         if g == "RISK":
             items = [x for x in items if x["ok"] is not True or x["check"] in ("result", "quantity set by")]
+        if g == "NEWS" and any(x["check"] in (tc.NEWS_MEDIA, tc.NEWS_FILINGS) for x in items):
+            L.append("    - NEWS:")                      # v0.1.10: one line per source, Media news / Exchange filings
+            L += ["      - %s" % news_md(x) for x in items]
+            continue
         L.append("    - %s: %s" % (g, "; ".join(why_text(x, with_note=x["check"] in ("result",) or
                                                          x["value"] is None) for x in items)))
     return L

@@ -101,6 +101,11 @@ footer.foot b { color:var(--fg); font-weight:600; }
 .banner.k-info > .ico { color:var(--info); } .banner.k-unknown > .ico { color:var(--unknown); }
 .badge { display:inline-flex; align-items:center; gap:5px; font:700 11.5px/1 var(--sans); letter-spacing:.05em; text-transform:uppercase;
   padding:5px 9px 5px 7px; border-radius:999px; white-space:nowrap; border:1px solid currentColor; }
+.k-na { color:var(--unknown); } ul.items .mk.k-na { background:var(--unknown-bg); }
+.newslines { margin-top:12px; display:grid; gap:6px; font-size:.9rem; }
+.newslines .nl { display:grid; grid-template-columns:18px 1fr; gap:8px; align-items:start; }
+.newslines .nl .mk { display:inline-flex; margin-top:2px; }
+.newslines .nlab { font-weight:600; }
 .k-pass { color:var(--pass); } .k-warn { color:var(--warn); } .k-block { color:var(--block); } .k-info { color:var(--info); } .k-unknown { color:var(--unknown); }
 .badge.k-pass { background:var(--pass-bg); } .badge.k-warn { background:var(--warn-bg); } .badge.k-block { background:var(--block-bg); }
 .badge.k-info { background:var(--info-bg); } .badge.k-unknown { background:var(--unknown-bg); }
@@ -597,6 +602,7 @@ function icon(kind, size) {
   else if (kind === "warn") { p("path", { d:"M8 1.8L15 14H1z" }); p("path", { d:"M8 6v3.6M8 11.8v.1" }); }
   else if (kind === "block") { p("path", { d:"M5.2 1.5h5.6l3.7 3.7v5.6l-3.7 3.7H5.2l-3.7-3.7V5.2z" }); p("path", { d:"M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" }); }
   else if (kind === "info") { p("circle", { cx:8, cy:8, r:6.5 }); p("path", { d:"M8 4.5V8l2.4 1.6" }); }
+  else if (kind === "na") { p("circle", { cx:8, cy:8, r:6.5 }); p("path", { d:"M5 8h6" }); }   // neutral: not available, never a pass
   else { p("circle", { cx:8, cy:8, r:6.5, "stroke-dasharray":"2.2 2" }); p("path", { d:"M6.3 6.2a1.8 1.8 0 113 1.4c-.8.5-1.3.9-1.3 1.8M8 11.6v.1" }); }
   return g;
 }
@@ -717,7 +723,8 @@ function table(cols, rows, opts) {
 }
 
 // --- Today ------------------------------------------------------------------------------------------
-var MARKS = { ok:["pass", "✓", "passed"], failed:["block", "✗", "failed"], unknown:["unknown", "?", "UNKNOWN"], info:["info", "i", "info"] };
+var MARKS = { ok:["pass", "✓", "passed"], failed:["block", "✗", "failed"], unknown:["unknown", "?", "UNKNOWN"], info:["info", "i", "info"],
+  na:["na", "–", "Not available"] };
 // "Check announcements yourself": links the user opens in a new tab. The tool never fetches these pages.
 var MANUAL_HOSTS = /^https:\/\/(www|m)\.(nseindia|bseindia)\.com\//;
 function linksEl(links) {
@@ -734,10 +741,20 @@ function linksEl(links) {
         x.hint ? el("span", { cls:"small muted", text:"(" + x.hint + ")" }) : null, cp);
     }));
 }
+// The two NEWS lines on a card (v0.1.10): Media news, and Exchange filings (NSE) with the check-yourself links.
+var NEWS_KIND = { ok:"pass", failed:"block", unknown:"unknown", na:"na" };
+function newsEl(lines, links) {
+  if (!lines || !lines.length) return linksEl(links);
+  return el("div", { cls:"newslines" }, lines.map(function (x) {
+    var k = NEWS_KIND[x.state] || "unknown";
+    return el("div", { cls:"nl" }, el("span", { cls:"mk k-" + k, title:x.state === "na" ? "Not available" : x.state }, icon(k, 14)),
+      el("div", { style:"min-width:0" }, el("span", { cls:"nlab", text:x.label + ": " }), el("span", { cls:k === "na" ? "muted" : "k-" + k, text:x.text })));
+  }), linksEl(links));
+}
 function whyGroups(box, groups, links) {
   var placed = false;
   groups.forEach(function (g) {
-    var n = { ok:0, failed:0, unknown:0 };
+    var n = { ok:0, failed:0, unknown:0, na:0 };
     g.items.forEach(function (x) { if (n[x.mark] !== undefined) n[x.mark] += 1; });
     var ul = el("ul", { cls:"items" });
     g.items.forEach(function (x) {
@@ -749,7 +766,7 @@ function whyGroups(box, groups, links) {
       ul.appendChild(el("li", null,
         el("span", { cls:"mk k-" + m[0], title:m[2] }, icon(m[0], 14)),
         el("div", { style:"min-width:0" },
-          el("div", { cls:"chk" }, el("span", { cls:"word k-" + m[0], text:x.mark === "unknown" ? "UNKNOWN" : m[1] + " " + m[2] }), x.check),
+          el("div", { cls:"chk" }, el("span", { cls:"word k-" + m[0], text:x.mark === "unknown" ? "UNKNOWN" : x.mark === "na" ? "NOT AVAILABLE" : m[1] + " " + m[2] }), x.check),
           el("div", { cls:"val" }, el("span", { text:x.value }), x.limit ? el("span", { cls:"lim", text:"  " + x.limit }) : null),
           flags.length ? el("div", null, flags) : null,
           x.note ? el("div", { cls:"note", text:x.note }) : null)));
@@ -757,7 +774,8 @@ function whyGroups(box, groups, links) {
     var tally = el("span", { cls:"tally" },
       n.ok ? el("span", { cls:"k-pass", title:n.ok + " passed" }, "✓ " + n.ok) : null,
       n.failed ? el("span", { cls:"k-block", title:n.failed + " failed" }, "✗ " + n.failed) : null,
-      n.unknown ? el("span", { cls:"k-unknown", title:n.unknown + " UNKNOWN" }, "? " + n.unknown) : null);
+      n.unknown ? el("span", { cls:"k-unknown", title:n.unknown + " UNKNOWN" }, "? " + n.unknown) : null,
+      n.na ? el("span", { cls:"k-na", title:n.na + " not available (check yourself)" }, "– " + n.na) : null);
     var lk = g.group === "NEWS" ? linksEl(links) : null;
     if (lk) placed = true;
     box.appendChild(el("details", { cls:"grp", open:"" }, el("summary", null, el("span", { text:g.group }), tally), ul, lk));
@@ -765,7 +783,7 @@ function whyGroups(box, groups, links) {
   if (!placed && links) { var lk2 = linksEl(links); if (lk2) box.appendChild(lk2); }
 }
 function openWhy(r) {
-  openDrawer("Why " + r.symbol + "?", r.mode + " " + r.setup + " · check " + r.risk + " · ✓ passed, ✗ failed, ? UNKNOWN (no data)", function (b) {
+  openDrawer("Why " + r.symbol + "?", r.mode + " " + r.setup + " · check " + r.risk + " · ✓ passed, ✗ failed, ? UNKNOWN (no data), – not available (check yourself)", function (b) {
     add(b, el("div", { cls:"chips", style:"margin-bottom:14px" }, badge(r.risk), halalChip(r), r.stop_capped ? chip("stop capped", "warn", "the % cap set the stop, not the chart") : null,
       chip("ranked by " + r.ranked_by)));
     if (r.reason) add(b, el("p", { cls:"small", style:"margin-bottom:14px", text:r.reason }));
@@ -817,7 +835,7 @@ function pickCard(r, i) {
       el("div", null, el("dt", { text:"Net reward : risk" }), el("dd", { text:d.rr_net })),
       el("div", null, el("dt", { text:"Time machine" }), el("dd", { text:d.expectancy_r }))),
     el("p", { cls:"why-line", text:r.why_summary }),
-    linksEl(r.links),
+    newsEl(r.news_lines, r.links),
     el("div", { cls:"card-actions" }, el("span", { cls:"small muted", text:"Valid until " + d.valid_until }), why));
 }
 function tile(label, value, sub, cls, ico) {
@@ -1148,7 +1166,7 @@ function ticketCard(t) {
       el("div", null, el("dt", { text:"Target" }), el("dd", { text:d.target + " (gain " + d.gain + ")" })),
       el("div", null, el("dt", { text:"Cost" }), el("dd", { text:d.position + " + charges " + d.charges })),
       el("div", null, el("dt", { text:"Valid until" }), el("dd", { text:t.valid_until }))),
-    linksEl(t.links));
+    newsEl(t.news_lines, t.links));
   if (!t.is_ticket) { card.appendChild(el("p", { cls:"why-line", text:t.expired ? "Expired: not a ticket." : "Check " + t.status + ": not a ticket (only PASS and WARN are)." })); return card; }
   if (!t.steps) { card.appendChild(el("p", { cls:"why-line", text:"Steps UNKNOWN: the ticket is missing fields." })); return card; }
   var mine = BROKERS.filter(function (b) { return b[0] === t.broker; })[0] || BROKERS[0];

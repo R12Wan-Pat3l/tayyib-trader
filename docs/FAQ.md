@@ -181,14 +181,31 @@ What you see:
 - a banner at the top of the list, for example "Exchange filings unavailable today (NSE refused automated
   access). HALAL-WATCH and results checks are incomplete for 10 of 10 stocks: check the announcements
   yourself for any stock you plan to buy.";
-- in each stock's **Why?**, the NEWS lines name the sources that answered (Google News, the RSS feeds) and
-  the one that failed;
+- in each stock's **Why?** and on the cards, two NEWS lines: **Media news** (Google News and the RSS feeds)
+  and **Exchange filings (NSE)**, each naming the sources that answered and the ones that failed;
 - **Check announcements yourself** links on every top pick, every ticket and in the Why panel: the stock's
   NSE company page and BSE (the BSE link opens BSE's search: press **Copy ISIN** next to it and paste it
   there). They open in your browser; the tool never reads those pages.
 
 Before you buy, open those links and look at the last few days of announcements and any board meeting
 coming up. A read-only broker API may give us announcements and results dates later.
+
+### Why does "Exchange filings" say Not available?
+Because NSE refused the tool's request. NSE blocks automated access to its announcements, and the tool
+asks honestly and doesn't try to get around that. So it can't tell you whether the company filed
+something, and it says so with a neutral "–" mark: **Not available: NSE blocks automated access → check
+yourself**. It is never a ✓, because nobody looked.
+
+Next to it are the stock's **NSE company page** link and **Copy ISIN** for BSE's search: open them and look
+at the latest announcements and any board meeting (results) coming up.
+
+"Not available" is different from **UNKNOWN**:
+- **Not available**: NSE said no to automated requests. That's expected most days.
+- **UNKNOWN**: a source that normally answers failed this time (Google News timed out, NSE returned a
+  server error). Try again later or check yourself.
+
+The **Media news** line is still checked when NSE refuses: Google News and the RSS feeds answer as usual.
+This changes only what you see; a stock's PASS / WARN / BLOCK is decided as before.
 
 ### How does it pick stocks?
 Every day it looks at every compliant stock that trades at least Rs 2 crore a day on average:

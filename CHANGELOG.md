@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1.10 (2026-11-05)
+
+Clearer NEWS: what was checked, and what you need to check yourself. Display only: no decision changes
+(still default@2; the baseline is unchanged).
+
+### Changed
+
+- **NEWS is two lines** in Why?, on the cards, on the tickets and in the daily `.md`:
+  - **Media news** (Google News and the RSS feeds): ✓ none flagged, ✗ flagged (with the headline), or
+    UNKNOWN when Google News failed for the stock or no media source answered.
+  - **Exchange filings (NSE)**: ✓ none flagged, ✗ flagged, or, when NSE refuses automated access (most
+    days), **Not available: NSE blocks automated access → check yourself**, with a neutral "–" mark
+    (never a ✓), the NSE company page link and Copy ISIN next to it.
+- UNKNOWN now means a real failure of a source that normally answers (a timeout, a server error), not
+  NSE's usual refusal.
+
+### Added
+
+- FAQ: "Why does Exchange filings say Not available?".
+
 ## v0.1.9 (2026-11-05)
 
 Honest requests, and clear about what it could not check. No decision changes (still default@2).

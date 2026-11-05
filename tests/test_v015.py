@@ -368,29 +368,39 @@ class Why(OfflineCase):
         out = self.daily()
         alfa = [r for r in out["rows"] if r["symbol"] == "ALFA"][0]
         news = [w for w in alfa["why"] if w["group"] == "NEWS"]
-        self.assertTrue(any(w["check"] == "HALAL-WATCH news" and w["ok"] is False for w in news))
-        res = [w for w in news if w["check"] == "results news in the window"]
-        self.assertTrue(res and all(w["ok"] is False for w in res))          # the same headline as the WARN
+        # v0.1.10: two lines, Media news and Exchange filings (NSE); a flagged headline is ok=False
+        self.assertTrue(all(w["check"] in (tc.NEWS_MEDIA, tc.NEWS_FILINGS) for w in news))
+        self.assertTrue(any(w["ok"] is False and "HALAL-WATCH" in w["note"] for w in news))
+        res = [w for w in news if w["ok"] is False and "results news in the window" in w["note"]]
+        self.assertTrue(res)                                               # the same headline as the WARN
         self.assertTrue(any("results news in the window" in x for x in alfa["reasons"]))
         self.assertFalse(any("due date" in w["check"] for w in news))
         chrl = [r for r in out["rows"] if r["symbol"] == "CHRL"][0]
         cn = {w["check"]: w for w in chrl["why"] if w["group"] == "NEWS"}
-        self.assertEqual((cn["results news in the window"]["value"], cn["results news in the window"]["ok"]),
-                         ("none", True))
-        self.assertIn("72 hours", cn["results news in the window"]["note"])
+        self.assertEqual((cn[tc.NEWS_MEDIA]["value"], cn[tc.NEWS_MEDIA]["ok"]), ("none flagged", True))
+        self.assertIn("72 hours", cn[tc.NEWS_MEDIA]["note"])
 
     def test_news_source_failed_is_unknown(self):
         import check
         news = {"asof": "2026-10-30T18:00", "hours": 72, "symbols": {"CHRL": []},
                 "errors": ["nse CHRL: HTTP 403", "moneycontrol_markets: timeout"]}
         w = {x["check"]: x for x in check.news_why("CHRL", news, "2026-10-30")}
-        for k in ("HALAL-WATCH news", "results news in the window"):
-            self.assertIsNone(w[k]["ok"])
-            self.assertIsNone(w[k]["value"])
-            self.assertIn("nse CHRL: HTTP 403", w[k]["note"])
+        self.assertIsNone(w[tc.NEWS_FILINGS]["ok"])                    # NSE refused: not available, never a pass
+        self.assertEqual(w[tc.NEWS_FILINGS]["value"], tc.NOT_AVAILABLE)
+        self.assertIn("NSE refused automated access", w[tc.NEWS_FILINGS]["note"])
+        news["errors"] = ["nse CHRL: https://www.nseindia.com/api/x -> HTTP 503"]   # a real failure: UNKNOWN
+        w = {x["check"]: x for x in check.news_why("CHRL", news, "2026-10-30")}
+        self.assertIsNone(w[tc.NEWS_FILINGS]["ok"])
+        self.assertIsNone(w[tc.NEWS_FILINGS]["value"])
+        self.assertTrue(w[tc.NEWS_FILINGS]["note"].startswith("UNKNOWN: NSE announcements failed"))
+        news["errors"] = ["google CHRL: timed out"]                     # Google News failed: media UNKNOWN
+        w = {x["check"]: x for x in check.news_why("CHRL", news, "2026-10-30")}
+        self.assertIsNone(w[tc.NEWS_MEDIA]["ok"])
+        self.assertIn("UNKNOWN", w[tc.NEWS_MEDIA]["note"])
         news["errors"] = ["moneycontrol_markets: timeout"]               # a general feed only: still checked
         w = {x["check"]: x for x in check.news_why("CHRL", news, "2026-10-30")}
-        self.assertIs(w["results news in the window"]["ok"], True)
+        self.assertIs(w[tc.NEWS_MEDIA]["ok"], True)
+        self.assertIs(w[tc.NEWS_FILINGS]["ok"], True)
 
     def test_values_equal_those_used(self):
         out = self.daily("--no-news")

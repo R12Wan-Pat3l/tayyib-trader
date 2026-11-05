@@ -44,12 +44,12 @@ def news_why(sym, news, today=None):
     for it in items:
         if it.get("halal_watch"):
             found["watch"] = True
-            out.append(W("NEWS", "HALAL-WATCH news", it["title"][:90], None, None, False, None,
+            out.append(W("NEWS", "HALAL-WATCH news", it["title"], None, None, False, None,
                          "%s: WARN (%s, %s)" % (", ".join(it["halal_watch"]), it.get("source") or "?",
                                                it.get("published") or "no date")))
         if "results" in it.get("tags", []):
             found["results"] = True
-            out.append(W("NEWS", "results news in the window", it["title"][:70], None, None, False, None,
+            out.append(W("NEWS", "results news in the window", it["title"], None, None, False, None,
                          "gaps are likely: WARN (%s, %s)" % (it.get("source") or "?", it.get("published") or "no date")))
     failed = "; ".join(e[:80] for e in errs)
     for key, check in (("watch", "HALAL-WATCH news"), ("results", "results news in the window")):

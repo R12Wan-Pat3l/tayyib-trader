@@ -1,43 +1,57 @@
 # Dashboard Page Overrides: tayyib-dashboard/index.html
 
-> **PROJECT:** tayyib. Generated 2026-11-05 by UI/UX Pro Max (`--page dashboard`), then adapted.
-> Rules here **override** `design-system/tayyib/MASTER.md`; everything else follows the Master.
+> **PROJECT:** tayyib. Rules here **override** `design-system/tayyib/MASTER.md` (version 2, the v0.1.7 redesign);
+> everything else follows the Master.
 
 ## Page-specific rules
 
-- **Layout:** max width 1400px, 16px gutter on a phone. Tabs, not a 12-column grid: Today, Results, Halal,
-  Tickets (generator: "12-column grid"; a tabbed single column reads better at 375px).
-- **Density:** high. 32px table rows, 13–14px table text, sticky table headers.
-- **Effects:** row highlight on hover (150ms), expandable rows for "Why?", "Chart" and "Ratios". Not used
-  from the generator: chart zoom on click, filter animations, loading spinners (a "Loading..." line instead:
-  the data is local and arrives in well under a second).
-- **Highlights:** a capped stop or a halal ratio near its limit puts a 3px warn bar on the row's left edge
-  **and** a triangle + "stop capped" / "near halal limit" label: never the bar alone.
-- **Charts:** inline SVG computed by the server. Price: close line, entry solid / stop dashed / target dotted,
-  labelled at the right edge; triangle = bought, square = exit; a text summary under it. Equity: cumulative R
-  with a dashed 0R line and a text summary. "price data unavailable" instead of any guessed line.
+- **Layout:** max width 1440px; 24px gutter (16px on a phone). Four tabs: Today, Results, Halal, Tickets. Pill tabs
+  in the sticky top bar on a desktop; a bottom tab bar with icons below 760px.
+- **Breakpoints:** 375 (designed first), 760 (bottom tab bar, single-column cards), 900 (tables become cards: two
+  columns on a phone, four from 600px), 1180 (hero above the tiles; settings chip hidden), 1366 / 1440.
+- **Today:** hero (date in words, written time, "This list was made with", date picker) + six KPI tiles; top-pick
+  cards (price ladder, 60-day sparkline, halal chip, check badge, 2×2 numbers, one-line why, Why?); full list as a
+  fixed-layout table with reasons truncated (full text in the tooltip and the drawer); highlight bar for capped
+  stops and near / over halal limits, always with a labelled flag.
+- **Results:** KPI tiles (win rate, avg R, total R, closed / 30 ring), equity card with an area gradient, result
+  chips (right / wrong / no trade / pending), summary tables (one spanning "no closed trades" cell instead of four),
+  every pick with a Chart button that opens the drawer.
+- **Halal:** donut + legend, limits panel, filters (status defaults to compliant), gauges per ratio; Ratios opens the
+  drawer.
+- **Tickets:** safety banner, ready tickets (PASS, then WARN) with numbered steps for the user's broker and the other
+  broker folded, Copy → "Copied ✓"; "Blocked (not tickets)" collapsed; positions.
+- **Charts:** inline SVG computed by the server. Gradients use per-chart ids. A text summary under every chart.
+  "price data unavailable" instead of any guessed line.
 
-## Pre-delivery checklist: results (v0.1.7, 2026-11-05)
+## Pre-delivery checklist: results (redesign, 2026-11-05)
 
-Checked on the live data (a copy of `%USERPROFILE%\tayyib-live\trader`) with headless Chrome screenshots of
-every tab at 1366px, light and dark, plus the offline test suite (`tests/test_v017.py`).
+Checked on the live data (`%USERPROFILE%\tayyib-live\trader`, read-only) with headless Chrome driven over the
+DevTools protocol: real device-width emulation (375px included), light and dark, and clicks to open each drawer.
+39 screenshots in the session scratchpad (`screenshots-v0.1.7`), each also measured for sideways overflow.
 
 | check | result |
 |---|---|
-| No emojis as icons | PASS: five inline-SVG shapes (circle-check, triangle, octagon, clock, dashed circle) |
-| One consistent icon set | PASS: the five shapes, 16px grid, 1.8 stroke |
-| `cursor: pointer` on clickable elements | PASS: tabs, sort headers, Why? / Chart / Ratios, Copy |
-| Hover transitions 150–300ms | PASS: 150ms colour / background only |
-| Text contrast 4.5:1 (light and dark) | PASS: lowest pair 5.15:1 (pass green on white); see MASTER section 2 |
-| Visible focus for keyboard | PASS: 2px `:focus-visible` outline; tabs use arrow keys / Home / End |
-| `prefers-reduced-motion` | PASS: all transitions off |
-| Responsive 375 / 768 / 1024 / 1366 | PARTLY VERIFIED: 1366 and 500px checked by screenshot; no page-level horizontal scroll (tables scroll in their own wrapper, long paths wrap). Headless Chrome will not render narrower than 500px, so 375px is by CSS only: check it on a phone |
-| No content behind fixed navbars | PASS: no fixed bars |
-| No horizontal scroll on mobile | PASS at 500px (see above) |
-| Status never by colour alone | PASS: every status is label + shape; R values are signed (+ / −) |
-| Indian number format | PASS: ₹1,00,000.00, formatted by the server (`inr()`) |
-| Works offline | PASS: no external URL in the page (a test checks it); system fonts |
-| Missing values are UNKNOWN, never 0 | PASS: server-side formatting, tested (`test_null_is_unknown`) |
+| No emojis as icons; one icon set | PASS: 5 status shapes, 4 tab icons, the logo; all inline SVG |
+| `cursor: pointer` on clickables | PASS: tabs, sort headers, filters, Why? / Chart / Ratios, Copy, Close, folded sections |
+| Transitions ≤ 200ms | PASS: 160ms colour / transform; drawer 200ms |
+| Contrast ≥ 4.5:1, light and dark | PASS: lowest 4.79 (brass accent eyebrow, light), PASS text 4.95; all pairs in MASTER section 2 |
+| Visible focus | PASS: 2.5px `:focus-visible` ring; the drawer is a modal `<dialog>` (focus trapped, Esc closes, focus returns) |
+| `prefers-reduced-motion` | PASS: transitions, the shimmer and the drawer animation off |
+| Responsive 375 / 768 / 1024 / 1366 / 1440 | PASS: no sideways scroll on any of the 39 captures (scrollWidth = clientWidth); the Why drawer renders fully at every width |
+| Tap targets ≥ 44px on a phone | PASS: buttons 44px (slim table buttons are 36px on a desktop only, 44px rows on a phone are full-width), tabs 56px |
+| Nothing behind fixed bars | PASS: body padding for the bottom tab bar; the sticky header offset matches the top bar |
+| Status never by colour alone | PASS: badge = icon + word; flags = icon + words; gauges = bar + value + state word; ▲ / ▼ with % |
+| Indian numbers | PASS: ₹1,00,000.00; ₹523.7 cr; set by the server |
+| Offline | PASS: no external URL in the page (tested); system fonts only |
+| Missing / not yet / not checked | PASS: UNKNOWN only for data failures; "no closed trades", "not yet", "not closed", "not checked (business excluded)" (tested) |
+| Footer on every view | PASS: "Not financial advice, not a fatwa." |
 
-Found and fixed during the check: the Halal table and the equity-curve summary did not render (a DOM
-helper dropped every child after the first); the long data-folder path widened the page on a phone.
+Found and fixed during the review:
+- the phone tab bar rendered at the top (a `backdrop-filter` on the top bar trapped `position: fixed`);
+- the sticky table header sat over the first row (`overflow: hidden` made the table card its scroll container; now `clip`);
+- price-ladder labels overlapped on narrow cards (now a three-column label row);
+- the dark hero and safety banner turned pale (they used the dark theme's light primary; now their own tokens);
+- table headers and dates broke mid-word; pending rows said UNKNOWN where "not yet" is the truth;
+- the tickets banner repeated its own title.
+
+Not verified: a real phone or tablet (emulated widths only), Firefox and Safari (Chrome only), and screen readers.

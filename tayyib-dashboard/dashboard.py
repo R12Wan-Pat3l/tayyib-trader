@@ -41,6 +41,7 @@ SYM_RE = re.compile(r"^[A-Z0-9&\-]{1,20}$")
 CLOSED = ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT")
 NOISE_UNTIL = 30                      # closed trades before the results mean anything
 HINT = "run tayyib-daily"
+RUN_DAILY = "Run: give me today's halal list"
 SETTINGS_NOTE = "editing settings arrives in v0.1.8"
 UNKNOWN = "UNKNOWN"
 
@@ -76,6 +77,24 @@ def inr(x, dec=2):
     return tc.fmt_rs(x, dec).replace("Rs ", "₹")
 
 
+def inr_short(x):
+    """Large money in crore / lakh: 5237000000 -> '₹523.7 cr', 1250000 -> '₹12.5 lakh'. None -> UNKNOWN."""
+    if x is None:
+        return UNKNOWN
+    a = abs(x)
+    if a >= 1e7:
+        v, unit = x / 1e7, "cr"
+    elif a >= 1e6:
+        v, unit = x / 1e5, "lakh"
+    else:
+        return inr(x, 0 if a >= 1000 else 2)
+    t = ("%.1f" % v).rstrip("0").rstrip(".") if abs(v) < 100 else "%.1f" % v
+    return "₹%s %s" % (t, unit)
+
+
+NO_CLOSED = "no closed trades"
+
+
 def num(x, dec=2, suffix=""):
     if x is None:
         return UNKNOWN
@@ -103,7 +122,7 @@ def why_value(v, unit):
         return "yes" if v else "no"
     if isinstance(v, (int, float)):
         if unit == "Rs":
-            return inr(v, 0 if abs(v) >= 1000 else 2)
+            return inr_short(v)
         if unit == "%":
             return "%.2f%%" % v
         if unit == "R":
@@ -117,8 +136,22 @@ def why_value(v, unit):
 OPS = {"<": "<", "<=": "≤", ">": ">", ">=": "≥", "==": "="}
 
 
-def why_view(items):
-    """why[] -> groups in order, each item with its mark (✓ / ✗ / UNKNOWN) and display text."""
+def over_of(x):
+    """over_limit of a HALAL ratio item, recomputed for lists that flagged over-limit ratios as near."""
+    if x.get("group") == "HALAL" and x.get("op") == "<" and x.get("unit") == "%":
+        return tc.is_over_limit(x.get("value"), x.get("limit"))
+    return bool(x.get("over_limit"))
+
+
+def near_of(x):
+    if x.get("group") == "HALAL" and x.get("op") == "<" and x.get("unit") == "%":
+        return tc.is_near_limit(x.get("value"), x.get("limit"))
+    return bool(x.get("near_limit"))
+
+
+def why_view(items, headlines=None):
+    """why[] -> groups in order, each item with its mark (✓ / ✗ / UNKNOWN) and display text.
+    NEWS values are shown in full: a headline an older list cut short is completed from news.json."""
     out = []
     for g in tc.WHY_GROUPS:
         mine = [x for x in items or [] if x.get("group") == g]
@@ -133,10 +166,14 @@ def why_view(items):
             limit = None
             if x.get("op") in OPS and x.get("limit") is not None:
                 limit = "%s %s" % (OPS[x["op"]], why_value(x["limit"], x.get("unit")))
-            rows.append({"check": x.get("check"), "value": why_value(x.get("value"), x.get("unit")),
+            value = why_value(x.get("value"), x.get("unit"))
+            if g == "NEWS" and isinstance(x.get("value"), str) and headlines:
+                value = next((t for t in headlines if t.startswith(x["value"])), value)
+            rows.append({"check": x.get("check"), "value": value,
                          "limit": limit, "mark": mark,
                          "symbol": {"ok": "✓", "failed": "✗", "unknown": UNKNOWN, "info": "i"}[mark],
-                         "note": x.get("note"), "near_limit": bool(x.get("near_limit")),
+                         "note": x.get("note"), "near_limit": near_of(x),
+                         "over_limit": over_of(x),
                          "stop_capped": bool(x.get("stop_capped"))})
         out.append({"group": g, "items": rows})
     return out
@@ -189,7 +226,8 @@ def api_meta(q):
     latest = tc.read_json(os.path.join("daily", dates[0] + ".json")) if dates else None
     return {"version": tc.VERSION, "data_dir": tc.data_dir(), "today": tc.today_ist().isoformat(),
             "settings_label": snap["label"], "defaults_version": snap["defaults_version"],
-            "settings_header": "Settings: %s (%s)" % (snap["label"], SETTINGS_NOTE),
+            "settings_header": "Current settings: %s (%s)" % (snap["label"], SETTINGS_NOTE),
+            "settings_note": SETTINGS_NOTE,
             "differs_from_default": snap["differs_from_default"],
             "latest_date": dates[0] if dates else None,
             "banners": (latest or {}).get("banners") or [],
@@ -199,6 +237,18 @@ def api_meta(q):
 
 def api_dates(q):
     return {"dates": daily_dates()}
+
+
+def long_date(iso):
+    """'2026-11-05' -> 'Thursday, 5 November 2026' (English names, independent of the computer's locale)."""
+    try:
+        x = tc.parse_date(iso)
+    except (TypeError, ValueError):
+        return text(iso)
+    days = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    months = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+              "November", "December")
+    return "%s, %d %s %d" % (days[x.weekday()], x.day, months[x.month - 1], x.year)
 
 
 def staleness(d):
@@ -221,7 +271,67 @@ def staleness(d):
     return {"stale": bool(reasons), "reasons": reasons, "asof": asof}
 
 
-def row_view(r, k_min):
+CHECK_ORDER = ("PASS", "WARN", "BLOCK", "FILTERED", "NOT SIZED")
+OLDER_NOTE = "Older list: ranked by expectancy only (made before the thin-evidence rule)"
+OLDER_USE = "older list: ranked by expectancy only"
+
+
+def ladder(r):
+    """Stop - entry - target as positions on one bar (0-100) with the R multiples. None if a level is missing."""
+    e, st, t = r.get("entry"), r.get("stop"), r.get("target")
+    if None in (e, st, t) or e <= st or t <= e:
+        return None
+    risk = e - st
+    pos = lambda v: round((v - st) / (t - st) * 100, 1)
+    return {"stop": {"pos": 0.0, "price": inr(st), "r": "−1R", "pct": "−%.1f%%" % ((e - st) / e * 100)},
+            "entry": {"pos": pos(e), "price": inr(e), "r": "0R"},
+            "target": {"pos": 100.0, "price": inr(t), "r": "+%.1fR" % ((t - e) / risk),
+                       "pct": "+%.1f%%" % ((t - e) / e * 100)},
+            "summary": "stop %s (−1R), buy above %s, target %s (+%.1fR)" % (inr(st), inr(e), inr(t),
+                                                                              (t - e) / risk)}
+
+
+def sparkline(sym, days=60, width=240, height=48, pad=3):
+    """The last `days` closes from the price cache (read only, no network) -> an SVG polyline."""
+    try:
+        bars, _ = tc.cached_bars(sym)
+    except (OSError, ValueError):
+        bars = None
+    bars = (bars or [])[-days:]
+    if len(bars) < 2:
+        return {"status": "unknown", "message": "price data unavailable"}
+    cl = [b["close"] for b in bars]
+    lo, hi = min(cl), max(cl)
+    span = (hi - lo) or 1.0
+    n = len(cl)
+    pts = [(pad + (width - 2 * pad) * k / (n - 1), pad + (height - 2 * pad) * (1 - (c - lo) / span))
+           for k, c in enumerate(cl)]
+    line = " ".join("%.1f,%.1f" % q for q in pts)
+    ch = (cl[-1] - cl[0]) / cl[0] * 100
+    return {"status": "ok", "width": width, "height": height, "line": line,
+            "area": "%.1f,%d %s %.1f,%d" % (pts[0][0], height, line, pts[-1][0], height),
+            "change": "%+.1f%%" % ch, "up": ch >= 0, "first": bars[0]["date"], "last": bars[-1]["date"],
+            "summary": "%d sessions to %s: %+.1f%%, from %s to %s" % (n, bars[-1]["date"], ch,
+                                                                    inr(cl[0]), inr(cl[-1]))}
+
+
+def halal_badge(why):
+    """within limits / near limit / over limit from the row's HALAL ratio items, always in words."""
+    items = [x for x in why if x.get("group") == "HALAL" and x.get("op") == "<" and x.get("unit") == "%"]
+    over = [x["check"] for x in items if over_of(x)]
+    near = [x["check"] for x in items if near_of(x)]
+    if over:
+        ov = any(x.get("check") == "your override" for x in why if x.get("group") == "HALAL")
+        return {"state": "over", "label": "halal: compliant by your override, ratio over limit" if ov
+                else "halal: over limit", "detail": ", ".join(over)}
+    if near:
+        return {"state": "near", "label": "halal: near limit", "detail": ", ".join(near)}
+    if not items or all(x.get("value") is None for x in items):
+        return {"state": "unknown", "label": "halal: ratios UNKNOWN", "detail": None}
+    return {"state": "ok", "label": "halal: within limits", "detail": None}
+
+
+def row_view(r, k_min, older=False, headlines=None):
     disp = {"entry": inr(r.get("entry")), "stop": inr(r.get("stop")), "target": inr(r.get("target")),
             "stop_pct": num(r.get("stop_pct"), 1, "%"), "qty": text(r.get("qty")),
             "position_rs": inr(r.get("position_rs"), 0), "loss_at_stop_rs": inr(r.get("loss_at_stop_rs"), 0),
@@ -229,14 +339,19 @@ def row_view(r, k_min):
             "expectancy_r": signed_r(r.get("expectancy_r")), "past_trades": text(r.get("past_trades")),
             "score": num(r.get("score"), 1), "valid_until": text(r.get("valid_until")),
             "verdict": text(r.get("verdict"))}
-    use = r.get("expectancy_use") or tc.expectancy_label(r.get("expectancy_r"), r.get("past_trades"), k_min)
+    if older:                      # made before v0.1.7: ranked by expectancy alone, no thin-evidence label
+        use, ranked = OLDER_USE, "expectancy (older list)"
+    else:
+        use = r.get("expectancy_use") or tc.expectancy_label(r.get("expectancy_r"), r.get("past_trades"), k_min)
+        ranked = r.get("ranked_by") or ("score" if tc.thin_evidence(r.get("past_trades"), k_min) else "expectancy")
     why = r.get("why") or []
-    return dict(r, display=disp, expectancy_use=use,
-                ranked_by=r.get("ranked_by") or ("score" if tc.thin_evidence(r.get("past_trades"), k_min)
-                                                 else "expectancy"),
+    badge = halal_badge(why)
+    summary = "%s %s, setup score %s; net R:R %s; time machine %s (%s)" % (
+        text(r.get("mode")), text(r.get("setup")), disp["score"], disp["rr_net"], disp["expectancy_r"], use)
+    return dict(r, display=disp, expectancy_use=use, ranked_by=ranked,
                 stop_capped=bool(r.get("stop_capped") or any(x.get("stop_capped") for x in why)),
-                near_limit=any(x.get("near_limit") for x in why),
-                why_view=why_view(why))
+                near_limit=badge["state"] == "near", over_limit=badge["state"] == "over", halal_badge=badge,
+                why_summary=summary, ladder=ladder(r), why_view=why_view(why, headlines))
 
 
 def api_today(q):
@@ -252,7 +367,9 @@ def api_today(q):
     _, status_of = current()
     vals = (d.get("settings") or {}).get("values") or {}
     # lists from before v0.1.7 (default@1) were ranked by expectancy alone: that is a threshold of 0
+    older = "min_past_trades_for_rank" not in (vals.get("daily") or {})
     k_min = (vals.get("daily") or {}).get("min_past_trades_for_rank", 0)
+    news = tc.read_json("news.json", {}) or {}
     rows, changed = [], []
     for r in d.get("rows") or []:
         h = status_of(r["symbol"])
@@ -260,19 +377,32 @@ def api_today(q):
             rows.append(changed_row(r["symbol"], h.get("status"), h.get("reasons")))
             changed.append(r["symbol"])
             continue
-        rows.append(row_view(r, k_min))
+        heads = [it.get("title") or "" for it in ((news.get("symbols") or {}).get(r["symbol"]) or [])]
+        rows.append(row_view(r, k_min, older, heads))
     by = {r["symbol"]: r for r in rows}
-    picks = [by[s] for s in d.get("top_picks") or [] if s in by]
+    picks = [dict(by[s], sparkline=sparkline(s)) for s in d.get("top_picks") or [] if s in by]
     st = d.get("settings") or {}
-    return {"date": d.get("date"), "asof": d.get("asof"), "staleness": staleness(d),
+    label = st.get("label") or "pre-0.1.5 (not recorded)"
+    counts = {}
+    for r in rows:
+        k = "CHANGED" if r.get("halal_changed") else r.get("risk") or "UNKNOWN"
+        counts[k] = counts.get(k, 0) + 1
+    rank_note = OLDER_NOTE if older else (
+        "Ranked by time-machine expectancy among stocks with at least %d past trades, then the rest by setup "
+        "score" % k_min)
+    return {"date": d.get("date"), "date_long": long_date(d.get("date")), "asof": d.get("asof"),
+            "asof_time": (d.get("asof") or "")[11:16] or UNKNOWN, "staleness": staleness(d),
             "banner": d.get("banner"), "banners": d.get("banners") or [],
-            "capital": inr(d.get("capital"), 0), "broker": text(d.get("broker")), "mode": text(d.get("mode")),
+            "capital": inr(d.get("capital"), 0), "capital_short": inr_short(d.get("capital")),
+            "broker": text(d.get("broker")), "mode": text(d.get("mode")),
             "scanned": text(d.get("scanned")), "universe_updated": text(d.get("universe_updated")),
             "risk_per_trade_pct": num(d.get("risk_per_trade_pct"), 2, "%"),
-            "settings_label": st.get("label") or "pre-0.1.5 (not recorded)",
-            "min_past_trades_for_rank": k_min,
+            "settings_label": label, "made_with": "This list was made with: %s" % label,
+            "older_list": older, "rank_note": rank_note,
+            "min_past_trades_for_rank": None if older else k_min, "counts": counts,
             "top_picks": picks, "rows": rows, "notes": d.get("notes") or [], "halal_changed": changed,
-            "checks": sorted({r.get("risk") for r in rows if r.get("risk")}),
+            "checks": sorted({r.get("risk") for r in rows if r.get("risk")},
+                             key=lambda c: (CHECK_ORDER.index(c) if c in CHECK_ORDER else 9, c)),
             "modes": sorted({r.get("mode") for r in rows if r.get("mode")})}
 
 
@@ -308,6 +438,7 @@ def equity_curve(rows, width=640, height=200, pad=28):
                     "label": "%s %s %s, total %s" % (r["exited"], r["symbol"], signed_r(r["r"]), signed_r(cum))})
     if not pts:
         return {"points": [], "svg": None, "summary": "No closed trades yet: nothing to draw."}
+    base_y = height - pad
     ys = [0.0] + [p["cum_r"] for p in pts]
     lo, hi = min(ys), max(ys)
     if hi - lo < 1e-9:
@@ -321,9 +452,27 @@ def equity_curve(rows, width=640, height=200, pad=28):
                                          signed_r(pts[-1]["r"]), pts[-1]["date"]),
             "svg": {"width": width, "height": height,
                     "line": " ".join("%.1f,%.1f" % c for c in coords),
+                    "area": "%.1f,%.1f %s %.1f,%.1f" % (coords[0][0], base_y, " ".join("%.1f,%.1f" % c for c in coords),
+                                                       coords[-1][0], base_y),
                     "zero_y": round(Y(0.0), 1), "dots": [{"x": round(c[0], 1), "y": round(c[1], 1),
                                                           "label": p["label"]} for c, p in zip(coords[1:], pts)],
                     "y_ticks": [{"y": round(Y(v), 1), "label": signed_r(v)} for v in (lo, 0.0, hi)]}}
+
+
+def stats_display(s):
+    """Summary numbers for display. With no closed trades they say so: never a ₹0.00 or 0% that looks real."""
+    if not s.get("closed"):
+        return {"win_rate_pct": NO_CLOSED, "avg_r": NO_CLOSED, "total_r": NO_CLOSED, "pnl_rs": NO_CLOSED}
+    return {"win_rate_pct": num(s.get("win_rate_pct"), 1, "%"), "avg_r": signed_r(s.get("avg_r")),
+            "total_r": signed_r(s.get("total_r")), "pnl_rs": inr(s.get("pnl_rs"))}
+
+
+def result_counts(rows):
+    out = {"right": 0, "wrong": 0, "no trade": 0, "pending": 0, "other": 0}
+    for r in rows:
+        v = r["verdict"]["verdict"]
+        out[v if v in out else "other"] += 1
+    return out
 
 
 def api_tracker(q):
@@ -342,21 +491,34 @@ def api_tracker(q):
     rows = []
     for k, r in enumerate(sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)):
         v = verdict(r)
+        pending = r.get("status") in ("WAITING", "OPEN")
         rows.append(dict(r, row_id=k, verdict=v, settings_label=tr.settings_group(store, r.get("settings_hash")),
                          display={"entry": inr(r.get("entry")), "stop": inr(r.get("stop")),
                                   "target": inr(r.get("target")), "fill": inr(r.get("fill")),
-                                  "exit": inr(r.get("exit")), "r": signed_r(r.get("r")),
-                                  "pnl_rs": inr(r.get("pnl_rs")), "filled": text(r.get("filled")),
-                                  "exited": text(r.get("exited")), "days": text(r.get("days")),
+                                  "exit": "not yet" if pending and r.get("exit") is None else inr(r.get("exit")),
+                                  "r": "not closed" if pending and r.get("r") is None else signed_r(r.get("r")),
+                                  "pnl_rs": inr(r.get("pnl_rs")) if r.get("status") in CLOSED else (
+                                      "not closed" if r.get("pnl_rs") is None else inr(r.get("pnl_rs"))),
+                                  "filled": "not yet" if r.get("status") == "WAITING" and not r.get("filled")
+                                  else "no" if r.get("status") == "NOT TRIGGERED" and not r.get("filled")
+                                  else text(r.get("filled")),
+                                  "exited": "not yet" if pending and not r.get("exited") else text(r.get("exited")),
+                                  "days": text(r.get("days")),
                                   "check": text(r.get("check")), "last": inr(r.get("last"))}))
     closed = summ["all"]["closed"]
     groups = []
     for g, s in summ.items():
         kind, _, val = g.partition(": ")
         groups.append({"group": g, "by": "all" if g == "all" else kind, "value": val or "all", "stats": s,
-                       "display": {"win_rate_pct": num(s["win_rate_pct"], 1, "%"), "avg_r": signed_r(s["avg_r"]),
-                                   "total_r": signed_r(s["total_r"]), "pnl_rs": inr(s["pnl_rs"])}})
+                       "display": stats_display(s)})
+    a = summ["all"]
+    ring = min(closed, NOISE_UNTIL) / float(NOISE_UNTIL)
+    kpis = dict(stats_display(a), closed="%d / %d" % (closed, NOISE_UNTIL), tracked=str(a.get("listed", len(rows))),
+                open=str(sum(1 for r in rows if r.get("status") in ("OPEN", "WAITING"))))
     return {"rows": rows, "summary": summ, "groups": groups, "settings_split": tr.settings_split(store),
+            "kpis": kpis, "ring": {"fraction": round(ring, 3), "closed": closed, "of": NOISE_UNTIL,
+                                   "label": "%d of %d closed trades" % (closed, NOISE_UNTIL)},
+            "result_counts": result_counts(rows),
             "equity": equity_curve(store["rows"]), "closed": closed,
             "noise_banner": ("still noise: don't judge yet (%d of %d closed trades)" % (closed, NOISE_UNTIL))
             if closed < NOISE_UNTIL else None}
@@ -368,6 +530,28 @@ RATIO_ROWS = (("debt_to_assets_pct", "Debt / total assets", "max_debt_to_assets_
                "max_noncompliant_income_pct"),
               ("cash_receivables_to_assets_pct", "Cash + receivables / total assets",
                "max_cash_receivables_to_assets_pct"))
+
+
+NOT_CHECKED = "not checked (business excluded)"
+STATUS_ORDER = ("compliant", "review", "excluded", "unknown")
+
+
+def donut(counts, r=40.0):
+    """compliant / review / excluded / unknown as stroke-dasharray segments of one circle."""
+    total = sum(counts.values())
+    if not total:
+        return None
+    c = 2 * 3.141592653589793 * r
+    segs, off = [], 0.0
+    for k in STATUS_ORDER + tuple(sorted(set(counts) - set(STATUS_ORDER))):
+        n = counts.get(k, 0)
+        if not n:
+            continue
+        length = c * n / total
+        segs.append({"status": k, "count": n, "pct": "%.0f%%" % (100.0 * n / total),
+                     "dash": "%.2f %.2f" % (length, c - length), "offset": "%.2f" % -off})
+        off += length
+    return {"r": r, "circumference": round(c, 2), "total": total, "segments": segs}
 
 
 def api_halal(q):
@@ -385,28 +569,34 @@ def api_halal(q):
         st = rec.get("status") or "unknown"
         counts[st] = counts.get(st, 0) + 1
         ratios = rec.get("ratios") or {}
+        not_checked = st == "excluded" and not ratios          # failed the business screen: ratios never fetched
         bars = []
         for key, label, lim in RATIO_ROWS:
             v, L = ratios.get(key), limits.get(lim)
             nl = tc.is_near_limit(v, L, near)
-            over = v is not None and L is not None and v >= L
+            over = tc.is_over_limit(v, L)
             bars.append({"key": key, "label": label, "value": v, "limit": L,
-                         "value_text": num(v, 2, "%"), "limit_text": num(L, 0, "%"),
+                         "value_text": NOT_CHECKED if not_checked else num(v, 2, "%"),
+                         "limit_text": num(L, 0, "%"),
                          "fill_pct": None if v is None or not L else round(min(v / L, 1.5) * 100 / 1.5, 1),
                          "limit_pct": round(100 / 1.5, 1), "near_pct": round(near / 1.5, 1),
-                         "near_limit": nl, "over": over,
-                         "state": "unknown" if v is None else "over" if over else "near" if nl else "ok"})
+                         "near_limit": nl, "over": over, "over_limit": over,
+                         "state": "not_checked" if not_checked else "unknown" if v is None else
+                         "over" if over else "near" if nl else "ok",
+                         "state_text": NOT_CHECKED if not_checked else UNKNOWN if v is None else
+                         "over limit" if over else "near limit" if nl else "within limit"})
         ov = overrides.get(sym)
         stocks.append({"symbol": sym, "name": rec.get("name", ""), "industry": rec.get("industry", ""),
                        "status": st, "reasons": rec.get("reasons") or [], "as_of": text(rec.get("as_of")),
                        "assumed_return_text": num(ratios.get("assumed_return_pct"), 2, "%"),
                        "total_income_basis": ratios.get("total_income_basis"),
                        "ratios": bars, "near_limit": [b["key"] for b in bars if b["near_limit"]],
+                       "over_limit": [b["key"] for b in bars if b["over"]], "not_checked": not_checked,
                        "override": {"status": ov.get("status"), "note": text(ov.get("note")),
                                     "date": text(ov.get("date"))} if ov else None})
     return {"updated": text(uni.get("updated")), "source": text(uni.get("source")), "method": text(uni.get("method")),
             "limits": limits, "list_thresholds": uni.get("thresholds"), "near_limit_pct": near,
-            "banner": tc.halal_banner(cfg, uni), "counts": counts, "stocks": stocks,
+            "banner": tc.halal_banner(cfg, uni), "counts": counts, "stocks": stocks, "donut": donut(counts),
             "age_days": tc.universe_age_days(uni)}
 
 
@@ -441,6 +631,12 @@ def api_tickets(q):
                                     "charges": inr(o.get("buy_charges_rs")), "loss": inr(o.get("loss_at_stop_rs")),
                                     "gain": inr(o.get("gain_at_target_rs"))},
                         "steps": steps})
+    rank = {"PASS": 0, "WARN": 1}
+    order = sorted(range(len(tickets)), key=lambda k: (0 if tickets[k].get("is_ticket") else 1,
+                                                       rank.get(tickets[k].get("status"), 2), k))
+    tickets = [tickets[k] for k in order]
+    live = [t for t in tickets if t.get("is_ticket")]
+    blocked = [t for t in tickets if not t.get("is_ticket")]
     plist = (pos or {}).get("positions") or []
     opened = [p for p in plist if p.get("status") == "open"]
     closed = [p for p in plist if p.get("status") == "closed"]
@@ -453,9 +649,12 @@ def api_tickets(q):
                                 "pnl_rs": inr(p.get("pnl_rs")), "r": signed_r(p.get("r")),
                                 "qty": text(p.get("qty")), "opened": text(p.get("opened")),
                                 "closed": text(p.get("closed")), "time_stop_date": text(p.get("time_stop_date"))})
-    return {"tickets": tickets, "open": [pview(p) for p in opened], "closed": [pview(p) for p in closed],
+    return {"tickets": tickets, "ready": live, "blocked": blocked,
+            "blocked_title": "Blocked (not tickets)",
+            "open": [pview(p) for p in opened], "closed": [pview(p) for p in closed],
             "totals": {"closed": len(closed), "winners": sum(1 for p in closed if (p.get("pnl_rs") or 0) > 0),
-                       "pnl_rs": inr(tot), "avg_r": signed_r(round(sum(rs) / len(rs), 2) if rs else None)},
+                       "pnl_rs": inr(tot) if closed else NO_CLOSED,
+                       "avg_r": signed_r(round(sum(rs) / len(rs), 2)) if rs else NO_CLOSED},
             "orders_missing": miss_o, "note": "Nothing here places an order. You place it in your broker app, "
                                               "after you have said yes."}
 
@@ -475,7 +674,8 @@ def chart_view(bars, row, width=640, height=220, pad=30):
     for kind, d, price in (("fill", row.get("filled"), row.get("fill")), ("exit", row.get("exited"), row.get("exit"))):
         if d in idx and price is not None:
             marks.append({"kind": kind, "x": round(X(idx[d]), 1), "y": round(Y(price), 1),
-                          "label": "%s %s at %s" % ("bought" if kind == "fill" else "exit", d, inr(price))})
+                          "label": "%s %s at %s" % ("triggered (paper)" if kind == "fill" else "exit", d,
+                                                    inr(price))})
     return {"width": width, "height": height,
             "line": " ".join("%.1f,%.1f" % (X(k), Y(b["close"])) for k, b in enumerate(bars)),
             "levels": [{"kind": k, "y": round(Y(v), 1), "label": "%s %s" % (k, inr(v))}

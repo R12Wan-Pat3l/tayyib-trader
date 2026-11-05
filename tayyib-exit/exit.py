@@ -21,10 +21,15 @@ def signal_for(sym, setup, cfg, mode=None):
     if not mode and scan.get("mode") in ("swing", "delivery"):
         mode = scan["mode"]
     ent = (tc.read_json("entries.json", {}) or {}).get(sym)
-    if ent and ent.get("signal") and (not setup or ent["setup"] == setup) and (not mode or ent.get("mode") == mode):
-        return ent["signal"], ent
     hits = [c for c in scan.get("candidates", [])
             if c["symbol"] == sym and (not setup or c["setup"] == setup) and (not mode or c["mode"] == mode)]
+    if ent and ent.get("signal") and (not setup or ent["setup"] == setup) and (not mode or ent.get("mode") == mode):
+        # An entry record wins when the setup has already triggered (plan from that fill), or when the scan
+        # has nothing newer. A WAITING record from an earlier day must not replace today's scan: that kept
+        # yesterday's trigger and ticket id (e.g. WELSPUNLIV-2026-11-04-trend on the 2026-11-05 list).
+        newer = [c for c in hits if c.get("date", "") > (ent.get("signal_date") or ent["signal"].get("date") or "")]
+        if ent.get("status") in ("TRIGGERED", "TRIGGERING", "EXTENDED") or not newer:
+            return ent["signal"], ent
     if hits:
         best = dict(max(hits, key=lambda c: c["score"]))
         best["other_setups"] = sorted({c["setup"] for c in hits} - {best["setup"]})

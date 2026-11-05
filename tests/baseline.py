@@ -154,8 +154,8 @@ def capture():
 
 
 # keys added to v0.1.4 records since (display only); nothing else may appear, and nothing may change or
-# go missing. v0.1.5: why, override. v0.1.7: near_limit (halal list: ratios close to a limit).
-NEW_KEYS = frozenset(("why", "override", "near_limit"))
+# go missing. v0.1.5: why, override. v0.1.7: near_limit, over_limit (halal list: ratios near / over a limit).
+NEW_KEYS = frozenset(("why", "override", "near_limit", "over_limit"))
 
 
 def diff(base, cur, path="", out=None, new_keys=NEW_KEYS):

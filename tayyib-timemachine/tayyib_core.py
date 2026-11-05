@@ -190,7 +190,7 @@ DEFAULT_CONFIG = {
         "max_noncompliant_income_pct": 3.0,     # TASIS
         "max_cash_receivables_to_assets_pct": 90.0,  # TASIS
         "noncompliant_investment_return_pct": 8.0,
-        "near_limit_pct": 90.0,         # display only: flag a ratio at or above this share of its limit
+        "near_limit_pct": 90.0,         # display only: flag a ratio from this share of its limit up to it
         "parent_list_url": "https://niftyindices.com/IndexConstituent/ind_nifty500list.csv",
     },
     # news
@@ -300,8 +300,8 @@ DEFAULT_CONFIG_DOCS = {
                                                      "(TASIS 90; higher needs loosen_note)", 10, 100, "%"),
     "halal.noncompliant_investment_return_pct": _doc("Return assumed on short-term investments for the income "
                                                      "test (TASIS 8; lower needs loosen_note)", 0, 20, "%"),
-    "halal.near_limit_pct": _doc("Display only: flag a halal ratio at or above this % of its limit (90 = within "
-                                 "10% of the limit)", 50, 100, "%"),
+    "halal.near_limit_pct": _doc("Display only: flag a halal ratio from this % of its limit up to the limit "
+                                 "(90 = within 10% under it; at or over the limit is 'over limit')", 50, 100, "%"),
     "halal.parent_list_url": _doc("The index list that is self-screened", type="string"),
     "news.feeds": _doc("RSS feeds read for market news: name -> URL", type="map"),
     "news.google_news": _doc("Search Google News India per stock", type="bool"),
@@ -1637,7 +1637,8 @@ def financial_screen(f, cfg):
         status = "compliant"
         reasons = ["all three TASIS-style ratios within limits"] + reasons
     return {"status": status, "ratios": ratios, "reasons": reasons, "as_of": as_of,
-            "why": _ratio_why(ratios, h, "the screen"), "near_limit": near_limits(ratios, h)}
+            "why": _ratio_why(ratios, h, "the screen"), "near_limit": near_limits(ratios, h),
+            "over_limit": over_limits(ratios, h)}
 
 
 _RATIO_CHECKS = (("debt / total assets", "debt_to_assets_pct", "max_debt_to_assets_pct", None),
@@ -1656,29 +1657,44 @@ def _near_pct(limits=None, near_pct=None):
 
 
 def is_near_limit(value, limit, near_pct=None):
-    """Display only: a ratio at or above near_pct % of its limit (90 = within 10% of it)."""
+    """Display only: near_pct % of the limit <= value < limit (90 = within 10% of it, still under it).
+    A value at or over the limit is not "near": see is_over_limit."""
     if value is None or not limit:
         return False
-    return value >= _near_pct(None, near_pct) / 100.0 * limit
+    return _near_pct(None, near_pct) / 100.0 * limit <= value < limit
+
+
+def is_over_limit(value, limit):
+    """Display only: the ratio is at or over its limit (the screen fails it there)."""
+    return value is not None and limit is not None and value >= limit
 
 
 def near_limits(ratios, limits, near_pct=None):
-    """-> the ratio keys at or above near_pct % of their limit (the halal list's near_limit[])."""
+    """-> the ratio keys near (not over) their limit (the halal list's near_limit[])."""
     near = _near_pct(limits, near_pct)
     return [key for _, key, lim, _ in _RATIO_CHECKS
             if is_near_limit((ratios or {}).get(key), (limits or {}).get(lim), near)]
 
 
+def over_limits(ratios, limits):
+    """-> the ratio keys at or over their limit (the halal list's over_limit[])."""
+    return [key for _, key, lim, _ in _RATIO_CHECKS
+            if is_over_limit((ratios or {}).get(key), (limits or {}).get(lim))]
+
+
 def _flag_near(item, near_pct):
-    """Mark a recorded HALAL ratio item near_limit true / false from its own value and limit."""
-    if item.get("group") == "HALAL" and item.get("op") == "<" and item.get("unit") == "%" and "near_limit" not in item:
+    """Mark a recorded HALAL ratio item near_limit / over_limit from its own value and limit (always
+    recomputed: lists built by the first v0.1.7 build flagged over-limit ratios as near)."""
+    if item.get("group") == "HALAL" and item.get("op") == "<" and item.get("unit") == "%":
         item["near_limit"] = is_near_limit(item.get("value"), item.get("limit"), near_pct)
+        item["over_limit"] = is_over_limit(item.get("value"), item.get("limit"))
     return item
 
 
 def _ratio_why(ratios, limits, when, near_pct=None):
     """The halal ratios against the limits they were tested with. A missing ratio is ok=None.
-    near_limit: true on a ratio at or above halal.near_limit_pct of its limit (display only)."""
+    near_limit: true on a ratio from halal.near_limit_pct of its limit up to (not at) the limit;
+    over_limit: true at or over the limit (both display only)."""
     w = []
     near = _near_pct(limits, near_pct)
     for label, key, lim, note in _RATIO_CHECKS:
@@ -1686,6 +1702,7 @@ def _ratio_why(ratios, limits, when, near_pct=None):
         w.append(why_item("HALAL", label, v, L, "<", None if v is None or L is None else not v >= L, "%",
                           note if v is not None else "UNKNOWN: not in the data (%s)" % when))
         w[-1]["near_limit"] = is_near_limit(v, L, near)
+        w[-1]["over_limit"] = is_over_limit(v, L)
         if key == "noncompliant_income_pct":
             rate = (limits or {}).get("noncompliant_investment_return_pct")
             av = ratios.get("assumed_return_pct")
@@ -1699,7 +1716,7 @@ def _ratio_why(ratios, limits, when, near_pct=None):
 def halal_why(rec, universe=None, near_pct=None):
     """HALAL items for one stock, from its halal-list record: status, your override, the ratios
     and the limits they were tested with when the list was built, and the date of the figures.
-    Ratio items carry near_limit (display only; halal.near_limit_pct, default 90)."""
+    Ratio items carry near_limit and over_limit (display only; halal.near_limit_pct, default 90)."""
     uni = universe or {}
     st = rec.get("status")
     w = [why_item("HALAL", "halal status", st, "compliant", "==", None if st is None else st == "compliant",

@@ -31,16 +31,17 @@ the Excel Summary sheet).
 What each tab shows:
 - **Today:** the list for a date, with a banner when it is stale (not today's, or written before
   3:30 PM IST) or when a news source failed; top-pick cards; the full table (sort, filter by check and
-  mode); a "Why?" panel per row. Capped stops and halal ratios near a limit are marked.
+  mode); a "Why?" drawer per row (a bottom sheet on a phone). Capped stops and halal ratios near or over
+  a limit are marked.
 - **Results:** every tracked pick with a labelled verdict (TARGET = right, STOP = wrong, NOT TRIGGERED =
   no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending), a price chart per pick, the summary
   by check, mode, setup and settings label, and the equity curve. Until 30 trades have closed it says
   "still noise: don't judge yet".
-- **Halal:** the universe with search and a status filter, ratio bars against the limits, reported vs
-  assumed-8% income, near-limit marks, the user's overrides with note and date. Review and excluded
+- **Halal:** the universe (compliant first) with search and a status filter, ratio gauges against the
+  limits (within / near / over), reported vs assumed-8% income, "not checked (business excluded)", the user's overrides with note and date. Review and excluded
   stocks are shown for their status only.
-- **Tickets:** unplaced tickets with their status and the Kite / Groww steps (Copy buttons only), and
-  the positions journal.
+- **Tickets:** PASS / WARN tickets first with the Kite / Groww steps (Copy buttons only), blocked ones
+  folded under "Blocked (not tickets)", and the positions journal.
 
 Every row and ticket is checked against the halal list **now**: a stock that is no longer compliant
 shows "halal status changed since this list: re-check" and no levels.

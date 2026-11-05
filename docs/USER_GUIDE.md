@@ -93,21 +93,32 @@ anything, and it runs on your own computer only (nobody else can open it).
   dashboard; press **Ctrl+C** in it to stop. If the port is busy, add `--port 8800`.
 
 **What each tab means:**
-- **Today:** the latest list (choose another date at the top). Yellow banners say when the list is old or
-  was made before 3:30 PM, or when a news source failed (then HALAL-WATCH and results checks are
-  incomplete). Then the top picks as cards, and the full table: click a column to sort, filter by
-  PASS / WARN / BLOCK or swing / delivery, and press **Why?** on any row for every check with ✓ (passed),
-  ✗ (failed) or UNKNOWN (no data). "stop capped" means the chart's stop was further away than your
-  maximum stop %, so the cap was used; "near halal limit" means a ratio is within 10% of its limit.
-- **Results:** every earlier pick and what happened: TARGET = right, STOP = wrong, NOT TRIGGERED = no
-  trade, TIME EXIT = right or wrong by the result, OPEN / WAITING = still pending. **Chart** draws the
-  price with the buy, stop and target lines. The summary splits results by check, mode, setup and
-  settings, with the equity curve (your running total in R). Until 30 trades have closed it says
-  "still noise: don't judge yet".
-- **Halal:** every screened stock. Search by name, filter by status, and press **Ratios** to see each
-  ratio against its limit, reported interest next to the assumed 8% part, your overrides with their note
-  and date, and the reasons. Review and excluded stocks are listed for their status only.
-- **Tickets:** tickets you haven't placed yet, with **Copy** buttons for the Kite and Groww steps, and your
+On a phone the tabs are at the bottom of the screen.
+- **Today:** the date and your numbers at the top (capital, risk per trade, how many stocks were scanned,
+  how many PASS, WARN and BLOCK). Yellow banners say when the list is old or was made before 3:30 PM, or
+  when a news source failed (then HALAL-WATCH and results checks are incomplete). The top picks are
+  cards: the bar shows the stop, the buy-above price and the target with how many R each is, and the
+  small chart is the last 60 days. Below is the full list: click a column to sort, filter by PASS / WARN /
+  BLOCK or swing / delivery, and press **Why?** on any row: a panel opens with every check, ✓ (passed),
+  ✗ (failed) or UNKNOWN (no data), and news headlines in full. "stop capped" means the chart's stop was
+  further away than your maximum stop %, so the cap was used. "near halal limit" means a ratio is within
+  10% under its limit; "over limit" means it is at or over it (you will only see that on a stock you
+  marked compliant yourself, with an override). "This list was made with" shows the settings of that
+  list; "Current settings" (top right) shows yours now.
+- **Results:** win rate, average R and total R ("no closed trades" until one closes), a ring counting
+  closed trades towards 30 (until then: "still noise: don't judge yet"), the equity curve (your running
+  total in R), and every earlier pick: TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT =
+  right or wrong by the result, WAITING / OPEN = pending. "Triggered (paper)" is the day the price reached
+  the buy-above level on paper: nothing was bought. **Chart** opens the price with the buy, stop and
+  target lines. The summary splits results by check, mode, setup and settings.
+- **Halal:** a ring of compliant / review / excluded / unknown, then the compliant stocks first (change
+  the Status filter to see the rest). Each ratio is a small bar against its limit with the words "within
+  limit", "near limit" or "over limit". Press **Ratios** for the details, reported interest next to the
+  assumed 8% part, your override with its note and date, and the reasons. Stocks excluded for their
+  business say "not checked (business excluded)": their ratios were never needed. Review and excluded
+  stocks are listed for their status only.
+- **Tickets:** PASS and WARN tickets you haven't placed yet, with **Copy** buttons for the Kite and Groww
+  steps (they say "Copied ✓"), then the blocked ones folded away under "Blocked (not tickets)", then your
   open and closed positions. Copying is the only thing the buttons do: you still place every order yourself.
 
 If a stock's halal status has changed since a list was made, that row only says "halal status changed

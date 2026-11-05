@@ -337,7 +337,7 @@ class Server(OfflineCase):
         self.assertIn("text/html", r.getheader("Content-Type"))
         meta = self.get("/api/meta")
         self.assertEqual(meta["version"], tc.VERSION)
-        self.assertEqual(meta["settings_header"], "Settings: default@2 (editing settings arrives in v0.1.8)")
+        self.assertEqual(meta["settings_header"], "Current settings: default@2 (editing settings arrives in v0.1.8)")
         self.assertEqual(meta["data_dir"], os.path.abspath(self.dir))
         for k in ("banners", "halal_banner", "settings_label", "disclaimer"):
             self.assertIn(k, meta)

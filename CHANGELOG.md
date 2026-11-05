@@ -15,8 +15,18 @@ Fixes from the live check of the pipeline, and a read-only dashboard.
     no trade), a price chart with the entry, stop and target, the summary by check, mode, setup and
     settings label (the same numbers as the Excel Summary), and the equity curve. Until 30 trades have
     closed it says "still noise: don't judge yet".
-  - **Halal:** search, status filter, ratio bars against the limits, your overrides.
-  - **Tickets:** unplaced tickets with Copy buttons for the Kite and Groww steps, and your positions.
+  - **Halal:** a donut of compliant / review / excluded / unknown, search and filters (compliant
+    first), each ratio as a small gauge against its limit (within / near / over, always in words), your
+    overrides. Stocks the business screen excluded show "not checked (business excluded)", not UNKNOWN.
+  - **Tickets:** PASS and WARN tickets first, with Copy buttons ("Copied ✓") for the Kite and Groww
+    steps; blocked ones collapsed under "Blocked (not tickets)"; your positions.
+  - Designed as a product, not an admin page: a calm teal and warm off-white palette with a designed dark
+    mode, a serif for headings, KPI tiles, price ladders (stop, buy above and target with their R
+    multiples), 60-day sparklines, a Why? drawer (a bottom sheet on a phone), a bottom tab bar on a phone,
+    skeleton loading and empty states that say what to run. No sideways scrolling from 375px up.
+  - Labels say what is true: "no closed trades" instead of ₹0.00, "Triggered (paper)" instead of
+    "Bought", "Current settings: default@2" next to "This list was made with: default@1", and lists made
+    before v0.1.7 say "Older list: ranked by expectancy only". Large money reads ₹523.7 cr.
 - It is **read-only**: it runs on 127.0.0.1 only and answers GET only. It checks the Host header, sends
   no CORS headers, serves a fixed list of files and writes nothing. It cannot place, change or cancel an
   order. Every row and ticket is re-checked against the current halal list: a stock that is no longer
@@ -50,11 +60,21 @@ Fixes from the live check of the pipeline, and a read-only dashboard.
   - **PLAN:** when the % cap set the stop, "chart invalidation Rs X (Y% away); stop capped at Z%"
     (`stop_capped: true`, also on the daily row).
   - **SETUP context:** % above the 200-day average and the 126-day return (information, not conditions).
-  - **HALAL near limit:** a ratio at or above `halal.near_limit_pct` (new, default 90) of its limit is
-    flagged `near_limit`, and the halal list records `near_limit[]` per stock.
+  - **HALAL near / over limit:** a ratio from `halal.near_limit_pct` (new, default 90) of its limit up to
+    the limit is flagged `near_limit`; at or over the limit it is `over_limit` (a separate flag and label,
+    never "near"). The halal list records `near_limit[]` and `over_limit[]` per stock.
+  - **NEWS:** headlines are kept in full in why[] (they were cut at 70 / 90 characters). The risk
+    reasons are unchanged.
 - The past-trades check in HISTORY uses the new setting instead of a fixed 8.
 - The Kite / Groww steps moved into the core (`tc.broker_steps`), so `ticket.py` and the dashboard show the
   same text.
+- **Fix: a ticket could keep an earlier day's signal.** The exit planner preferred a `tayyib-entry`
+  record (`entries.json`) over today's scan even when that record was only WAITING and the scan had a
+  newer signal for the same setup. On the 2026-11-05 list this kept WELSPUNLIV on the 2026-11-04 signal
+  (ticket `WELSPUNLIV-2026-11-04-trend`, trigger ₹268.00, valid until 2026-11-11) instead of planning
+  from 2026-11-05. A newer scan signal now wins; an entry record still wins once the setup has
+  TRIGGERED (the plan then starts from that fill), or when the scan has nothing newer. This only
+  happened when `tayyib-entry` had been run on an earlier day; the baseline is unaffected.
 
 ### Removed
 

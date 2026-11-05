@@ -51,7 +51,7 @@ All state lives in `./trader/` (override with `TAYYIB_DIR`):
 | halal | `tayyib-halal/halal.py build \| check \| list \| compare \| override` | Nifty 500 CSV, Yahoo fundamentals | `halal_universe.json`, `halal_overrides.json` |
 | scan | `tayyib-scanner/scan.py --mode swing\|delivery\|all` | universe, Yahoo daily bars | `scan.json` |
 | news | `tayyib-news/news.py --symbols A,B` | RSS, Google News, NSE | `news.json` |
-| entry | `tayyib-entry/entry.py check SYM [--mode]` | scan, bars | `entries.json` |
+| entry | `tayyib-entry/entry.py check SYM [--mode]` | scan, bars | `entries.json` (the exit planner uses a record only once TRIGGERED, or when the scan has no newer signal) |
 | exit | `tayyib-exit/exit.py plan SYM [--setup] [--mode] --write` | scan/entries | `plan.json` |
 | time machine | `tayyib-timemachine/timemachine.py run [SYMS] --write` | plans, bars | `sim.json` |
 | size | `tayyib-budget/size.py [SYMS] --write` | plans, positions | `orders.json` |
@@ -128,7 +128,7 @@ test fails if one appears. The MCP server has no order tool.
 | `daily.top` / `daily.picks` | 10 / 3 | stocks planned / PASS stocks highlighted; `--top` / `--picks` override |
 | `daily.min_expectancy_r` | null | skip stocks whose time-machine expectancy is lower (null = no filter); skipped rows show `FILTERED` |
 | `daily.min_past_trades_for_rank` | 8 (0–50) | rank by expectancy only with this many past trades; the rest by setup score, after them. 0 = the default@1 order |
-| `halal.near_limit_pct` | 90 (50–100) | display only: mark a ratio at or above this % of its limit (`near_limit`). Not in the settings hash |
+| `halal.near_limit_pct` | 90 (50–100) | display only: mark a ratio from this % of its limit up to it (`near_limit`); at or over the limit is `over_limit`. Not in the settings hash |
 | `scanner.warmup_bars` / `min_history_bars` / `liquidity_days` | 200 / 210 / 20 | bars before any signal / history the scanner needs / days in the turnover average |
 | `scanner.setups.<name>` | see below | `{"enabled": true, ...thresholds}` for breakout, pullback, oversold, squeeze, trend |
 
@@ -196,7 +196,7 @@ its items when it decides, and `daily` only puts them together:
 
 | group | recorded by | contents |
 |---|---|---|
-| HALAL | scanner (from the halal list) + risk check | status, your override, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check. Ratio items carry `near_limit` (true at or above `halal.near_limit_pct`, 90%, of the limit) |
+| HALAL | scanner (from the halal list) + risk check | status, your override, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check. Ratio items carry `near_limit` (from `halal.near_limit_pct`, 90%, of the limit up to it) and `over_limit` (at or over it) |
 | LIQUIDITY | scanner (`tc.liquidity_check`) | last price vs `min_price`, average traded value vs `min_turnover_rs` |
 | SETUP | `tc.detect` | every condition the setup tested, the measured value and its threshold, the score; two context items with `op: "info"`, `ok: true` (no limit, not conditions): % above the 200-day average and the 126-day return |
 | NEWS | risk check | `HALAL-WATCH news` and `results news in the window`: the same `trader/news.json` headlines (Google News India, NSE corporate announcements incl. board-meeting notices, RSS feeds; tagged by news.py, inside its `--hours` window, default 72) that raise the risk check's WARNs. A headline: `ok: false`. None: `ok: true`. `ok: null` / UNKNOWN only when news was not fetched for the stock or its Google News or NSE source failed |
@@ -272,13 +272,25 @@ issues same-origin GETs to `/api/...`.
 
 | endpoint | returns |
 |---|---|
-| `/api/meta` | version, data folder, settings label and header ("Settings: default@2 (editing settings arrives in v0.1.8)"), the latest list's `banners[]`, the halal banner, config notes |
+| `/api/meta` | version, data folder, settings label and header ("Current settings: default@2 (editing settings arrives in v0.1.8)"), the latest list's `banners[]`, the halal banner, config notes |
 | `/api/dates` | the dates of every `daily/DATE.json`, newest first |
 | `/api/today?date=` | that day's list (default the newest): rows with `display` strings, `why_view` (groups with ✓ / ✗ / UNKNOWN), `stop_capped`, `near_limit`, `ranked_by`, `expectancy_use`; top picks; `staleness {stale, reasons[]}` (not today's list, or `asof` before 15:30 IST) |
 | `/api/tracker` | rows with a labelled `verdict` (TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending, BREAKEVEN), `summary` from `tracker.summary()` (the function the Excel Summary sheet uses, so the numbers match), `settings_split`, the equity curve (cumulative R by exit date), and `noise_banner` until 30 closed trades |
 | `/api/halal` | every stock with its current status (overrides applied), ratio bars against the limits in config, reported vs assumed-8% income, `near_limit[]`, override note and date, reasons; counts; the loosened-thresholds banner |
 | `/api/tickets` | unplaced orders with status, expiry and the Kite and Groww steps from `tc.broker_steps` (the text `ticket.py show` prints); open and closed positions with totals |
 | `/api/chart?symbol=&from=` | for one tracker row: daily bars around it, as SVG coordinates for the close line, the entry / stop / target lines and the fill / exit markers. Live fetch, else the last cached bars (labelled); else `{"status": "unknown", "message": "price data unavailable"}`. Never a guessed line |
+
+**Labels (v0.1.7 review):** today's response has `made_with` ("This list was made with: default@1") next to
+the header's current settings, `older_list` and `rank_note` ("Older list: ranked by expectancy only (made before
+the thin-evidence rule)" for lists without `daily.min_past_trades_for_rank`; their rows never say "ranked (n
+trades)"), `counts`, `date_long`, and per row `halal_badge` (within / near / over limit, or "compliant by your
+override, ratio over limit"), `ladder` (stop / entry / target positions with R multiples) and, for top picks, a
+60-day `sparkline` from the price cache (no network). Large money is `₹523.7 cr` / `₹12.5 lakh` (`inr_short`). The
+tracker sends `kpis`, `ring` (closed of 30) and `result_counts`; with no closed trades every rate, R and P&L is
+"no closed trades", and pending rows say "not yet" / "not closed". The halal response has `donut`, per stock
+`over_limit[]` and `not_checked` (business-excluded: ratios "not checked (business excluded)", not UNKNOWN).
+Tickets come as `ready` (PASS, then WARN) and `blocked` ("Blocked (not tickets)": BLOCK, expired, changed).
+NEWS headlines are shown in full (older lists that stored them cut short are completed from `news.json`).
 
 **Compliance cross-check:** every today row and every ticket is checked against the **current** universe
 plus overrides. A stock that is no longer `compliant` is replaced by `{"halal_changed": true, "message":

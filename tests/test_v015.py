@@ -349,7 +349,7 @@ class Why(OfflineCase):
             self.assertEqual(groups, sorted(groups, key=tc.WHY_GROUPS.index))           # in group order
             for w in r["why"]:
                 base = {"group", "check", "value", "limit", "op", "ok", "unit", "note"}
-                self.assertTrue(base <= set(w) <= base | {"near_limit", "stop_capped"}, w)   # v0.1.7 flags
+                self.assertTrue(base <= set(w) <= base | {"near_limit", "over_limit", "stop_capped"}, w)   # v0.1.7 flags
                 self.assertIn(w["ok"], (True, False, None))
                 if w["value"] is None:
                     self.assertIsNone(w["ok"], w)

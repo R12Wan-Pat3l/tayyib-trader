@@ -14,7 +14,7 @@ explicit yes.
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
 - Latest release: **v0.1.6** (tags v0.1.0, v0.1.1, v0.1.2, v0.1.4, v0.1.5, v0.1.6; v0.1.3 is folded into v0.1.4).
   v0.1.7 is committed, not yet tagged
-- Tests: 192 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Tests: 209 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -56,7 +56,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (v0.1.7: list-level warnings, e.g. "NSE announcements unavailable today: HALAL-WATCH and results checks are incomplete for N of M stocks."), `settings{hash, label ("default@2" when nothing differs; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
 | `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result`. v0.1.7 flags: HALAL ratio items `near_limit` (at or above `halal.near_limit_pct` = 90% of the limit), PLAN `stop capped` item with `stop_capped: true`, SETUP context items with `op: "info"` (% above the 200-day average, 126-day return) |
 | `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
-| `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys at or above 90% of their limit; v0.1.7)}}` |
+| `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys from 90% of their limit up to it), over_limit[] (at or over it); v0.1.7}}` |
 | settings for a UI | `tc.DEFAULT_CONFIG_DOCS`: `key -> {description, min, max, unit, type, ...}` for every setting; `tc.validate_config(user) -> (cfg, notes)`; `tc.risk_preview(cfg)` (also `daily.py --risk-preview --json`) |
 | `halal_overrides.json` | `{SYM: {status, note, date}}`: the user's rulings, which always win |
 | `orders.json`, `positions.json` | tickets (status SIZED/PASS/WARN/BLOCK/PLACED) and the trade journal |
@@ -112,6 +112,14 @@ over MCP (stdio), none of which place orders.
   shows "halal status changed since this list: re-check" and no levels. Designed with UI/UX Pro Max:
   `design-system/tayyib/MASTER.md` (plain CSS, offline, system fonts, light + dark, status by label +
   shape, colour-blind-safe Okabe-Ito hues, en-IN numbers).
+- **Near vs over limit (v0.1.7 review):** `near_limit` means near_limit_pct% ≤ value < limit; value ≥ limit is
+  `over_limit`, a separate flag and label. A compliant stock can show "over limit" only through your override.
+- **Exit planner and entries.json (v0.1.7 review):** an entry record replaces today's scan signal only once the
+  setup has TRIGGERED, or when the scan has nothing newer. Before, a WAITING record from an earlier day won, which
+  kept WELSPUNLIV on its 2026-11-04 signal and ticket id on the 2026-11-05 list (a stale ticket, not a kept id by
+  design).
+- **Dashboard redesign (v0.1.7 review):** design system version 2 in `design-system/tayyib/MASTER.md` (petrol teal +
+  warm off-white, serif display, bento tiles, drawer / bottom sheet, phone tab bar, no sideways scroll from 375px).
 - **Run button: not before v0.1.8.** The v0.1.7 dashboard is read-only. v0.1.8 may add a button that
   runs `tayyib-daily` locally (analysis only); it will never place, modify or cancel an order.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry

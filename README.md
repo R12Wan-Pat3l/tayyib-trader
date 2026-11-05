@@ -34,6 +34,7 @@ market closes. You decide, and you place the order yourself.
 | Curious how it works | **[How it works](docs/HOW_IT_WORKS.md)**: the whole thing in plain words |
 | Asking "how do you decide halal?", "where is the data from?" | **[FAQ](docs/FAQ.md)** |
 | A developer | **[Technical guide](docs/TECHNICAL.md)**: architecture, files, commands, config, tests |
+| An AI session joining the project | **[Project brief](docs/PROJECT_BRIEF.md)**: what exists, decisions made, data files |
 
 ## Quick start (Claude Code)
 

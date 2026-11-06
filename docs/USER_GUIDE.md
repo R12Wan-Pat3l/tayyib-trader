@@ -86,7 +86,8 @@ backtest** button on the Backtest tab), all explained below.
 **Open it on Windows:**
 - In Claude Code (in your `tayyib-live` folder), ask: **"Show my dashboard"**. Your browser opens
   `http://127.0.0.1:8765/`.
-- Or without Claude: open Command Prompt, then
+- Or without Claude: double-click **`start.bat`** in the tool's folder (see
+  [Start without Claude Code](#start-without-claude-code)), or open Command Prompt, then
   ```
   cd %USERPROFILE%\tayyib-live
   py C:\Code\Trader\tayyib-trader\tayyib-dashboard\dashboard.py
@@ -124,6 +125,7 @@ On a phone the tabs are at the bottom of the screen.
   open and closed positions. Copying is the only thing the buttons do: you still place every order yourself.
 
 - **Settings:** change your numbers in the browser. See [Changing your settings](#changing-your-settings).
+  The **Email** group sets up the daily email: see [Get the list by email every day](#get-the-list-by-email-every-day).
 
 If a stock's halal status has changed since a list was made, that row only says "halal status changed
 since this list: re-check", without prices.
@@ -234,26 +236,87 @@ positions or daily lists. Not financial advice, not a fatwa.
 
 ---
 
-## Part 3 (optional): Run it automatically every day
+## Part 3 (optional): Start without Claude Code
 
-You can have Windows make the list at 3:45 PM every weekday, without opening Claude.
+### Start without Claude Code
+You don't need Claude Code open to use the dashboard. In the folder where you cloned or unzipped
+tayyib-trader, **double-click `start.bat`**. It:
+- finds Python (`py`); if it can't, it says how to install it;
+- uses your data folder `%USERPROFILE%\tayyib-live\trader` (or the one in `TAYYIB_DIR`, if you set one), and
+  creates it the first time;
+- opens the dashboard in your browser. Keep the black window open while you use it; close it to stop.
 
-1. Get a fixed copy of the tool (the plugin's own folder can move when it updates). In Command Prompt:
+The very first time (no `config.json` yet) the dashboard opens a **Welcome** screen: your capital, your
+broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you want, your email address.
+It saves them the same safe way as the Settings tab. There is no password field on purpose (see below).
+**Not now** closes it; it comes back next time until you save.
+
+Get a fixed copy of the tool first (the plugin's own folder can move when it updates). In Command Prompt:
+```
+git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader
+```
+(No git? On the GitHub page click **Code, Download ZIP** and unzip it to `C:\tayyib-trader`.) Once a month
+run `git -C C:\tayyib-trader pull` to get updates.
+
+---
+
+## Part 4 (optional): Get the list by email every day
+
+### Get the list by email every day
+Your computer can make today's list after the close and email it to **your own inbox**, every trading day,
+without you running anything. Five steps, once:
+
+1. **Make a Gmail App Password.** In your Google account, open **Security**, switch on **2-Step
+   Verification** (needed for app passwords), then open **App passwords**, make one called `tayyib` and copy
+   the 16 letters. It is not your normal password, and you can delete it any time to switch the email off.
+   (Another mail provider: use its SMTP server and app password; set the server and port in Settings.)
+2. **Store it on your computer, not in the tool.** Open a new Command Prompt and type (with your 16 letters):
    ```
-   git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader
+   setx TAYYIB_SMTP_PASSWORD "abcdefghijklmnop"
    ```
-   (No git? On the GitHub page click **Code, Download ZIP** and unzip it to `C:\tayyib-trader`.)
-   Once a month run `git -C C:\tayyib-trader pull` to get updates.
-2. Open **Task Scheduler** (search for it in the Start menu), then **Create Basic Task**.
-3. Name: `tayyib daily`. Trigger: **Weekly**, Monday to Friday, **3:45 PM**.
-4. Action: **Start a program**.
-   - Program: `py`
-   - Arguments: `C:\tayyib-trader\tayyib-daily\daily.py`
-   - Start in: `C:\Users\YOUR-NAME\tayyib-live`
-5. Finish. Each day the list is saved as `tayyib-live\trader\daily\YYYY-MM-DD.md`. Open it in Notepad,
-   or ask Claude "show me today's list".
+   Then close that window and **close and reopen `start.bat`** (a running program does not see it). The
+   password is never written into `config.json`, never shown on the page and never logged. The Settings
+   tab only says **Password: set** or **Password: not set**.
+3. **Settings, Email** (in the dashboard): your email address in **Your email address**, leave **Send to**
+   empty to send it to yourself (at most 3 addresses, all your own), pick **When to send** (every trading
+   day, or only when there are picks), switch **Email today's list** on, then **Review & save**.
+4. **Send test email** (same section). A short test arrives in a few seconds; look in Spam the first time.
+   If it fails, the exact error from the mail server is shown (a refused login almost always means the App
+   Password is missing or mistyped).
+5. **Schedule it.** In Command Prompt, from the tool's folder:
+   ```
+   cd C:\tayyib-trader
+   py tools\schedule_windows.py show
+   py tools\schedule_windows.py install --yes
+   ```
+   `show` prints the exact Windows Task Scheduler command and changes nothing. `install --yes` creates one
+   task, **tayyib-daily**, that runs at **4:20 PM IST, Monday to Friday**: it makes today's list, then emails
+   it. `py tools\schedule_windows.py status` shows it; `remove --yes` deletes it.
 
-On an NSE holiday there is no new price data, so it repeats the previous day's list. Add holidays to your config (`"holidays": ["YYYY-MM-DD", ...]` from NSE's holiday list) so the plan dates ("valid until" and the time stop) skip them.
+**Your PC must be on and you logged in at 4:20 PM.** A sleeping or shut laptop misses that day (Task
+Scheduler can "Run whether user is logged on or not": set that yourself in its window if you want).
+
+Screenshots: [the email](img/email-desktop.png), [on a phone](img/email-narrow.png), [a FAILED day](img/email-failed.png), [Settings, Email](img/settings-email.png).
+
+What the email says, in order: anything wrong first (a failed run, or a stock you hold that is no longer
+compliant, in red), every warning of the list, the top PASS picks as cards (buy above, stop, target,
+quantity, position, loss at the stop, the time machine, the first lines of Why), the other rows with their
+check, your paper tracker, and "Not financial advice, not a fatwa". The full list is attached as a `.md`.
+- If the list failed or is not today's, the subject is **"tayyib: run FAILED / data stale"** and it says what
+  is missing. It never shows an older day's picks as today's.
+- Weekends and the holidays in your settings: no list, no email.
+- Without the password the daily list still runs; the email is skipped and `trader\email\log.json` says
+  "password not set".
+- To look at an email without sending it: `py tayyib-email\email_report.py send --dry-run` writes it to
+  `trader\email\` (open the `.html` in your browser).
+
+**Only for you.** Sending the list to other people can count as publishing stock recommendations, which in
+India may need SEBI Research Analyst registration. If a friend or your team wants it, each person runs their
+own copy on their own computer. See the [FAQ](FAQ.md#can-i-email-the-list-to-my-friends).
+
+On a holiday that is missing from your settings, the list repeats the previous day's prices and the email
+may say "data stale". Add NSE holidays to your config (`"holidays": ["YYYY-MM-DD", ...]`, or Settings, Data &
+calendar) so plan dates and the scheduled run skip them.
 
 ---
 

@@ -532,6 +532,16 @@ svg.chart .dd { fill:var(--block-bg); stroke:var(--block); stroke-width:1.2; }
 svg.chart .ddm { stroke:var(--fg); stroke-width:1.2; stroke-dasharray:4 3; }
 svg.chart text.end { font-weight:600; fill:var(--fg); }
 svg.chart text.ddl { fill:var(--fg); font-weight:600; }
+/* Email (v0.2.3) */
+.email-box { margin:0 0 14px; }
+.email-box .pw, #drawerBody .pw { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 8px; }
+.pw.no b { color:var(--warn); }
+.setup-f { grid-template-columns:minmax(0,1fr); margin:0 -4px 12px; }
+.setup-f .field { border-right:0 !important; padding:12px 4px; }
+.setup-f h3 { margin:14px 4px 0; }
+.setup-f input.numin, .setup-f input.txt, .setup-f textarea { width:100%; margin-top:6px; }
+.setx { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:6px 0 10px; }
+.setx code { padding:6px 10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); overflow-wrap:anywhere; min-width:0; }
 .bt-lg { display:flex; flex-wrap:wrap; gap:8px 18px; font-size:13px; margin:10px 0 0; padding:0; list-style:none; }
 .bt-lg li { display:inline-flex; align-items:center; gap:8px; }
 .bt-lg svg.chart { width:34px; height:10px; flex:none; display:inline-block; }
@@ -1321,12 +1331,12 @@ function fieldEl(f, opts) {
     sync();
     get = function () { return none && none.checked ? null : numVal(ni.value); };
     put = function (v) { if (none) { none.checked = v === null; sync(); } ni.value = v === null ? "" : String(v); if (rg && v !== null) rg.value = v; };
-  } else if (f.type === "dates" || f.type === "map") {
+  } else if (f.type === "dates" || f.type === "map" || f.type === "emails") {
     var ta = el("textarea", { id:id, rows:"3", spellcheck:"false" });
-    var toText = function (v) { return f.type === "dates" ? (v || []).join("\n") : Object.keys(v || {}).map(function (n) { return n + ": " + v[n]; }).join("\n"); };
+    var toText = function (v) { return f.type !== "map" ? (v || []).join("\n") : Object.keys(v || {}).map(function (n) { return n + ": " + v[n]; }).join("\n"); };
     var fromText = function (t) {
       var lines = t.split(/[\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean);
-      if (f.type === "dates") return lines;
+      if (f.type !== "map") return lines;
       var o = {}, bad = false;
       t.split("\n").map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (x) { var i = x.indexOf(":"); if (i < 1) bad = true; else o[x.slice(0, i).trim()] = x.slice(i + 1).trim(); });
       return bad ? t : o;
@@ -1520,6 +1530,7 @@ function renderSettings(panel, d) {
     var rs = el("button", { cls:"link slim", type:"button", text:"Reset this section", title:"Every " + g.title + " setting back to its default" + (g.id === "halal" ? " (TASIS, review off, no source note)" : "") + ". Nothing is saved until you review and save." });
     rs.addEventListener("click", function () { resetKeys(g.keys, "Reset " + g.title); });
     var gb = el("div", { cls:"sgroup", id:"g-" + g.id }, el("h2", { cls:"section" }, el("span", { text:g.title }), rs), el("p", { cls:"intro", text:g.intro }));
+    if (g.id === "email" && d.email) gb.appendChild(emailBox(d.email));
     g.sections.forEach(function (sec) { gb.appendChild(sectionEl(sec, g)); });
     main.appendChild(gb);
   });
@@ -1530,6 +1541,85 @@ function renderSettings(panel, d) {
       el("ul", { cls:"lock" }, d.always_on.map(function (t) { return el("li", null, icon("pass", 14), el("span", { text:t })); }))),
     previewEl(d.preview, []));
   add(panel, el("div", { cls:"set-layout" }, main, aside), el("div", { cls:"savebar", id:"saveBar", hidden:"hidden", role:"region", "aria-label":"Unsaved changes" }));
+}
+
+// --- Email (v0.2.3): password status (set / not set, never the value), the setx line, "Send test email" ----
+function setxEl(e) {
+  var cp = el("button", { cls:"copy", type:"button", text:"Copy" });
+  cp.addEventListener("click", function () { copyText(e.setx, cp); });
+  return el("div", { cls:"setx" }, el("code", { cls:"mono", text:e.setx }), cp);
+}
+function emailBox(e) {
+  var box = el("div", { cls:"panel email-box", id:"emailBox" });
+  add(box, el("p", { cls:"pw " + (e.password_set ? "ok" : "no") }, icon(e.password_set ? "pass" : "warn", 16),
+    el("b", { text:e.password_text }), el("span", { cls:"small muted", text:" · read only from the environment variable " + e.env + "; never shown or saved here" })));
+  if (!e.password_set) add(box, el("p", { cls:"small", text:e.setx_note }), setxEl(e));
+  var msg = el("div", { id:"emailMsg" });
+  var go = el("button", { cls:"act", type:"button", text:"Send test email" });
+  go.addEventListener("click", function () {
+    go.disabled = true; msg.textContent = "";
+    postJSON("/api/run", { email_test:true }).then(function (r) {
+      go.disabled = false;
+      if (r.failed) { add(msg, banner(errText(r), "block")); return; }
+      openRunProgress(r);
+    }, function (err) { go.disabled = false; add(msg, banner("Could not start: " + err, "block")); });
+  });
+  add(box, el("div", { cls:"dacts", style:"justify-content:flex-start" }, go,
+    el("span", { cls:"small muted", text:"Sends a short test to the addresses saved below (save them first). The daily email goes out after the scheduled run when Email is on." })), msg);
+  if (e.last) add(box, el("p", { cls:"small muted", style:"margin-top:8px", text:"Last email activity: " + e.last.at + " · " + e.last.status + (e.last.error ? " · " + e.last.error : "") }));
+  add(box, el("p", { cls:"small", style:"margin-top:8px" }, icon("info", 14), el("span", { text:" " + e.personal_note })));
+  return box;
+}
+
+// --- First run (v0.2.3): no config.json yet. Saved through POST /api/config, so every value is validated --
+function openSetup(su) {
+  openDrawer("Welcome to tayyib", "First run: a few settings, saved to config.json. Change them any time in Settings.", function (b) {
+    var st = { risk:su.risk, broker:su.broker };
+    function seg(name, items) {
+      var box = el("div", { cls:"seg", role:"group", "aria-label":name });
+      items.forEach(function (it) {
+        var x = el("button", { type:"button", "aria-pressed":it.value === st[name] ? "true" : "false", text:it.label });
+        x.addEventListener("click", function () { st[name] = it.value; Array.prototype.forEach.call(box.children, function (y) { y.setAttribute("aria-pressed", y === x ? "true" : "false"); }); });
+        box.appendChild(x);
+      });
+      return box;
+    }
+    var cap = el("input", { cls:"numin", id:"suCap", type:"text", inputmode:"numeric", autocomplete:"off", value:String(su.capital) });
+    var from = el("input", { cls:"txt", id:"suFrom", type:"email", autocomplete:"email", spellcheck:"false", placeholder:"you@gmail.com" });
+    var to = el("textarea", { id:"suTo", rows:"2", spellcheck:"false", placeholder:"empty = to yourself (at most 3, your own)" });
+    var on = el("input", { type:"checkbox", id:"suOn" }), msg = el("div");
+    add(b, el("div", { cls:"fields setup-f" },
+      el("div", { cls:"field" }, el("label", { cls:"fl", "for":"suCap", text:"Your trading capital (₹)" }), cap),
+      el("div", { cls:"field" }, el("span", { cls:"fl", text:"Broker (for charges)" }), seg("broker", su.brokers)),
+      el("div", { cls:"field" }, el("span", { cls:"fl", text:"Risk per trade" }), seg("risk", su.risk_presets),
+        el("p", { cls:"small muted", text:"What you lose if one stop is hit, as % of capital. 1% is the default; presets only here, any value in Settings." })),
+      el("h3", { text:"Email (optional)" }),
+      el("div", { cls:"field" }, el("label", { cls:"fl", "for":"suFrom", text:"Your email address" }), from),
+      el("div", { cls:"field" }, el("label", { cls:"fl", "for":"suTo", text:"Send to" }), to),
+      el("label", { cls:"check", "for":"suOn" }, on, el("span", null, el("b", { text:"Email me the list every trading day" }),
+        el("span", { cls:"small muted", style:"display:block", text:"After the scheduled run. Needs the password below, set outside this page." })))),
+      el("p", { cls:"pw " + (su.email.password_set ? "ok" : "no") }, icon(su.email.password_set ? "pass" : "warn", 16), el("b", { text:su.email.password_text })),
+      su.email.password_set ? null : [el("p", { cls:"small", text:"There is no password field on purpose. " + su.email.setx_note }), setxEl(su.email)],
+      el("p", { cls:"small" }, icon("info", 14), el("span", { text:" " + su.email.personal_note })));
+    var go = el("button", { cls:"act", type:"button", text:"Save settings" }), later = el("button", { cls:"close", type:"button", text:"Not now" });
+    later.addEventListener("click", function () { try { sessionStorage.setItem("tayyibSetupLater", "1"); } catch (x) {} closeDrawer(); });
+    go.addEventListener("click", function () {
+      msg.textContent = "";
+      var set = { capital:numVal(cap.value), broker:st.broker, max_risk_per_trade_pct:st.risk, "email.enabled":on.checked,
+                  "email.from":from.value.trim(), "email.to":to.value.split(/[\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean) };
+      go.disabled = true;
+      postJSON("/api/config", { version:su.version, set:set, reset:[] }).then(function (r) {
+        go.disabled = false;
+        if (r.failed) { add(msg, banner(["Not saved. ", errText(r)], "block")); return; }
+        b.textContent = "";
+        add(b, el("div", { cls:"empty-state", style:"padding:28px 16px" }, el("h3", { text:"Saved ✓" }), el("p", { text:r.message }),
+          el("p", { cls:"small muted", text:"Settings label: " + r.label + ". Next: run today's list after 3:30 PM IST." })),
+          el("div", { cls:"dacts" }, el("button", { cls:"close", type:"button", text:"Close", onclick:closeDrawer })));
+        loaded = {}; show(current || "today"); loadMeta();
+      }, function (err) { go.disabled = false; add(msg, banner("Not saved: " + err, "block")); });
+    });
+    add(b, msg, el("div", { cls:"dacts" }, go, later));
+  });
 }
 
 // --- Run today's list (POST /api/run: tayyib-daily on this computer, analysis only) ------------------
@@ -1561,7 +1651,7 @@ function openRun() {
   });
 }
 function openRunProgress(s, note) {
-  openDrawer(s.kind === "backtest" ? "Backtest" : "Today's list", s.command || "tayyib-daily", function (b) { drawRun(b, s, note); });
+  openDrawer(s.kind === "backtest" ? "Backtest" : s.kind === "email_test" ? "Test email" : "Today's list", s.command || "tayyib-daily", function (b) { drawRun(b, s, note); });
   RUN.view = true; RUN.last = s; runPill(s);
   if (s.state === "running") pollRun();
 }
@@ -1573,11 +1663,14 @@ function drawRun(b, s, note) {
   var word = s.state === "running" ? "Running" : s.state === "ok" ? "Done" : "Failed";
   add(b, el("div", { cls:"runhead" }, badge(word, kind), el("span", { cls:"el", text:s.elapsed_text || "" }), el("span", { cls:"small muted", text:s.started_text ? "started " + s.started_text : "" })));
   if (bt && s.state === "running") add(b, el("p", { cls:"small", style:"margin-top:12px", text:(s.progress ? "Now: " + s.progress + ". " : "") + "A backtest takes about 4 minutes (compare runs it three times). You can close this panel: it keeps running." }));
-  if (s.state === "ok" && bt) add(b, el("div", { style:"margin-top:14px" }, banner("Backtest saved (" + s.backtest_id + "). The Backtest tab shows it now.", "pass")),
+  if (s.kind === "email_test") {
+    if (s.state === "ok") add(b, el("div", { style:"margin-top:14px" }, banner(s.message || "Test email sent: check your inbox (and the spam folder).", "pass")));
+    if (s.state === "failed") add(b, el("div", { style:"margin-top:14px" }, banner(s.error || "UNKNOWN error", "block")));
+  } else if (s.state === "ok" && bt) add(b, el("div", { style:"margin-top:14px" }, banner("Backtest saved (" + s.backtest_id + "). The Backtest tab shows it now.", "pass")),
     el("div", { cls:"dacts" }, el("button", { cls:"act", type:"button", text:"Show the backtest", onclick:function () { closeDrawer(); BT.id = s.backtest_id; show("backtest"); loadBacktest(s.backtest_id); } })));
   else if (s.state === "ok") add(b, el("div", { style:"margin-top:14px" }, banner("Today's list (" + s.list_date + ") is ready. The Today tab shows it now.", "pass")),
     el("div", { cls:"dacts" }, el("button", { cls:"act", type:"button", text:"Show today's list", onclick:function () { closeDrawer(); show("today"); } })));
-  if (s.state === "failed") add(b, el("div", { style:"margin-top:14px" }, banner([bt ? "Nothing was saved. " : "The list was not changed. ", s.error || "UNKNOWN error"], "block")));
+  if (s.state === "failed" && s.kind !== "email_test") add(b, el("div", { style:"margin-top:14px" }, banner([bt ? "Nothing was saved. " : "The list was not changed. ", s.error || "UNKNOWN error"], "block")));
   var pre = el("pre", { cls:"log", "aria-label":"Output of " + (s.command || "tayyib-daily"), tabindex:"0", text:(s.lines || []).join("\n") || "Starting…" });
   add(b, el("p", { cls:"small muted", style:"margin-top:14px", text:"Output (last " + ((s.lines || []).length) + " lines)" }), pre);
   pre.scrollTop = pre.scrollHeight;
@@ -1587,7 +1680,7 @@ function runPill(s) {
     var p = document.getElementById(id); if (!p) return;
     p.hidden = !s || s.state === "idle";
     if (!s) return;
-    var what = s.kind === "backtest" ? "backtest" : "today's list";
+    var what = s.kind === "backtest" ? "backtest" : s.kind === "email_test" ? "test email" : "today's list";
     p.textContent = s.state === "running" ? "Running " + what + " · " + s.elapsed_text : s.state === "ok" ? "Last run (" + what + "): done" : "Last run (" + what + "): failed";
   });
 }
@@ -1598,7 +1691,10 @@ function pollRun() {
       RUN.last = s; runPill(s);
       if (RUN.view && drawer.open) drawRun(document.getElementById("drawerBody"), s);
       if (s.state === "running") return pollRun();
-      if (s.state === "ok" && s.kind === "backtest") {   // the run list refreshes, showing the new run
+      if (s.kind === "email_test") {
+        announce(s.state === "ok" ? "Test email sent" : "The test email was not sent");
+        if (loaded.settings) { loaded.settings = false; if (current === "settings") LOADERS.settings(); }
+      } else if (s.state === "ok" && s.kind === "backtest") {   // the run list refreshes, showing the new run
         BT.id = s.backtest_id; if (loaded.backtest) loadBacktest(s.backtest_id); announce("Backtest saved");
       } else if (s.state === "ok") {                  // the Today tab reloads to the new list; other tabs refetch
         loaded = { today:true }; LOADERS.today(); announce("Today's list is ready");
@@ -1618,7 +1714,7 @@ function btRunButton(cls) {
 }
 function openBtRun() {
   getJSON("/api/run/status").then(function (s) {
-    if (s.state === "running") return openRunProgress(s, "A run is already going (" + (s.kind === "backtest" ? "a backtest" : "today's list") + "): only one at a time. Wait for it to finish.");
+    if (s.state === "running") return openRunProgress(s, "A run is already going (" + (s.kind === "backtest" ? "a backtest" : s.kind === "email_test" ? "a test email" : "today's list") + "): only one at a time. Wait for it to finish.");
     openDrawer("Run backtest", "tayyib-backtest on this computer · writes only trader/backtest/ and the price cache", function (b) {
       var opt = { years:3, mode:"all" };
       function seg(name, values, label) {
@@ -1681,8 +1777,8 @@ function btEquity(q) {
   gd.appendChild(svg("line", { "class":"cap", x1:q.pad, x2:q.plot_right, y1:dd.zero_y, y2:dd.zero_y }));
   gd.appendChild(svg("polygon", { "class":"dd", points:dd.area }));
   dd.marks.forEach(function (m) {
-    gd.appendChild(svg("line", { "class":"ddm", x1:m.x, x2:m.x, y1:4, y2:h - 18 }));   // peak label on top, trough below
-    gd.appendChild(svg("text", { "class":"ddl", x:m.x + 4, y:m.kind === "peak" ? 14 : h - 4, text:m.label }));
+    gd.appendChild(svg("line", { "class":"ddm", x1:m.x, x2:m.x, y1:m.y1, y2:m.y2 }));   // v0.2.3: lines between the label rows
+    gd.appendChild(svg("text", { "class":"ddl", x:m.label_x, y:m.label_y, "text-anchor":m.anchor, text:m.label }));
   });
   var lg = el("ul", { cls:"bt-lg", "aria-label":"Lines" }, q.legend.map(function (l) {
     return el("li", null, svg("svg", { width:34, height:10, viewBox:"0 0 34 10", "aria-hidden":"true", "class":"chart" }, svg("line", { "class":"s-" + l.kind, x1:1, x2:33, y1:5, y2:5 })), l.label);
@@ -1856,6 +1952,8 @@ getJSON("/api/meta").then(function (m) {
   var g = document.getElementById("globalBanners"); g.textContent = "";
   if (m.halal_banner) g.appendChild(banner(m.halal_banner, "warn"));
   (m.config_notes || []).forEach(function (n) { g.appendChild(banner(n, n.indexOf("CONFIG ERROR") === 0 ? "block" : "warn")); });
+  var later = false; try { later = sessionStorage.getItem("tayyibSetupLater") === "1"; } catch (x) {}
+  if (m.first_run && m.setup && !later && !(drawer.open)) openSetup(m.setup);
 }).catch(function () { document.getElementById("globalBanners").appendChild(banner("The dashboard server is not answering.", "block")); });
 }
 loadMeta();

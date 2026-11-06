@@ -323,6 +323,23 @@ No. There is no broker connection, and no code that places orders. You get a tic
 and you place the order yourself. A read-only connection (to see your holdings) is on the roadmap.
 Placing orders will always need your explicit yes for each one.
 
+### Can I email the list to my friends?
+No. The email is for **your own inbox** (at most 3 addresses, all yours). Sending stock picks with entry,
+stop and target to other people can count as publishing research or recommendations, and in India that may
+need registration with SEBI as a Research Analyst. It also changes what the list is: a tool you use for
+yourself, with your capital and your settings, becomes advice to someone else, whose money and situation
+the tool knows nothing about.
+
+If friends or team members want it, each of them installs their own copy, with their own settings, and
+gets their own email on their own computer. The tool is free, so that costs them nothing.
+
+### Is my email password safe?
+The password is never stored by the tool. You keep it in a Windows environment variable,
+`TAYYIB_SMTP_PASSWORD` (set once with `setx`), and the tool reads it only when it sends. It is never written
+to `config.json` (which refuses any password-like setting), never logged, never shown on the dashboard (only
+"Password: set" or "not set") and never given to the MCP server. Use a Gmail **App Password**, not your
+normal one: you can delete it any time and the email simply stops.
+
 ### Is it safe that the page can save settings?
 Yes. It is built so that only you, on your computer, can do it, and only within safe limits:
 - The dashboard listens on `127.0.0.1` only: other computers, and your phone, cannot reach it.

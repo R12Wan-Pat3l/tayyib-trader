@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.2.3 (2026-11-06)
+
+Today's halal list by email, from your own computer, every trading day, without running anything. For your
+own inbox only. No pick, plan or verdict changes in the daily list (still default@2; the baseline is
+unchanged).
+
+### Added
+
+- **tayyib-email** (the 18th skill): `email_report.py test` (a short test email, with the exact SMTP error if
+  it fails) and `send [--date D] [--dry-run]`. The email: anything wrong first (a failed run; a stock you
+  hold that is no longer compliant, in red), every banner of the list, the top PASS picks as cards (entry,
+  stop, target, quantity, position, loss at the stop, time machine, the first lines of Why), the other rows
+  with their check, the paper tracker (open trades, this month's results, win rate by PASS / WARN / BLOCK)
+  and the footer "Generated on your computer by tayyib-trader vX. You place orders yourself in your broker
+  app. Not financial advice, not a fatwa." HTML with a plain-text alternative, inline CSS, nothing loaded
+  from the web; the list attached as `.md`.
+- Subjects: `tayyib: 3 picks for 6 Nov 2026 (PASS 3 · WARN 2)`, `tayyib: no picks today`, or `tayyib: run
+  FAILED / data stale`. A missing, stale (not that day's completed session) or failed list sends the FAILED
+  email saying what is missing, never older picks. Weekends and holidays in your settings: nothing sent
+  ("market closed"). Every attempt is logged in `trader/email/log.json`, with no addresses and no secrets.
+- Settings `email.*`: enabled (off), smtp_host (smtp.gmail.com), smtp_port (465 SSL or 587 STARTTLS),
+  from, to (at most 3; empty = yourself), send_when (always / picks_only), attach_md. Not part of the
+  settings label.
+- **The password is read only from the environment variable `TAYYIB_SMTP_PASSWORD`.** Never stored in
+  config.json (any password-like setting is refused), never logged, printed, shown on the dashboard or sent
+  to the MCP server. Without it: a clear message ("TAYYIB_SMTP_PASSWORD is not set: see User guide, Get the
+  list by email"), `--dry-run` still works, and the scheduled run still makes the list and logs "email
+  skipped: password not set".
+- `tayyib-daily --email`: the list exactly as without it, then the email; a failed list sends the FAILED
+  email.
+- `tools/schedule_windows.py show | install --yes | remove --yes | status`: one Windows task, `tayyib-daily`,
+  weekdays at 16:20 IST, with the full path to py.exe. `show` changes nothing; install and remove refuse
+  without `--yes`.
+- `start.bat`: finds Python, uses `%USERPROFILE%\tayyib-live\trader` unless `TAYYIB_DIR` is set, creates it,
+  opens the dashboard.
+- First-run setup in the dashboard when there is no config.json: capital, broker, risk per trade (presets),
+  email address and on / off, saved through the same validated Settings save. No password field: the `setx`
+  line instead.
+- Settings, **Email**: the fields, "Password: set / not set" (never the value) and **Send test email**
+  (through `POST /api/run`, same token and checks, one run at a time; it can only run `email_report.py
+  test`).
+
+### Fixed
+
+- Backtest drawdown chart: the "peak" and "trough" labels each have their own row and the marker lines run
+  between the rows, so the labels never cross a line or each other, however close the dates; a label at the
+  right edge is anchored at its end.
+
+### Personal use only
+
+Sending the list to other people can count as publishing stock recommendations, which in India may need
+SEBI Research Analyst registration. Team members should run their own copy. Not financial advice. Not a
+fatwa.
+
 ## v0.2.2 (2026-11-06)
 
 A Backtest tab in the dashboard, and two engine fixes. No pick, plan or verdict changes in the daily list

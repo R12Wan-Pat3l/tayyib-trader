@@ -58,7 +58,7 @@ MCP client configuration:
 ```
 core/tayyib_core.py      shared library (config, data, indicators, setups, charges, halal, guards)
 tools/sync_core.py       copies the core into every skill folder (--check verifies)
-tayyib-<skill>/          SKILL.md (instructions for Claude) + one script + a copy of tayyib_core.py (17 skills)
+tayyib-<skill>/          SKILL.md (instructions for Claude) + one script + a copy of tayyib_core.py (18 skills)
 mcp/server.py            stdio MCP server wrapping the scripts
 tayyib-dashboard/        dashboard.py (local web server) + actions.py (save settings, backups, run) + index.html (one page, inline CSS/JS/SVG)
 design-system/tayyib/    the dashboard's design system (MASTER.md, pages/dashboard.md); not shipped code
@@ -216,6 +216,70 @@ impossible when the ETF is UNKNOWN, and "The Nifty 50 (not halal-screened, price
 its CAGR is higher (reference only, not a halal option).
 
 MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
+
+## Email (`tayyib-email`, v0.2.3)
+
+`tayyib-email/email_report.py`:
+- `test`: a short test email; the exact SMTP error on failure (`describe()`: class, code, server text; a
+  535 adds the App Password hint), exit 1.
+- `send [--date D] [--dry-run]`: the list of day D (default today). `--dry-run` writes
+  `trader/email/D.eml` and `D.html`, sends nothing, needs no password. Hidden flags used by `daily.py --email`:
+  `--scheduled` (honours `email.enabled` and `send_when`, and turns a missing password into a logged skip,
+  exit 0) and `--run-failed TEXT`.
+- `--json` for each.
+
+**Config** (`email`, documented in `DEFAULT_CONFIG_DOCS`): `enabled` (false), `smtp_host`
+(smtp.gmail.com), `smtp_port` (enum 465 SSL / 587 STARTTLS, certificate checked with
+`ssl.create_default_context()`), `from` (type `email`), `to` (type `emails`, at most `tc.MAX_EMAIL_TO` = 3;
+empty means `[from]`), `send_when` (`always` | `picks_only`), `attach_md` (true). `tc.EMAIL_RE` refuses
+spaces, CR/LF, commas and angle brackets (no header injection). `email` is in `SETTINGS_EXCLUDE`: it is
+not part of the settings snapshot or hash (still default@2). Invalid email values are reported as
+"(not shown)" so addresses stay out of daily notes.
+
+**The password** is read only from `TAYYIB_SMTP_PASSWORD` (`email_report.password()`). Any config key that
+looks like a secret (`tc.is_secret_key`: words password, passwd, pwd, pass, secret, token, credential, auth,
+apikey) is refused with a note that never echoes the value; `config_errors` includes it, so the dashboard
+cannot save it and a hand-written one is dropped on the next save. Error texts are scrubbed of the password
+and the addresses before they are logged or returned.
+
+**Order of checks in `send`:** `--scheduled` and not enabled → skipped; not a trading day
+(`tc.is_trading_day`: weekend or `holidays`) → `market_closed`, nothing sent; `email.to` invalid → refused;
+then the email is built; `picks_only` with no pick → skipped; dry run → files; no password → the message
+(`PASSWORD_MISSING`, exit 2) or, scheduled, a logged skip; no `from` → refused; send.
+
+**Never invents (`load_daily`):** the list must be `daily/D.json` with `date` D and `asof` on D at or after
+15:30 IST. Missing, unreadable, another date, made before the close, or `--run-failed` → kind `failed`,
+subject `tayyib: run FAILED / data stale`, the problem stated, no picks, rows, banners or attachment.
+
+**Content (`build()` → `render_text()` / `render_html()`):** subject `tayyib: N picks for D Mon YYYY (PASS a ·
+WARN b)` (picks = `top_picks`) or `tayyib: no picks today`; sections in `ORDER`: problem, held but no longer
+compliant (open positions in `positions.json` whose `tc.halal_status` is not compliant; red, at the top),
+every banner (`banner`, `banners[]`), PASS cards (entry, stop, target, qty, position, loss at stop,
+expectancy, past trades, valid until, up to 5 Why lines: what failed or is UNKNOWN first, then setup /
+history / plan), the other rows (check and first reason), the tracker (open, waiting, this month's closed
+trades, win rate by check from `tracker.json`), notes, the personal-use note, the footer. HTML with a
+plain-text alternative, inline CSS only, tables for layout, no images, nothing remote. The daily `.md` is
+attached when `attach_md`.
+
+**Log:** `trader/email/log.json` `{entries: [{at, date, command (test | send | dry_run | scheduled), status
+(sent | failed | skipped | dry_run | market_closed), recipients (a count), kind, error}]}`, the last 500. No
+addresses, no secrets.
+
+**Scheduled run:** `tayyib-daily/daily.py --email [--dir TRADER]` sets `TAYYIB_DIR` (and the working folder
+to its parent), skips everything on a non-trading day (logged as market closed), runs itself without
+`--email` / `--dir` as a child (so the list is exactly the plain run's) and then `email_report.py send
+--scheduled`, adding `--run-failed "exit code N: last stderr line"` when the list failed.
+
+**Windows task (`tools/schedule_windows.py`):** `show` prints the command and changes nothing; `install
+--yes` runs `schtasks /Create /TN tayyib-daily /TR "<py.exe> <repo>\tayyib-daily\daily.py --email --dir
+<trader>" /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 16:20 /F` (16:20 IST converted to the PC's clock, days
+shifted if that crosses midnight); `remove --yes` (`/Delete /TN tayyib-daily /F`); `status` (`/Query`).
+Without `--yes` it refuses (exit 2). It only ever touches the task named `tayyib-daily`. The PC must be on
+and the user logged in.
+
+**`start.bat`** (repo root): checks `py`, sets `TAYYIB_DIR` to `%USERPROFILE%\tayyib-live\trader` when it is
+not set (in the code `TAYYIB_DIR` names the trader folder itself), creates it, works from its parent and
+starts the dashboard (which opens the browser).
 
 ## Rules in code (not configurable)
 
@@ -469,6 +533,23 @@ and never the validator's fallback ("using 25"). The server adds `text` (under t
 the setting's name) to each error, `needs_note` for a halal loosening, and `problems` to a refused save;
 the validator's own `message` / `errors` are unchanged (the CLI and daily notes keep them). The key name
 stays only in the small code line under each field.
+
+**Test email (v0.2.3):** `POST /api/run` with exactly `{"email_test": true}` runs
+`tayyib-email/email_report.py test` (`actions.email_argv()`), nothing else; it is refused with 400
+`TAYYIB_SMTP_PASSWORD is not set: ...` before starting when the dashboard's environment has no password, and
+it shares the one run slot (409 "a test email" while it runs). `status` gives `message` or the server's
+error. `api_settings` adds `email` (`email_status()`: `password_set`, `password_text` "Password: set / not
+set", the `setx` line, the last log entry); the value is never read out. The Email group renders the
+`email.*` fields (types `email`, `emails`).
+
+**First run (v0.2.3):** `/api/meta` has `first_run` (no `config.json`) and `setup` (`setup_view()`: capital,
+broker Zerodha / Groww, risk presets 0.5 / 1 / 1.5 / 2 %, email status, the keys it saves). The page opens a
+Welcome drawer that saves `capital, broker, max_risk_per_trade_pct, email.enabled, email.from, email.to`
+through `POST /api/config` (validated like any save). No password field.
+
+**Drawdown labels (v0.2.3):** `dd_marks()` gives each marker `label_x`, `label_y`, `anchor`, `y1`, `y2` and
+its label `box`: the peak label has the top row, the trough label the bottom row, the lines run between
+them, and a label that would pass the right edge is anchored at its end.
 
 **Run (`POST /api/run`, `actions.Runner`):** the body is `{"skip_news": bool}` (→ tayyib-daily `--no-news`)
 or (v0.2.2) `{"backtest": {"years": 3 | 5, "mode": "all" | "swing" | "delivery", "compare": bool}}` (→

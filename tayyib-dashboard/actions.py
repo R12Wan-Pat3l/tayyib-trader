@@ -7,6 +7,8 @@
    (it writes only trader/backtest/ and the price cache), one at a time, as a subprocess with the same Python
    and the same TAYYIB_DIR. The page can set only "skip news" for the daily list, and only years (3 or 5),
    mode (all, swing, delivery) and compare (on / off) for a backtest.
+3. (v0.2.3) "Send test email": tayyib-email/email_report.py test and nothing else, refused before it starts when
+   TAYYIB_SMTP_PASSWORD is not set. The password stays in the environment: never read, stored or shown here.
 
 Nothing here places, changes or cancels an order, and nothing here talks to a broker.
 """
@@ -28,6 +30,9 @@ import tayyib_core as tc  # noqa: E402
 ROOT = os.path.dirname(HERE)
 DAILY = os.path.join(ROOT, "tayyib-daily", "daily.py")
 BACKTEST = os.path.join(ROOT, "tayyib-backtest", "backtest.py")
+EMAIL = os.path.join(ROOT, "tayyib-email", "email_report.py")
+PW_ENV = "TAYYIB_SMTP_PASSWORD"
+PASSWORD_MISSING = "TAYYIB_SMTP_PASSWORD is not set: see User guide, Get the list by email"
 BT_YEARS = (3, 5)
 BT_MODES = ("all", "swing", "delivery")
 BACKUP_DIR = "config_backups"
@@ -271,7 +276,11 @@ def run_advice(now=None, cfg=None):
 def run_request(body):
     """What the page may start, strictly: {"skip_news": bool} (tayyib-daily) or
     {"backtest": {"years": 3 | 5, "mode": "all" | "swing" | "delivery", "compare": bool}} (tayyib-backtest).
-    -> (kind, options). Anything else is refused."""
+    or (v0.2.3) {"email_test": true} (tayyib-email test). -> (kind, options). Anything else is refused."""
+    if isinstance(body, dict) and "email_test" in body:
+        if body != {"email_test": True}:
+            raise Refused(400, "a test email takes no options: {\"email_test\": true}")
+        return "email_test", {}
     if isinstance(body, dict) and "backtest" in body:
         b = body["backtest"]
         if set(body) != {"backtest"} or not isinstance(b, dict) or set(b) - {"years", "mode", "compare"}:
@@ -287,6 +296,16 @@ def run_request(body):
     if not isinstance(body, dict) or set(body) - {"skip_news"} or not isinstance(body.get("skip_news", False), bool):
         raise Refused(400, "the only option is skip_news (true or false)")
     return "daily", {"skip_news": bool(body.get("skip_news"))}
+
+
+def password_set():
+    """Whether the SMTP password is in this server's environment. Only yes or no: the value is never read out."""
+    return bool((os.environ.get(PW_ENV) or "").strip())
+
+
+def email_argv():
+    """The whole command line the page can start for email: test. Never send, never an address or a password."""
+    return ["test"]
 
 
 def backtest_argv(opts):
@@ -313,9 +332,10 @@ class Runner(object):
     """One run at a time, tayyib-daily or a backtest. start() -> state; status() -> state with the last lines of
     output."""
 
-    def __init__(self, script=DAILY, python=None, backtest_script=BACKTEST):
+    def __init__(self, script=DAILY, python=None, backtest_script=BACKTEST, email_script=EMAIL):
         self.script = script
         self.backtest_script = backtest_script
+        self.email_script = email_script
         self.python = python or sys.executable
         self.lock = threading.Lock()
         self.proc = None
@@ -327,14 +347,18 @@ class Runner(object):
 
     def start(self, body):
         kind, opts = run_request(body)
+        if kind == "email_test" and not password_set():
+            raise Refused(400, PASSWORD_MISSING)
         with self.lock:
             if self.state["state"] == "running":
-                what = "a backtest" if self.state.get("kind") == "backtest" else "today's list"
+                what = {"backtest": "a backtest", "email_test": "a test email"}.get(self.state.get("kind"), "today's list")
                 raise Refused(409, "a run is already going (%s, started %s): wait for it to finish"
                               % (what, self.state["started"]))
             skip = bool(opts.get("skip_news"))
             if kind == "backtest":
                 cmd = [self.python, self.backtest_script] + backtest_argv(opts)
+            elif kind == "email_test":
+                cmd = [self.python, self.email_script] + email_argv()
             else:
                 cmd = [self.python, self.script] + (["--no-news"] if skip else [])
             env = dict(os.environ, TAYYIB_DIR=tc.data_dir(), PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
@@ -361,6 +385,8 @@ class Runner(object):
         rc = proc.wait()
         if self.state.get("kind") == "backtest":
             return self._done_backtest(rc, t0)
+        if self.state.get("kind") == "email_test":
+            return self._done_email(rc)
         today = tc.today_ist().isoformat()
         p = os.path.join(tc.data_dir(), "daily", today + ".json")
         fresh = os.path.exists(p) and os.path.getmtime(p) >= t0 - 1
@@ -374,6 +400,18 @@ class Runner(object):
                 self.state.update(state="failed", error=(
                     "tayyib-daily stopped with exit code %d: %s" % (rc, " / ".join(tail) or "no output") if rc != 0 else
                     "tayyib-daily finished but wrote no list for %s" % today))
+
+    def _done_email(self, rc):
+        with self.lock:
+            self.t1 = time.time()
+            self.state.update(ended=tc.now_ist().isoformat(timespec="seconds"), returncode=rc)
+            tail = [x for x in self.lines if x.strip()]
+            if rc == 0:
+                self.state.update(state="ok", message=tail[-1] if tail else "test email sent")
+            else:
+                err = tail[-1] if tail else "no output"
+                self.state.update(state="failed", error="the test email was not sent: " +
+                                  (err[len("error: "):] if err.startswith("error: ") else err))
 
     def _done_backtest(self, rc, t0):
         rid = newest_backtest(t0)
@@ -393,7 +431,9 @@ class Runner(object):
             out = dict(self.state)
             out["elapsed_s"] = None if self.t0 is None else int((self.t1 or time.time()) - self.t0)
             out["lines"] = list(self.lines)
-            if out.get("kind") == "backtest":
+            if out.get("kind") == "email_test":
+                out["command"] = "tayyib-email " + " ".join(email_argv())
+            elif out.get("kind") == "backtest":
                 out["command"] = "tayyib-backtest " + " ".join(backtest_argv(out["backtest"]))
                 prog = [x.strip() for x in out["lines"] if x.startswith("  ")]   # its progress lines (stderr)
                 out["progress"] = prog[-1] if prog else None

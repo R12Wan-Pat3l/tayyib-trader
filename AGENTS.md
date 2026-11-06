@@ -30,6 +30,11 @@ analyses, plans and checks. It never places an order.
 9. "Why was X picked?": answer from the row's `why[]` in `trader/daily/DATE.json`, quoting the values
    and limits it recorded. Say UNKNOWN where it says UNKNOWN. Never invent reasons, and never show a
    missing value as 0.
+10. Email (`tayyib-email`, v0.2.3) is for the user's own inbox only (at most 3 of their own addresses).
+   Never set it up to send the list to other people: that can count as publishing stock recommendations,
+   which in India may need SEBI Research Analyst registration; each person runs their own copy. The SMTP
+   password is read only from the environment variable `TAYYIB_SMTP_PASSWORD`: never ask for it in the chat,
+   never write it to `config.json` or any file, never print or log it.
 
 ## Today's list in one command
 
@@ -57,7 +62,7 @@ python3 tayyib-broker/ticket.py show                # the ticket the user places
 Dashboard (127.0.0.1 only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
 Everything is GET / HEAD except exactly two write endpoints: `POST /api/config` (saves `trader/config.json`
 through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib-daily`, analysis only, or
-`tayyib-backtest run --years 3|5 --mode M [--compare] --write`, nothing else).
+`tayyib-backtest run --years 3|5 --mode M [--compare] --write`, or (v0.2.3) `tayyib-email test`, nothing else).
 Both need the Host, Origin, per-start token, JSON type and 64 KB checks. Never add another write endpoint,
 and never a button, endpoint or request that places, modifies or cancels an order or talks to a broker.
 
@@ -67,6 +72,10 @@ Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] --write` (wr
 `backtest.py list`, `backtest.py show ID`. Read out every line of its `banners[]` first: they are the
 honest limits (today's halal list applied to the past, survivorship bias, news can't be replayed, too few
 trades, overfit, the Shariah ETF did better). The Nifty 50 is reference only, never a halal option. A benchmark it could not fetch is UNKNOWN, never 0.
+Email (18th skill, `tayyib-email`): `email_report.py send --dry-run` (writes `trader/email/`, sends nothing),
+`email_report.py test`, `email_report.py send [--date D]`; `tayyib-daily/daily.py --email` makes the list and
+then emails it (the Windows task from `tools/schedule_windows.py show | install --yes | remove --yes`). A
+missing password is a clear message, never a crash; the daily list still runs.
 Year end: `tayyib-purify/purify.py report --year 2026`.
 
 Every script accepts `--json` (after the subcommand, where there is one) for machine-readable output.

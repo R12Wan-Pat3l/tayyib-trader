@@ -51,13 +51,14 @@ market closes. You decide, and you place the order yourself.
 
 The first run builds the halal list (about 5 minutes). After that it refreshes itself every month.
 
-## The 17 skills
+## The 18 skills
 
 | skill | in one line |
 |---|---|
 | `tayyib-daily` | **The one you use:** today's halal list with entry, stop, target, quantity and PASS/WARN/BLOCK |
 | `tayyib-tracker` | **Excel record:** did each earlier pick hit its target or its stop? Win rate and average result |
 | `tayyib-dashboard` | **Your dashboard** in the browser (on your own computer, places no order): today's list with the why, results, halal ratios, tickets, settings, a run button |
+| `tayyib-email` | **Today's list in your own inbox** every trading day, sent from your computer (for you only; the password stays in Windows) |
 | `tayyib-halal` | Builds and checks the halal (Shariah-screened) stock list |
 | `tayyib-scanner` | Finds trade setups on halal stocks |
 | `tayyib-news` | Indian market news per stock, with HALAL-WATCH flags |

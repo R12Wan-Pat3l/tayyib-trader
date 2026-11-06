@@ -353,8 +353,7 @@ class RunBacktest(ServerCase):
 
 class Version(unittest.TestCase):
     def test_version_and_defaults(self):
-        self.assertEqual(tc.VERSION, "0.2.2")
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)
+        self.assertEqual(tc.DEFAULTS_VERSION, 2)          # the version itself is pinned by the newest test file
 
 
 if __name__ == "__main__":

@@ -246,7 +246,9 @@ def api_meta(q):
             "latest_date": dates[0] if dates else None,
             "banners": (latest or {}).get("banners") or [],
             "halal_banner": tc.halal_banner(cfg, uni), "config_notes": tc.config_notes(cfg),
-            "disclaimer": "Not financial advice, not a fatwa.", "full_disclaimer": tc.DISCLAIMER}
+            "disclaimer": "Not financial advice, not a fatwa.", "full_disclaimer": tc.DISCLAIMER,
+            "first_run": not os.path.exists(A.config_path()),
+            "setup": setup_view() if not os.path.exists(A.config_path()) else None}
 
 
 def api_dates(q):
@@ -972,6 +974,26 @@ def _ord(d):
     return tc.parse_date(d).toordinal()
 
 
+DD_CHAR_W = 6.8          # px per character of an 11px semibold label (a generous estimate)
+
+
+def dd_marks(px, plabel, tx, tlabel, width, h):
+    """The peak and trough marker lines and their labels on the drawdown strip (v0.2.3). The peak label has the
+    top row (baseline 14), the trough label the bottom row (baseline h - 4), and both lines run only between
+    the rows (y 19 to h - 17), so a label never crosses a marker line, nor the other label, however close the
+    dates are. A label that would run past the right edge is anchored at its end instead."""
+    out = []
+    for kind, x, label, y in (("peak", px, plabel, 14), ("trough", tx, tlabel, h - 4)):
+        w = len(label) * DD_CHAR_W
+        if x + 5 + w <= width:
+            lx, anchor, box = x + 5, "start", (x + 5, x + 5 + w)
+        else:
+            lx, anchor, box = x - 5, "end", (x - 5 - w, x - 5)
+        out.append({"kind": kind, "x": round(x, 1), "label": label, "label_x": round(lx, 1), "label_y": y,
+                    "anchor": anchor, "y1": 19, "y2": h - 17, "box": [round(box[0], 1), y - 11, round(box[1], 1), y + 2]})
+    return out
+
+
 def bt_equity(r, width=760, height=300, dd_height=124, pad=48, right=132):
     """The strategy's equity and both benchmarks (each starting at the capital) on one date axis, and a
     drawdown strip under it with the worst drawdown's peak and trough marked. Coordinates only."""
@@ -1040,9 +1062,8 @@ def bt_equity(r, width=760, height=300, dd_height=124, pad=48, right=132):
     o = r["metrics"]["overall"]
     marks = []
     if o.get("drawdown_peak") and o.get("drawdown_trough"):
-        marks = [{"kind": "peak", "x": round(X(o["drawdown_peak"]), 1), "label": "peak " + o["drawdown_peak"]},
-                 {"kind": "trough", "x": round(X(o["drawdown_trough"]), 1),
-                  "label": "trough %s (%s)" % (o["drawdown_trough"], pct(o.get("max_drawdown_pct")))}]
+        marks = dd_marks(X(o["drawdown_peak"]), "peak " + o["drawdown_peak"], X(o["drawdown_trough"]),
+                         "trough %s (%s)" % (o["drawdown_trough"], pct(o.get("max_drawdown_pct"))), width, dd_height)
     return {"status": "ok", "width": width, "height": height, "dd_height": dd_height, "plot_right": width - right,
             "pad": pad, "series": out_series, "capital_y": round(Y(cap), 1), "capital_label": inr_short(cap),
             "y_labels": [{"y": round(Y(v), 1), "label": inr_short(v)} for v in ticks], "x_labels": x_labels,
@@ -1164,6 +1185,8 @@ def _group_of(key):
         return "selection", "Liquidity and history"
     if key.startswith("daily."):
         return "selection", "The daily list"
+    if key.startswith("email."):
+        return "email", "Your inbox"
     if key in ("broker", "exchange") or key.startswith("charges."):
         return "broker", "Broker and charges"
     if key.startswith("brokers."):
@@ -1181,6 +1204,8 @@ SETTING_GROUPS = (
     ("selection", "Selection", "Which setups are looked for, the liquidity filter and how the daily list is ranked."),
     ("broker", "Broker & charges", "The charges every quantity and every result in R is computed after."),
     ("halal", "Halal", "Stricter than TASIS saves freely. Looser needs your source or scholar, and every list then says so."),
+    ("email", "Email", "Today's list by email to your own inbox, sent from this computer after the scheduled run. "
+              "The password is never stored here: it is read only from the environment variable TAYYIB_SMTP_PASSWORD."),
     ("data", "Data & calendar", "Holidays, news sources and the request header."),
 )
 SECTION_ORDER = {"plan": ("Swing trades", "Delivery trades", "Prices"),
@@ -1289,7 +1314,8 @@ def _range_text(doc):
             return "%s to %s" % (inr_short(doc["min"]), inr_short(doc["max"]))
         return "%s–%s%s" % (tc._fmt_val(doc["min"]), tc._fmt_val(doc["max"]), (" " + unit) if unit and unit != "%" else unit)
     return {"bool": "on or off", "enum": "one of " + ", ".join(tc._fmt_val(c) for c in doc.get("choices") or []),
-            "string": "text", "dates": "dates, YYYY-MM-DD, one a line", "map": "name: URL, one a line"}.get(doc["type"], "")
+            "string": "text", "dates": "dates, YYYY-MM-DD, one a line", "map": "name: URL, one a line",
+            "email": "an email address", "emails": "up to %d addresses, one a line" % tc.MAX_EMAIL_TO}.get(doc["type"], "")
 
 
 def _value_text(v, doc):
@@ -1383,7 +1409,49 @@ def api_settings(q):
             "reset_all": reset_keys(False), "account_keys": [k for k in reset_keys(True) if tc.is_account_key(k)],
             "banner": tc.halal_banner(cfg), "backups": A.list_backups(), "keep_backups": A.KEEP_BACKUPS,
             "apply_note": A.APPLY_NOTE, "data_dir": tc.data_dir(),
-            "preview": preview_view(tc.risk_preview(cfg))}
+            "preview": preview_view(tc.risk_preview(cfg)), "email": email_status(cfg)}
+
+
+PERSONAL_NOTE = ("For your own inbox only. Sending the list to other people can count as publishing stock "
+                 "recommendations, which in India may need SEBI Research Analyst registration: each person runs "
+                 "their own copy.")
+SETX = 'setx TAYYIB_SMTP_PASSWORD "your-app-password"'
+
+
+def email_status(cfg=None):
+    """For the Settings Email section and the first-run screen: whether the password is set (yes / no only: the
+    value is never read out), how to set it, and the last line of trader/email/log.json (no addresses there)."""
+    cfg = cfg or tc.load_config()
+    try:
+        last = ((tc.read_json(os.path.join("email", "log.json"), {}) or {}).get("entries") or [None])[-1]
+    except ValueError:
+        last = None
+    on = A.password_set()
+    return {"password_set": on, "password_text": "Password: set" if on else "Password: not set",
+            "env": A.PW_ENV, "setx": SETX,
+            "setx_note": "Run this once in a new Command Prompt with your Gmail App Password (Google account > "
+                         "Security > 2-Step Verification > App passwords), then close and reopen start.bat so the "
+                         "dashboard sees it. Never type the password into this page or config.json.",
+            "missing_text": A.PASSWORD_MISSING, "personal_note": PERSONAL_NOTE,
+            "enabled": bool(cfg["email"].get("enabled")),
+            "last": None if not last else {"date": last.get("date"), "at": last.get("at"), "status": last.get("status"),
+                                           "error": last.get("error")}}
+
+
+BROKER_CHOICES = (("zerodha", "Zerodha"), ("groww", "Groww"))
+RISK_PRESETS = (0.5, 1.0, 1.5, 2.0)
+
+
+def setup_view():
+    """The first-run screen (config.json missing): what it asks, with the defaults. It saves through POST
+    /api/config like the Settings tab, so every value is validated there."""
+    d = tc.DEFAULT_CONFIG
+    return {"version": A.config_version(), "capital": d["capital"], "broker": d["broker"],
+            "brokers": [{"value": v, "label": l} for v, l in BROKER_CHOICES],
+            "risk_presets": [{"value": v, "label": "%s%%" % tc._fmt_val(v),
+                              "rupees": inr(d["capital"] * v / 100, 0)} for v in RISK_PRESETS],
+            "risk": d["max_risk_per_trade_pct"], "email": email_status(),
+            "keys": ["capital", "broker", "max_risk_per_trade_pct", "email.enabled", "email.from", "email.to"]}
 
 
 def preview_view(rp):
@@ -1631,7 +1699,7 @@ def main(argv=None):
     url = "http://%s:%d/" % (HOST, srv.server_address[1])
     print("tayyib dashboard on %s  data: %s" % (url, tc.data_dir()))
     print("It reads your files; it changes only config.json (Settings, with backups) and runs tayyib-daily or a "
-          "backtest when you press Run. It never places an order.")
+          "backtest when you press Run, or a test email (Settings, Email). It never places an order.")
     print("Press Ctrl+C to stop. Not financial advice, not a fatwa.")
     sys.stdout.flush()
     if not a.no_browser:

@@ -9,6 +9,11 @@ first reason. Saves trader/daily/YYYY-MM-DD.md and .json.
 
 Run it after the close (3:30 PM IST). Nothing here places an order: the
 list is a set of tickets for you to review, then place yourself.
+
+--email (v0.2.3): run the list exactly as without it, then email it to your own inbox with tayyib-email
+(when email.enabled is on and TAYYIB_SMTP_PASSWORD is set). If the list fails, the FAILED email is sent
+instead. On a weekend or a holiday in your settings it makes no list and sends nothing ("market closed").
+This is what the Windows scheduled task runs (tools/schedule_windows.py); --dir names the trader folder.
 """
 import argparse
 import json
@@ -72,8 +77,15 @@ def main(argv=None):
     p.add_argument("--stop-pct", type=float, action="append",
                    help="with --risk-preview: a sample stop distance in %% (repeat for more)")
     p.add_argument("--entry", type=float, default=1000.0, help="with --risk-preview: a sample entry price")
+    p.add_argument("--email", action="store_true", help="make the list, then email it to your own inbox "
+                   "(tayyib-email: when email is on and TAYYIB_SMTP_PASSWORD is set; the scheduled run)")
+    p.add_argument("--dir", default=None, help="with --email: the trader folder to use (sets TAYYIB_DIR)")
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
+    if a.email:
+        return run_and_email(a, sys.argv[1:] if argv is None else list(argv))
+    if a.dir:
+        tc.die("--dir is only for --email (otherwise set TAYYIB_DIR)")
     cfg = tc.load_config()
     if a.risk_preview:
         rp = tc.risk_preview(cfg, a.stop_pct or (2, 3, 5, 8, 10, 15), a.entry)
@@ -254,6 +266,46 @@ def main(argv=None):
     if a.json:
         return tc.print_json(out)
     print(md)
+
+
+def without_email_args(argv):
+    """argv minus --email and --dir PATH: the plain run --email wraps (so its decisions are the same)."""
+    out, skip = [], False
+    for x in argv:
+        if skip:
+            skip = False
+        elif x == "--email":
+            continue
+        elif x == "--dir":
+            skip = True
+        elif not x.startswith("--dir="):
+            out.append(x)
+    return out
+
+
+def run_and_email(a, argv):
+    """The list (this script, unchanged, as a child), then `email_report.py send --scheduled`."""
+    if a.dir:
+        d = os.path.abspath(a.dir)
+        os.environ["TAYYIB_DIR"] = d
+        os.chdir(os.path.dirname(d))
+    cfg = tc.load_config()
+    email = script("tayyib-email", "email_report.py")
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    today = tc.today_ist()
+    if not tc.is_trading_day(today, cfg):
+        print("market closed on %s (weekend or a holiday in your settings): no list, no email" % today.isoformat())
+        return subprocess.run([sys.executable, email, "send", "--scheduled"], env=env).returncode
+    p = subprocess.run([sys.executable, os.path.abspath(__file__)] + without_email_args(argv), env=env,
+                       stderr=subprocess.PIPE, encoding="utf-8", errors="replace")
+    sys.stderr.write(p.stderr or "")
+    failed = None
+    if p.returncode != 0:
+        tail = [x.strip() for x in (p.stderr or "").splitlines() if x.strip()]
+        failed = "exit code %d: %s" % (p.returncode, tail[-1][:300] if tail else "no output")
+    q = subprocess.run([sys.executable, email, "send", "--scheduled"] + (["--run-failed", failed] if failed else []),
+                       env=env)
+    return p.returncode or q.returncode
 
 
 def fmt(x, d=2):
@@ -505,4 +557,4 @@ def render_risk_preview(rp):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

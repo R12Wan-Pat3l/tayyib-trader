@@ -25,5 +25,6 @@
     "max_debt_to_assets_pct": 25.0,
     "max_noncompliant_income_pct": 3.0,
     "max_cash_receivables_to_assets_pct": 90.0
-  }
+  },
+  "email": {"enabled": false, "smtp_host": "smtp.gmail.com", "smtp_port": 465, "from": "", "to": [], "send_when": "always", "attach_md": true}
 }

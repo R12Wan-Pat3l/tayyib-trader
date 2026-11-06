@@ -44,7 +44,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -210,6 +210,17 @@ DEFAULT_CONFIG = {
         "google_news": True,
         "nse_announcements": True,
     },
+    # email (v0.2.3): today's list to your own inbox, sent from this computer. The password is never here:
+    # it is read only from the environment variable TAYYIB_SMTP_PASSWORD (see tayyib-email).
+    "email": {
+        "enabled": False,               # the scheduled run (tayyib-daily --email) sends only when on
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 465,               # 465 = SSL, 587 = STARTTLS
+        "from": "",                     # your address (also the login)
+        "to": [],                       # empty = to yourself (from); at most 3
+        "send_when": "always",          # "always" or "picks_only"
+        "attach_md": True,              # attach the daily list as DATE.md
+    },
     "user_agent": "tayyib-trader/0.1 (+https://github.com/R12Wan-Pat3l/tayyib-trader)",
 }
 
@@ -312,6 +323,14 @@ DEFAULT_CONFIG_DOCS = {
     "news.feeds": _doc("RSS feeds read for market news: name -> URL", type="map"),
     "news.google_news": _doc("Search Google News India per stock", type="bool"),
     "news.nse_announcements": _doc("Read NSE corporate announcements per stock", type="bool"),
+    "email.enabled": _doc("Email today's list after the scheduled run (needs TAYYIB_SMTP_PASSWORD)", type="bool"),
+    "email.smtp_host": _doc("Mail server (SMTP host)", type="string"),
+    "email.smtp_port": _doc("Mail server port: 465 (SSL) or 587 (STARTTLS)", type="enum", choices=[465, 587]),
+    "email.from": _doc("Your email address: the list is sent from it, and it is the login", type="email"),
+    "email.to": _doc("Send to (empty = to yourself; at most 3, your own addresses)", type="emails"),
+    "email.send_when": _doc("When to send: every trading day, or only when there are picks", type="enum",
+                            choices=["always", "picks_only"]),
+    "email.attach_md": _doc("Attach the daily list as a .md file", type="bool"),
     "user_agent": _doc("User agent for data requests", type="string"),
     "daily.top": _doc("tayyib-daily plans at most this many stocks (--top overrides)", 1, 50, "stocks",
                       type="int"),
@@ -395,6 +414,20 @@ _HARD_RULE_WORDS = {"intraday", "mis", "nrml", "short", "shorting", "shorts", "f
                     "excluded", "unknown", "noncompliant", "non", "orders", "order", "autotrade", "auto"}
 
 
+# a password or other secret is never a setting: config.json is a plain file, backed up and shown on a page
+_SECRET_WORDS = {"password", "passwd", "pwd", "pass", "passphrase", "secret", "secrets", "token", "credential",
+                 "credentials", "apikey", "auth"}
+SECRET_NOTE = ("passwords and secrets are never stored in config.json: the email password is read only from the "
+               "environment variable TAYYIB_SMTP_PASSWORD")
+EMAIL_RE = re.compile(r"^[^@\s,;:<>()\[\]\"']+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+MAX_EMAIL_TO = 3
+
+
+def is_secret_key(key):
+    k = str(key).lower()
+    return bool(set(re.split(r"[._\- ]+", k)) & _SECRET_WORDS) or "password" in k or "secret" in k
+
+
 # keys that existed once and were dropped: a config that still has one gets this note
 REMOVED_KEYS = {"halal.list_url": "it was never used"}
 
@@ -412,7 +445,8 @@ def _expect(doc):
     if t in ("enum", "locked"):
         return "one of %s" % ", ".join(_fmt_val(c) for c in doc["choices"])
     return {"bool": "true or false", "string": "text", "dates": "a list of YYYY-MM-DD dates",
-            "map": "an object of name: URL text"}.get(t, t)
+            "map": "an object of name: URL text", "email": "an email address (or empty)",
+            "emails": "a list of at most %d email addresses" % MAX_EMAIL_TO}.get(t, t)
 
 
 def _check_value(doc, v):
@@ -444,6 +478,11 @@ def _check_value(doc, v):
             except (TypeError, ValueError):
                 return False, v
         return True, v
+    if t == "email":
+        return isinstance(v, str) and (v == "" or bool(EMAIL_RE.match(v))), v
+    if t == "emails":
+        return (isinstance(v, list) and len(v) <= MAX_EMAIL_TO
+                and all(isinstance(x, str) and EMAIL_RE.match(x) for x in v)), v
     if t == "map":
         return isinstance(v, dict) and all(isinstance(x, str) for x in v.values()), v
     return False, v
@@ -462,6 +501,9 @@ def _clean_user(user, defaults, prefix, notes):
                              % (key, _fmt_val(v)))
                 continue
             out[k] = _clean_user(v, dflt, key + ".", notes)
+            continue
+        if doc is None and is_secret_key(key):
+            notes.append("CONFIG: %s refused: %s" % (key, SECRET_NOTE))   # never echo the value
             continue
         if doc is None and key in REMOVED_KEYS:
             notes.append("CONFIG: %s removed: %s" % (key, REMOVED_KEYS[key]))
@@ -482,8 +524,9 @@ def _clean_user(user, defaults, prefix, notes):
             notes.append("CONFIG: %s = %s ignored: it is a hard rule and stays %s"
                          % (key, _fmt_val(v), _fmt_val(dflt)))
         else:
+            shown = "(not shown)" if key.startswith("email.") else _fmt_val(v)   # addresses stay out of lists and logs
             notes.append("CONFIG: %s = %s invalid (%s), using default %s"
-                         % (key, _fmt_val(v), _expect(doc), _fmt_val(dflt)))
+                         % (key, shown, _expect(doc), _fmt_val(dflt)))
     return out
 
 
@@ -583,9 +626,9 @@ def halal_banner(cfg, universe=None):
 
 
 # Keys that change no decision; every other key is part of the settings snapshot.
-# display or transport only: user_agent (HTTP header), halal.loosen_note (banner text; the thresholds it
+# display or transport only: email (v0.2.3: where the list is sent), user_agent (HTTP header), halal.loosen_note (banner text; the thresholds it
 # allows are recorded as values), halal.near_limit_pct (only marks ratios near their limit)
-SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct")
+SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct", "email")
 
 
 # Facts about the user, not strategy: your money and your broker. They stay in the hash (they change

@@ -565,7 +565,12 @@ class Settings(OfflineCase):
         snap = set(tc.default_values())
         missing = sorted(k for k in tc.DEFAULT_CONFIG_DOCS if k not in snap and not any(
             s.startswith(k + ".") for s in snap))
-        self.assertEqual(missing, sorted(tc.SETTINGS_EXCLUDE))
+        # v0.2.3: "email" is excluded as a whole section (where the list is sent changes no decision)
+        expected = sorted(k for k in tc.DEFAULT_CONFIG_DOCS if k in tc.SETTINGS_EXCLUDE or any(
+            k.startswith(x + ".") for x in tc.SETTINGS_EXCLUDE))
+        self.assertEqual(missing, expected)
+        self.assertEqual(sorted(k for k in expected if not k.startswith("email.")),
+                         sorted(x for x in tc.SETTINGS_EXCLUDE if x != "email"))
         # the capital only counts when it differs from the default, like any other key
         self.assertNotEqual(tc.settings_snapshot(V({"capital": 200000})[0])["hash"], d["hash"])
 

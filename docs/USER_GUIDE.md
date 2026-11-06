@@ -155,6 +155,31 @@ Both are greyed in Results and the Excel file, kept for the record, and not coun
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.
 - **"Show my positions"**: your open and closed trades and how you're doing.
 
+### How would this strategy have done? (the backtest)
+Ask **"backtest my strategy"** (or run `py tayyib-backtest\backtest.py run --write` from your
+`tayyib-live` folder). It runs the daily list on every trading day of the last 3 years with your capital
+and settings, as if you had followed it, and takes a few minutes (it downloads 5 years of prices for every
+halal stock once a day). It saves `trader\backtest\<id>.md` (read it in any text viewer) and `.json`, and
+changes nothing else: not your tracker, tickets, positions or settings.
+
+How to read it:
+- **The bold lines at the top come first.** Three are always there: today's halal list is used for the
+  past, companies that dropped out are missing (so results are likely better than reality), and the
+  past is no promise. Others may say there were too few trades, that the last third of the years was much
+  weaker (possibly overfit), or that simply holding the Shariah ETF did better.
+- **Overall**: number of trades, win rate, **expectancy** (the average result per trade, in R after
+  charges; above 0 means it made money on average), profit factor (money won / money lost), CAGR (the
+  yearly growth rate of your capital), **max drawdown** (the worst fall from a high, with the dates) and
+  exposure (how often you had money in a trade).
+- **By setup / by mode**: which setups made or lost the money.
+- **In-sample vs out-of-sample**: the first two thirds of the years next to the last third. If the last
+  third is far worse, be careful.
+- **Benchmarks**: the same years for the Shariah ETF and the Nifty 50, bought once and held.
+- **Skipped stocks**: stocks with no prices, or listed too recently to have a year of history first.
+
+Options: `--mode swing` or `delivery`, `--years 5`, `--capital 200000`, `--max-positions 4`, or
+`--from 2023-01-01 --to 2025-12-31`. `py tayyib-backtest\backtest.py list` shows your saved runs.
+
 ### Once a month
 - The halal list refreshes itself (when it's 30 days old).
 - Every few months, compare it with a Shariah fund's holdings: see the [FAQ](FAQ.md#how-do-i-check-the-halal-list-is-right).

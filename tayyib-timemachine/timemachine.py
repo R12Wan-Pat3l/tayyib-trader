@@ -16,134 +16,18 @@ A simulation, not a prediction. Writes trader/sim.json.
 """
 import argparse
 import os
-import random
-import statistics
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 
-def cost_r(entry, exit_price, risk, cfg, qty=100):
-    return tc.round_trip(entry, exit_price, qty, cfg) / qty / risk
-
-
-def walk(days, entry, stop, target, max_days, breakeven):
-    """days: iterable of (open, high, low, close). -> (outcome, exit_price, n_days)."""
-    risk = entry - stop
-    cur_stop = stop
-    n = 0
-    last_close = entry
-    for (o, h, l, c) in days:
-        n += 1
-        if o <= cur_stop:
-            return ("breakeven" if cur_stop >= entry else "stop"), o, n
-        if o >= target:
-            return "target", o, n
-        if l <= cur_stop:
-            return ("breakeven" if cur_stop >= entry else "stop"), cur_stop, n
-        if h >= target:
-            return "target", target, n
-        if breakeven and h >= entry + risk and cur_stop < entry:
-            cur_stop = entry
-        last_close = c
-        if n >= max_days:
-            return "time", c, n
-    return "open", last_close, n
-
-
-def monte_carlo(bars, plan, cfg, n, seed, lookback=500):
-    hist = bars[-lookback:]
-    moves = []
-    for k in range(1, len(hist)):
-        pc = hist[k - 1]["close"]
-        b = hist[k]
-        moves.append((b["open"] / pc, b["high"] / pc, b["low"] / pc, b["close"] / pc))
-    rng = random.Random(seed)
-    entry, stop, target = plan["entry"], plan["stop"], plan["target"]
-    risk = entry - stop
-    max_days = min(plan["max_hold_days"], 250)
-    be = plan["mode"] == "swing"
-    counts = {"target": 0, "stop": 0, "breakeven": 0, "time": 0, "open": 0}
-    rs, days = [], []
-
-    def gen():
-        pc = entry
-        for _ in range(max_days):
-            ro, rh, rl, rc = moves[rng.randrange(len(moves))]
-            o, h, l, c = pc * ro, pc * rh, pc * rl, pc * rc
-            yield (o, max(o, h, c), min(o, l, c), c)
-            pc = c
-
-    for _ in range(n):
-        out, px, d = walk(gen(), entry, stop, target, max_days, be)
-        counts[out] += 1
-        rs.append((px - entry) / risk - cost_r(entry, px, risk, cfg))
-        days.append(d)
-    rs.sort()
-    pct = lambda q: round(rs[min(len(rs) - 1, int(q * len(rs)))], 2)
-    return {
-        "runs": n, "seed": seed, "sessions_sampled": len(moves),
-        "probabilities_pct": {k: round(v / n * 100, 1) for k, v in counts.items() if k != "open"},
-        "expectancy_r": round(sum(rs) / n, 3),
-        "r_percentiles": {"p10": pct(0.10), "p50": pct(0.50), "p90": pct(0.90)},
-        "median_days": statistics.median(days),
-    }
-
-
-def history(bars, plan, cfg):
-    ind = tc.indicators(bars)
-    m = cfg["modes"][plan["mode"]]
-    trades, i = [], (cfg.get("scanner") or {}).get("warmup_bars", 200)
-    last_i = len(bars) - 2
-    while i < last_i:
-        sig = tc.detect(plan["setup"], bars, ind, i, cfg["tick_size"], cfg)
-        if not sig:
-            i += 1
-            continue
-        fill_k = None
-        for k in range(i + 1, min(i + 1 + sig["valid_days"], len(bars))):
-            if bars[k]["close"] < sig["invalidation"] and bars[k]["high"] < sig["trigger"]:
-                break
-            if bars[k]["high"] >= sig["trigger"]:
-                fill_k = k
-                break
-        if fill_k is None:
-            i += 1
-            continue
-        entry = max(bars[fill_k]["open"], sig["trigger"])
-        try:
-            p = tc.plan_trade(sig, cfg, entry)
-        except ValueError:
-            i += 1
-            continue
-        # the fill day itself: only the part after the trigger counts, so check stop on its low
-        b = bars[fill_k]
-        if b["low"] <= p["stop"] and b["close"] < entry:
-            out, px, d = "stop", p["stop"], 1
-        else:
-            fwd = [(x["open"], x["high"], x["low"], x["close"]) for x in bars[fill_k + 1:]]
-            out, px, d = walk(fwd, entry, p["stop"], p["target"], m["max_hold_days"],
-                              plan["mode"] == "swing")
-            d += 1
-        risk = entry - p["stop"]
-        if out != "open":
-            trades.append({"date": bars[fill_k]["date"], "entry": round(entry, 2), "outcome": out,
-                           "exit": round(px, 2), "days": d,
-                           "r": round((px - entry) / risk - cost_r(entry, px, risk, cfg), 2)})
-        i = fill_k + d
-    n = len(trades)
-    summ = {"trades": n}
-    if n:
-        summ.update({
-            "target": sum(t["outcome"] == "target" for t in trades),
-            "stop": sum(t["outcome"] == "stop" for t in trades),
-            "breakeven": sum(t["outcome"] == "breakeven" for t in trades),
-            "time": sum(t["outcome"] == "time" for t in trades),
-            "win_rate_pct": round(sum(t["r"] > 0 for t in trades) / n * 100, 1),
-            "expectancy_r": round(sum(t["r"] for t in trades) / n, 3),
-        })
-    return summ, trades
+# The walk, the Monte Carlo and the history replay live in core (v0.2.0) so tayyib-backtest ranks a day's
+# picks with the same numbers tayyib-daily gets from here. Same code, same results.
+cost_r = tc.tm_cost_r
+walk = tc.tm_walk
+monte_carlo = tc.tm_monte_carlo
+history = tc.tm_history
 
 
 def verdict(mc, hist):

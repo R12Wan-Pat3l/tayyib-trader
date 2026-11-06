@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.1.11"
+VERSION = "0.2.0"
 PROTOCOL = "2025-06-18"
 
 
@@ -102,6 +102,23 @@ TOOLS = {
     "insider": ("NSE insider-trading (SEBI PIT) disclosures and bulk/block deals.",
                 S({"symbols": SYM, "days": {"type": "integer"}}, ["symbols"]), "tayyib-insider/insider.py",
                 lambda a: [a["symbols"]] + (["--days", str(a["days"])] if a.get("days") else [])),
+    # read-only: never passes --write, so a backtest here saves nothing (prices still go to the cache)
+    "backtest_run": ("Backtest the daily strategy over past years on today's halal list with your capital and "
+                     "settings: trades, win rate, expectancy, CAGR, max drawdown, in-sample vs out-of-sample, and "
+                     "buy-and-hold of the Shariah ETF and Nifty 50. Slow (minutes: one price download per stock). "
+                     "Saves nothing. Show every banner it returns.",
+                     S({"mode": {"type": "string", "enum": ["swing", "delivery", "all"]},
+                        "setups": {"type": "string", "description": "comma list, e.g. 'breakout,pullback'"},
+                        "years": {"type": "integer"}, "from": {"type": "string", "description": "YYYY-MM-DD"},
+                        "to": {"type": "string", "description": "YYYY-MM-DD"}, "capital": {"type": "number"},
+                        "max_positions": {"type": "integer"}, "split": {"type": "string", "description": "YYYY-MM-DD"}}),
+                     "tayyib-backtest/backtest.py",
+                     lambda a: ["run"] + sum([["--" + k.replace("_", "-"), str(a[k])] for k in
+                                              ("mode", "setups", "years", "from", "to", "capital", "max_positions",
+                                               "split") if a.get(k) not in (None, "")], [])),
+    "backtest_list": ("Saved backtests (trader/backtest/): id, window, trades, return, CAGR, drawdown. With id: "
+                      "that backtest in full.", S({"id": {"type": "string"}}), "tayyib-backtest/backtest.py",
+                      lambda a: (["show", a["id"]] if a.get("id") else ["list"])),
     "purify_report": ("Purification (charity) amount for dividends, optionally gains, from non-compliant income.",
                       S({"year": {"type": "integer"}, "include_gains": {"type": "boolean"}}), "tayyib-purify/purify.py",
                       lambda a: ["report"] + (["--year", str(a["year"])] if a.get("year") else [])

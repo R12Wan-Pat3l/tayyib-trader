@@ -13,7 +13,11 @@ What lives here:
   indicators                    sma, ema, rsi, atr
   setups                        detect, detect_all (swing + delivery)
   exit plans                    plan_trade
+  paper outcome of a plan       trade_outcome
   Indian charges                order_charges, round_trip
+  sizing                        size_trade (tayyib-budget)
+  daily pick order              choose_candidates (tayyib-daily), rank_key
+  time machine                  tm_walk, tm_monte_carlo, tm_history (tayyib-timemachine)
   halal screening               business_screen, financial_screen, halal_status
   news                          parse_feed
   hard rules                    guard_order (CNC only, no shorts, no F&O)
@@ -29,7 +33,9 @@ import io
 import json
 import math
 import os
+import random
 import re
+import statistics
 import sys
 import time
 import urllib.error
@@ -37,7 +43,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.1.11"
+VERSION = "0.2.0"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -744,6 +750,22 @@ def rank_key(expectancy_r, past_trades, score, min_trades):
     return (0, -(expectancy_r or -9))
 
 
+def choose_candidates(cands, mode, top):
+    """tayyib-daily's pick: one setup per stock from scan candidates (best score first). With mode "all",
+    alternate the best swing and the best delivery setups, so delivery's higher scores don't crowd out
+    every swing idea."""
+    lists = [cands] if mode != "all" else [[c for c in cands if c["mode"] == "swing"],
+                                            [c for c in cands if c["mode"] == "delivery"]]
+    picks, seen, k = [], set(), 0
+    while len(picks) < top and any(k < len(l) for l in lists):
+        for l in lists:
+            if k < len(l) and l[k]["symbol"] not in seen and len(picks) < top:
+                picks.append(l[k])
+                seen.add(l[k]["symbol"])
+        k += 1
+    return picks
+
+
 def expectancy_label(expectancy_r, past_trades, min_trades):
     """How the expectancy is used: 'ranked (n trades)' or 'information only (n trades)'."""
     if expectancy_r is None:
@@ -981,7 +1003,10 @@ def is_derivative(sym):
 
 
 def yahoo_symbol(sym, exchange="NSE"):
-    return normalize_symbol(sym) + (".BO" if exchange == "BSE" else ".NS")
+    s = normalize_symbol(sym)
+    if s.startswith("^"):                  # an index (e.g. ^NSEI, the Nifty 50): Yahoo's own symbol, no suffix
+        return s
+    return s + (".BO" if exchange == "BSE" else ".NS")
 
 
 def parse_symbols(arg):
@@ -1351,6 +1376,14 @@ def enabled_setups(cfg, names):
 def detect_all(bars, mode="swing", i=None, setups=None, tick=0.05, cfg=None):
     ind = indicators(bars)
     i = len(bars) - 1 if i is None else i
+    return detect_at(bars, ind, i, mode, setups, tick, cfg)
+
+
+def detect_at(bars, ind, i, mode="swing", setups=None, tick=0.05, cfg=None):
+    """detect_all with the indicators already computed: every enabled setup of `mode` armed at the close
+    of bar i, best score first. Every indicator is causal (bar i's value uses bars 0..i only), so a
+    backtest computes them once per stock and calls this for each day i: the same signals as detect_all
+    on bars[:i + 1]."""
     names = setups or (SWING_SETUPS if mode == "swing" else DELIVERY_SETUPS if mode == "delivery"
                        else SWING_SETUPS + DELIVERY_SETUPS)
     names = enabled_setups(cfg, names)
@@ -1567,6 +1600,176 @@ def round_trip(entry, exit_price, qty, cfg):
     b = order_charges("BUY", entry, qty, cfg)
     s = order_charges("SELL", exit_price, qty, cfg)
     return round(b["total"] + s["total"], 2)
+
+
+# ---------------------------------------------------------------------------
+# Sizing (tayyib-budget): whole shares within the risk per trade incl. charges, capped by the max
+# position and the cash. Lives here so tayyib-backtest sizes with the same function (v0.2.0).
+# ---------------------------------------------------------------------------
+
+
+def size_trade(plan, cfg, cash):
+    """qty = the most whole shares such that (entry - stop) x qty + the charges for buying at the entry and
+    selling at the stop stay within the risk per trade, capped by max_position_pct of capital and by cash.
+    -> {qty, budget_rs, binding_limit, position_value_rs, ...}, or {qty: 0, why} when nothing fits."""
+    budget = cfg["capital"] * cfg["max_risk_per_trade_pct"] / 100.0
+    if cfg.get("max_risk_per_trade_rs"):
+        budget = min(budget, float(cfg["max_risk_per_trade_rs"]))
+    entry, stop, target = plan["entry"], plan["stop"], plan["target"]
+    risk = entry - stop
+    limits = {"risk": int(budget // risk)}
+    limits["position"] = int((cfg["capital"] * cfg["max_position_pct"] / 100.0) // entry)
+    limits["cash"] = int(cash // (entry * 1.002))
+    qty = max(0, min(limits.values()))
+    while qty > 0 and qty * risk + round_trip(entry, stop, qty, cfg) > budget:
+        qty -= 1
+    binding = min(limits, key=limits.get)
+    if qty == 0:
+        return {"qty": 0, "why": "one share risks %s > budget %s or no cash"
+                % (fmt_rs(risk + round_trip(entry, stop, 1, cfg)), fmt_rs(budget))}
+    loss = qty * risk + round_trip(entry, stop, qty, cfg)
+    gain = qty * (target - entry) - round_trip(entry, target, qty, cfg)
+    tick = cfg["tick_size"]
+    return {
+        "qty": qty, "budget_rs": round(budget, 2), "binding_limit": binding,
+        "position_value_rs": round(qty * entry, 2),
+        "position_pct": round(qty * entry / cfg["capital"] * 100, 2),
+        "buy_charges_rs": order_charges("BUY", entry, qty, cfg)["total"],
+        "loss_at_stop_rs": round(loss, 2), "gain_at_target_rs": round(gain, 2),
+        "reward_risk_net": round(gain / loss, 2) if loss > 0 else None,
+        "limit_price": round_tick(entry * 1.005, tick, "up"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Time machine (tayyib-timemachine): Monte Carlo of a plan on the stock's own resampled daily moves, and
+# the historical replay of its setup. Lives here so tayyib-backtest ranks a day's picks with the same
+# expectancy and past-trade count tayyib-daily uses (v0.2.0).
+# ---------------------------------------------------------------------------
+
+
+def tm_cost_r(entry, exit_price, risk, cfg, qty=100):
+    return round_trip(entry, exit_price, qty, cfg) / qty / risk
+
+
+def tm_walk(days, entry, stop, target, max_days, breakeven):
+    """days: iterable of (open, high, low, close). -> (outcome, exit_price, n_days)."""
+    risk = entry - stop
+    cur_stop = stop
+    n = 0
+    last_close = entry
+    for (o, h, l, c) in days:
+        n += 1
+        if o <= cur_stop:
+            return ("breakeven" if cur_stop >= entry else "stop"), o, n
+        if o >= target:
+            return "target", o, n
+        if l <= cur_stop:
+            return ("breakeven" if cur_stop >= entry else "stop"), cur_stop, n
+        if h >= target:
+            return "target", target, n
+        if breakeven and h >= entry + risk and cur_stop < entry:
+            cur_stop = entry
+        last_close = c
+        if n >= max_days:
+            return "time", c, n
+    return "open", last_close, n
+
+
+def tm_monte_carlo(bars, plan, cfg, n, seed, lookback=500):
+    hist = bars[-lookback:]
+    moves = []
+    for k in range(1, len(hist)):
+        pc = hist[k - 1]["close"]
+        b = hist[k]
+        moves.append((b["open"] / pc, b["high"] / pc, b["low"] / pc, b["close"] / pc))
+    rng = random.Random(seed)
+    entry, stop, target = plan["entry"], plan["stop"], plan["target"]
+    risk = entry - stop
+    max_days = min(plan["max_hold_days"], 250)
+    be = plan["mode"] == "swing"
+    counts = {"target": 0, "stop": 0, "breakeven": 0, "time": 0, "open": 0}
+    rs, days = [], []
+
+    def gen():
+        pc = entry
+        for _ in range(max_days):
+            ro, rh, rl, rc = moves[rng.randrange(len(moves))]
+            o, h, l, c = pc * ro, pc * rh, pc * rl, pc * rc
+            yield (o, max(o, h, c), min(o, l, c), c)
+            pc = c
+
+    for _ in range(n):
+        out, px, d = tm_walk(gen(), entry, stop, target, max_days, be)
+        counts[out] += 1
+        rs.append((px - entry) / risk - tm_cost_r(entry, px, risk, cfg))
+        days.append(d)
+    rs.sort()
+    pct = lambda q: round(rs[min(len(rs) - 1, int(q * len(rs)))], 2)
+    return {
+        "runs": n, "seed": seed, "sessions_sampled": len(moves),
+        "probabilities_pct": {k: round(v / n * 100, 1) for k, v in counts.items() if k != "open"},
+        "expectancy_r": round(sum(rs) / n, 3),
+        "r_percentiles": {"p10": pct(0.10), "p50": pct(0.50), "p90": pct(0.90)},
+        "median_days": statistics.median(days),
+    }
+
+
+def tm_history(bars, plan, cfg):
+    """Every past day plan["setup"] armed on these bars, traded with the plan rules on the bars that
+    followed -> (summary, trades). Trades still open at the last bar are left out."""
+    ind = indicators(bars)
+    m = cfg["modes"][plan["mode"]]
+    trades, i = [], (cfg.get("scanner") or {}).get("warmup_bars", 200)
+    last_i = len(bars) - 2
+    while i < last_i:
+        sig = detect(plan["setup"], bars, ind, i, cfg["tick_size"], cfg)
+        if not sig:
+            i += 1
+            continue
+        fill_k = None
+        for k in range(i + 1, min(i + 1 + sig["valid_days"], len(bars))):
+            if bars[k]["close"] < sig["invalidation"] and bars[k]["high"] < sig["trigger"]:
+                break
+            if bars[k]["high"] >= sig["trigger"]:
+                fill_k = k
+                break
+        if fill_k is None:
+            i += 1
+            continue
+        entry = max(bars[fill_k]["open"], sig["trigger"])
+        try:
+            p = plan_trade(sig, cfg, entry)
+        except ValueError:
+            i += 1
+            continue
+        # the fill day itself: only the part after the trigger counts, so check stop on its low
+        b = bars[fill_k]
+        if b["low"] <= p["stop"] and b["close"] < entry:
+            out, px, d = "stop", p["stop"], 1
+        else:
+            fwd = [(x["open"], x["high"], x["low"], x["close"]) for x in bars[fill_k + 1:]]
+            out, px, d = tm_walk(fwd, entry, p["stop"], p["target"], m["max_hold_days"],
+                                 plan["mode"] == "swing")
+            d += 1
+        risk = entry - p["stop"]
+        if out != "open":
+            trades.append({"date": bars[fill_k]["date"], "entry": round(entry, 2), "outcome": out,
+                           "exit": round(px, 2), "days": d,
+                           "r": round((px - entry) / risk - tm_cost_r(entry, px, risk, cfg), 2)})
+        i = fill_k + d
+    n = len(trades)
+    summ = {"trades": n}
+    if n:
+        summ.update({
+            "target": sum(t["outcome"] == "target" for t in trades),
+            "stop": sum(t["outcome"] == "stop" for t in trades),
+            "breakeven": sum(t["outcome"] == "breakeven" for t in trades),
+            "time": sum(t["outcome"] == "time" for t in trades),
+            "win_rate_pct": round(sum(t["r"] > 0 for t in trades) / n * 100, 1),
+            "expectancy_r": round(sum(t["r"] for t in trades) / n, 3),
+        })
+    return summ, trades
 
 
 # ---------------------------------------------------------------------------

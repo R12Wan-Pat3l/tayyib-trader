@@ -41,7 +41,7 @@ answer", "NSE failed: HTTP 503").
 |---|---|
 | Claude Code plugin | `/plugin marketplace add R12Wan-Pat3l/tayyib-trader`, then `/plugin install tayyib-trader@tayyib-trader`. Update: `claude plugin update tayyib-trader@tayyib-trader` |
 | Plain skills | `git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git`, then copy the `tayyib-*` folders to `~/.claude/skills/`. Each folder is self-contained, but `tayyib-daily` needs the others next to it |
-| Any MCP client | `python3 mcp/server.py` over stdio. 18 tools, none of which place orders. Config below |
+| Any MCP client | `python3 mcp/server.py` over stdio. 20 tools, none of which place orders. Config below |
 | Other AI agents (Codex, Gemini CLI, Aider...) | Point them at [AGENTS.md](../AGENTS.md) |
 | No AI | Run the scripts. Each one has `--help` and `--json` |
 
@@ -58,7 +58,7 @@ MCP client configuration:
 ```
 core/tayyib_core.py      shared library (config, data, indicators, setups, charges, halal, guards)
 tools/sync_core.py       copies the core into every skill folder (--check verifies)
-tayyib-<skill>/          SKILL.md (instructions for Claude) + one script + a copy of tayyib_core.py
+tayyib-<skill>/          SKILL.md (instructions for Claude) + one script + a copy of tayyib_core.py (17 skills)
 mcp/server.py            stdio MCP server wrapping the scripts
 tayyib-dashboard/        dashboard.py (local web server) + actions.py (save settings, backups, run) + index.html (one page, inline CSS/JS/SVG)
 design-system/tayyib/    the dashboard's design system (MASTER.md, pages/dashboard.md); not shipped code
@@ -141,6 +141,57 @@ link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank"
 - Finally it records the list in the tracker, follows every unfinished earlier row (`tc.trade_outcome`)
   and writes the Excel file. Use `--no-track` to skip this. The `.xlsx` file is written with the standard
   library (zipfile plus SpreadsheetML), with 3 sheets: Tracker, Summary and Read me.
+
+## Backtest (`tayyib-backtest`, v0.2.0)
+
+`backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions 5] [--split]
+[--write] [--json]`, `list`, `show ID`. Writes `trader/backtest/<id>.json` and `.md` with `--write`, and
+nothing else (prices go to `trader/cache/`, range `5y` for 3 years, `10y` / `max` for longer). The id is
+`<to>_<mode>_<from>_<hash6>` of the parameters, the settings hash and the universe, so the same inputs
+give the same file, byte for byte.
+
+It calls the live functions, never copies. To make that possible v0.2.0 moved four things into core with
+no change in behaviour (the old names are aliases, and the v0.1.4 baseline test still passes):
+`tc.size_trade` (was `size.size`), `tc.choose_candidates` (was `daily.choose`), `tc.tm_walk`,
+`tc.tm_monte_carlo`, `tc.tm_history`, `tc.tm_cost_r` (were in `timemachine.py`), plus `tc.detect_at`
+(`detect_all` with the indicators already computed; `detect_all` now calls it). `tc.yahoo_symbol` passes an
+index symbol (`^NSEI`) through unchanged.
+
+| step | how |
+|---|---|
+| universe | `halal_universe.json` stocks whose `tc.halal_status` (overrides last) is `compliant`; never review |
+| data | `get_daily_bars(sym, range)`, cut at `--to`; fewer than 250 bars before the window: `skipped[]` with the reason; gaps stay gaps |
+| each close t | per stock: `tc.detect_at(bars, ind, i)` (indicators are causal: bar i uses bars 0..i), `tc.liquidity_ok(bars[:i+1])`, `tc.plan_trade`; best score first, the scanner's top `max(2 x daily.top, 25)`, held / waiting stocks dropped, `tc.choose_candidates` |
+| ranking | `tc.rank_key` + symbol (ties). Expectancy and past trades from `tm_history` / `tm_monte_carlo` (3000 runs, seed 7: tayyib-daily's) on the stock's last 2 years up to t, run only when the order can change what is bought (more picks than free slots, or not enough cash for all of them); `daily.min_expectancy_r` applies |
+| sizing | `tc.size_trade(plan, cfg, cash - cash promised to waiting plans)`; capital is the configured capital, as live |
+| account | one cash balance, never negative; at most `--max-positions` held + waiting; one per symbol; a plan waits until `valid_until` |
+| outcome | `tc.trade_outcome(bars, plan, cfg, today=to)`: buy-stop fill at max(open, entry), gap through the stop at the open, stop + target on one day = stop, swing breakeven at +1R, time stop at that day's close. A gap up that needs more cash than is free cuts the quantity (counted in `counts.qty_cut_at_fill`) |
+| charges | `tc.order_charges` on every buy and sell; still open on the last day: valued at the last close after the sell charge (`OPEN AT END`) |
+
+Not applied: tayyib-risk's portfolio heat, positions per industry, net reward:risk and news (no news
+history). The result's `rules[]` says so.
+
+Result JSON: `id, version, params, settings{label, hash, differs_from_default, capital, ...}, window{from, to,
+split, first_day, last_day, trading_days, price_range}, universe{list_updated, statuses, compliant, tested,
+skipped}, skipped[{symbol, reason}], banners[], metrics{overall, by_setup{}, by_mode{}}, split{in_sample,
+out_of_sample}, benchmarks{SHARIABEES.NS, ^NSEI}, counts{}, rules[], trades[], equity_curve[{date, equity,
+cash, open_positions, waiting_plans}], disclaimer`. Each trade: `symbol, setup, mode, signal_date,
+entry_date, entry_price, exit_date, exit_price, exit_reason, qty, charges, pnl_rs, r` plus the plan levels.
+Metrics: `trades, win_rate_pct, avg_r, avg_win_r, avg_loss_r, expectancy_r` (p x avg win + (1 - p) x avg
+loss, equal to avg_r), `profit_factor` (null with a note when nothing lost), `pnl_rs, total_return_pct,
+cagr_pct, max_drawdown_pct, drawdown_peak, drawdown_trough, longest_losing_streak, exposure_pct,
+total_charges_rs`. Setup and mode groups use a realised curve (capital + their closed P&L). In / out of
+sample split trades by signal date; their return, CAGR and drawdown come from the account's equity on each
+side. Benchmarks: all the capital at the first close (fractional units), one buy and one sell charge;
+UNKNOWN with `reason` when they cannot be fetched, never 0.
+
+Banners: always the three limits (today's halal list, survivorship, past results); plus "Too few trades
+to judge." under 30 trades, "Out-of-sample results are much weaker..." when the in-sample expectancy is
+positive and the out-of-sample one is under half of it (including below 0), "Buying and holding the
+Shariah ETF did better." when the strategy's CAGR is lower, and a line saying the ETF comparison was
+impossible when the ETF is UNKNOWN.
+
+MCP: `backtest_run` (never passes `--write`) and `backtest_list` (list, or show with `id`).
 
 ## Rules in code (not configurable)
 

@@ -222,7 +222,6 @@ class Excel(OfflineCase):
 
 class Version(unittest.TestCase):
     def test_version_and_defaults(self):
-        self.assertEqual(tc.VERSION, "0.1.11")
         self.assertEqual(tc.DEFAULTS_VERSION, 2)
 
 

@@ -51,7 +51,7 @@ market closes. You decide, and you place the order yourself.
 
 The first run builds the halal list (about 5 minutes). After that it refreshes itself every month.
 
-## The 16 skills
+## The 17 skills
 
 | skill | in one line |
 |---|---|
@@ -64,6 +64,7 @@ The first run builds the halal list (about 5 minutes). After that it refreshes i
 | `tayyib-entry` | Has the buy price been reached yet? |
 | `tayyib-exit` | Sets the stop-loss, target and time limit |
 | `tayyib-timemachine` | Replays the trade 10,000 times on the stock's own history |
+| `tayyib-backtest` | **"How did this strategy do?"** Runs the daily list every day of the last 3 years on your capital, with honest warnings |
 | `tayyib-budget` | How many shares, after Indian charges |
 | `tayyib-risk` | PASS / WARN / BLOCK against your limits and the hard rules |
 | `tayyib-broker` | The order ticket you place yourself, and your trade journal |

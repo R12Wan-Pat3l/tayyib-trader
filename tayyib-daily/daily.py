@@ -40,19 +40,9 @@ def run(skill, name, *args, want_json=True):
     return json.loads(p.stdout) if want_json else p.stdout
 
 
-def choose(cands, mode, top):
-    """One setup per stock. With --mode all, alternate the best swing and the best delivery
-    setups, so delivery's higher scores don't crowd out every swing idea."""
-    lists = [cands] if mode != "all" else [[c for c in cands if c["mode"] == "swing"],
-                                            [c for c in cands if c["mode"] == "delivery"]]
-    picks, seen, k = [], set(), 0
-    while len(picks) < top and any(k < len(l) for l in lists):
-        for l in lists:
-            if k < len(l) and l[k]["symbol"] not in seen and len(picks) < top:
-                picks.append(l[k])
-                seen.add(l[k]["symbol"])
-        k += 1
-    return picks
+# One setup per stock, swing and delivery alternated in --mode all: in core (v0.2.0) so tayyib-backtest
+# picks each day's stocks the same way.
+choose = tc.choose_candidates
 
 
 def short_verdict(v):

@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.2.0 (2026-11-06)
+
+A new 17th skill, **tayyib-backtest**: "if I had run this strategy every day for the last N years across
+the halal list with my capital and settings, what happened?" Engine, command line and MCP tools in this
+release; a dashboard tab follows in v0.2.1.
+
+No pick, plan or verdict changes (still default@2; the baseline is unchanged).
+
+### Added
+
+- `py tayyib-backtest/backtest.py run [--mode swing|delivery|all] [--setups ...] [--years 3]
+  [--from --to] [--capital N] [--max-positions 5] [--split DATE] [--write] [--json]`, plus `list` and
+  `show ID`. With `--write` it saves `trader/backtest/<id>.json` and `.md`, and nothing else: never the
+  tracker, tickets, positions, daily lists or settings.
+- It replays tayyib-daily on every trading day with **the same functions**: setups, liquidity, the exit
+  plan, the daily pick and ranking (with the time machine), sizing (1% risk incl. charges, 20% max
+  position), the paper tracker's outcome rules (gap through the stop at the open, stop first when both are
+  touched, breakeven at +1R, time stop) and Zerodha delivery charges on every buy and sell.
+- **No look-ahead**: each day uses only the bars up to that day; fills come later. One cash account, never
+  below zero, one position per stock, at most `--max-positions` held or waiting.
+- Today's compliant stocks only (your overrides win). Stocks without a year of history before the window
+  are listed in `skipped[]` with the reason; missing prices are never filled in.
+- Metrics overall, per setup and per mode (trades, win rate, average and expectancy R, profit factor,
+  total return, CAGR, max drawdown with its dates, longest losing streak, exposure, charges), in-sample vs
+  out-of-sample side by side, and buy-and-hold of **Nippon India ETF Shariah BeES** and the **Nifty 50**
+  (UNKNOWN with the reason when they cannot be fetched, never 0).
+- **Banners** on every result: today's halal list is applied to the past; survivorship bias (results are
+  likely better than reality); past results are no promise. Plus, when they apply: too few trades (under
+  30), out-of-sample much weaker (possibly overfit), holding the Shariah ETF did better.
+- MCP tools `backtest_run` (saves nothing) and `backtest_list` (20 tools, none place orders).
+- Docs: User guide (how to run and read it), FAQ "Can I trust a backtest?", Technical guide.
+
+### Changed (no behaviour change)
+
+- Sizing (`tc.size_trade`), the daily pick (`tc.choose_candidates`) and the time machine (`tc.tm_history`,
+  `tc.tm_monte_carlo`, `tc.tm_walk`) moved into core so the backtest uses the live code; the scripts call
+  them under their old names. `detect_all` now calls the new `tc.detect_at`. The v0.1.4 baseline test
+  passes unchanged.
+
 ## v0.1.11 (2026-11-05)
 
 Tracker accounting change: repeat listings of a held or waiting stock are no longer counted twice.

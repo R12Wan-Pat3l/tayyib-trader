@@ -272,6 +272,26 @@ two years of daily moves, plus every past time the same setup appeared on that s
 than 8 past trades, it says "too few". Results days, news and market crashes can do things the last two
 years never did.
 
+### Can I trust a backtest?
+Only as a rough guide, and never as a promise. `tayyib-backtest` replays the daily list over the past
+years with the same rules, your capital and real charges, and it is careful never to peek at the future.
+But three things make it look better (or simply different) than real life, and every result says so:
+
+1. **Halal status is today's.** We do not have the halal screen as it stood in 2023 or 2024, so today's
+   list is applied to every past day. A company that was not halal back then (more debt, say) may have
+   been "traded" anyway, and one that was halal then but not now is left out.
+2. **Survivorship bias.** The list is made of companies that are still in the Nifty 500 today, so it is
+   full of companies that did well enough to stay. The ones that fell out, often after a bad fall, are
+   missing, and so are the losses you would have taken on them. Real results are likely worse.
+3. **The past does not repeat.** A strategy can fit the last three years by luck. That is why the
+   backtest splits the years: the first two thirds ("in-sample") and the last third ("out-of-sample").
+   If the last third is much weaker, it says the strategy may be overfit. With fewer than 30 trades it
+   says there are too few to judge.
+
+It also compares the result with simply buying and holding the Shariah ETF (Nippon India ETF Shariah
+BeES) and the Nifty 50 over the same years. If holding the ETF did better, it says so: that is a real
+choice you have, with much less work. Not financial advice, not a fatwa.
+
 ### How do I know if the daily list actually works?
 Open `trader/tracker.xlsx`. Every stock each list showed is followed on the real prices afterwards,
 using the same rules as the plan (buy only if the price reaches "buy above", stop first if both are

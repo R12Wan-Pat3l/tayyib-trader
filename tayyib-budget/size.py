@@ -29,34 +29,8 @@ def open_value(positions):
     return sum(p["qty"] * p["entry"] for p in positions if p.get("status") == "open")
 
 
-def size(plan, cfg, cash):
-    budget = cfg["capital"] * cfg["max_risk_per_trade_pct"] / 100.0
-    if cfg.get("max_risk_per_trade_rs"):
-        budget = min(budget, float(cfg["max_risk_per_trade_rs"]))
-    entry, stop, target = plan["entry"], plan["stop"], plan["target"]
-    risk = entry - stop
-    limits = {"risk": int(budget // risk)}
-    limits["position"] = int((cfg["capital"] * cfg["max_position_pct"] / 100.0) // entry)
-    limits["cash"] = int(cash // (entry * 1.002))
-    qty = max(0, min(limits.values()))
-    while qty > 0 and qty * risk + tc.round_trip(entry, stop, qty, cfg) > budget:
-        qty -= 1
-    binding = min(limits, key=limits.get)
-    if qty == 0:
-        return {"qty": 0, "why": "one share risks %s > budget %s or no cash"
-                % (tc.fmt_rs(risk + tc.round_trip(entry, stop, 1, cfg)), tc.fmt_rs(budget))}
-    loss = qty * risk + tc.round_trip(entry, stop, qty, cfg)
-    gain = qty * (target - entry) - tc.round_trip(entry, target, qty, cfg)
-    tick = cfg["tick_size"]
-    return {
-        "qty": qty, "budget_rs": round(budget, 2), "binding_limit": binding,
-        "position_value_rs": round(qty * entry, 2),
-        "position_pct": round(qty * entry / cfg["capital"] * 100, 2),
-        "buy_charges_rs": tc.order_charges("BUY", entry, qty, cfg)["total"],
-        "loss_at_stop_rs": round(loss, 2), "gain_at_target_rs": round(gain, 2),
-        "reward_risk_net": round(gain / loss, 2) if loss > 0 else None,
-        "limit_price": tc.round_tick(entry * 1.005, tick, "up"),
-    }
+# The sizing rule lives in core (tc.size_trade) so tayyib-backtest sizes with the same function (v0.2.0).
+size = tc.size_trade
 
 
 def main(argv=None):

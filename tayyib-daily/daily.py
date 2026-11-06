@@ -95,10 +95,10 @@ def main(argv=None):
         tc.die("--dir is only for --email (otherwise set TAYYIB_DIR)")
     pullback_note = None
     if not a.risk_preview:
-        try:                                      # v0.2.5: pullback off by default; once per folder, before the config
+        try:                                      # v0.2.6: pullback back on by default; once per folder, before the config
             pullback_note, _ = tc.pullback_migration()
         except OSError as e:
-            sys.stderr.write("could not record the v0.2.5 settings notice: %s\n" % e)
+            sys.stderr.write("could not record the v0.2.6 settings notice: %s\n" % e)
     cfg = tc.load_config()
     if a.risk_preview:
         rp = tc.risk_preview(cfg, a.stop_pct or (2, 3, 5, 8, 10, 15), a.entry)

@@ -189,10 +189,9 @@ Both are greyed in Results and the Excel file, kept for the record, and not coun
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.
 - **"Show my positions"**: your open and closed trades and how you're doing.
 
-Since v0.2.5 the **pullback** setup is off by default (it lost money in the 5-year backtest). Settings,
-Selection, "Setup: pullback (swing)" switches it back on:
-
-![Settings: the pullback setup, off by default](img/settings-pullback-off.png)
+The **pullback** setup is on by default (v0.2.6; v0.2.5 had switched it off, which made the whole strategy
+worse: see "Why one backtest number isn't enough" below). Settings, Selection, "Setup: pullback (swing)"
+switches it off, with a note under the switch that says why it is on.
 
 ### Import your holdings (Zerodha / Groww)
 The halal re-check works on the stocks you hold. Trades you record with "I bought X at ..." are already there;
@@ -350,6 +349,46 @@ does nothing that day.
 `py tayyib-backtest/backtest.py run --years 5 --mode all --regime-compare --write`. The Backtest tab then shows
 five columns side by side (off and four variants: trades, win rate, expectancy, CAGR, max drawdown, worst
 year, swing and pullback expectancy). Switch it on only if a variant helps on more than one window.
+
+To see whether a variant really helps, rather than by luck on one run:
+`py tayyib-backtest/backtest.py run --years 5 --mode all --robust-compare "regime=off" "regime=close_below_200dma:half_risk" --write`.
+
+#### Why one backtest number isn't enough
+A backtest gives one number, for example "CAGR 8.0%". That number comes from one run. Small choices that mean
+nothing decide part of it: which of two equally good stocks was picked first on a busy day, or whether the test
+started on a Monday or a Tuesday. Change one of those and a different trade fills a slot, the next trades
+change, and the number moves. If it moves a lot, one run can't tell you whether a change to the strategy helped.
+
+**The pullback story.** In v0.2.5 we turned the pullback setup off because, in a 5-year backtest, its own trades
+lost money (46 trades, -0.21R on average). But the whole strategy then did worse: 5-year CAGR 8.0% -> 4.1%,
+3-year 7.9% -> 7.0%. Its slots were taken by other trades that did worse still. Looking at one setup's own
+number was misleading, so v0.2.6 put pullback back on.
+
+Then we ran the new robustness test on the same 5 years (20 seeds each, 2026-11-06). The single run had been
+unlucky in both directions. With pullback on, the median CAGR was 6.2% (8 in 10 runs between 4.5% and 7.6%), so
+8.0% was near the top. With pullback off, the median was 7.2% (6.9% to 7.7%), so 4.1% was below every seeded run.
+Seed by seed, "off" beat "on" in 15 of 20 runs: 75%, short of the 80% needed. The verdict was "No clear
+difference", so the default stays as it has been since v0.1.7 (pullback on). The whole-strategy comparison that
+reversed v0.2.5 was itself one lucky and one unlucky run. That is exactly why one number isn't enough.
+
+**What the tool does now.** `--robust` runs the same window 20 times (up to 50) on the same prices. Each run
+changes only the meaningless things: the order of signals that rank equal, and the start, moved one trading day.
+It also runs max positions 3, 5 and 8. You get a range for CAGR, expectancy, max drawdown and trades (the
+middle value and the band where 8 in 10 runs fall), and how often the strategy beat the Shariah ETF.
+
+`--robust-compare "A" "B"` runs both settings with the same seeds and compares them seed by seed:
+
+```
+py tayyib-backtest/backtest.py run --years 5 --mode all --robust-compare "pullback=on" "pullback=off" --write
+```
+
+- "B is better in X of N runs": B beat A on at least 8 runs in 10.
+- "B is worse in X of N runs": B lost on at least 8 in 10.
+- Anything in between: "No clear difference: don't change the default on this evidence".
+
+From v0.2.6 on, a default only changes with an 80% verdict like that. The Backtest tab shows each range as a
+bar, with the verdict line and a sentence under each bar. It is still a replay of the past with today's halal
+list: not a promise, not financial advice.
 
 ### Once a month
 - The halal list refreshes itself (when it's 30 days old).

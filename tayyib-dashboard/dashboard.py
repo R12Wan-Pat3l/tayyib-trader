@@ -892,7 +892,8 @@ BT_DIR = "backtest"
 BT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(swing|delivery|all)_\d{4}-\d{2}-\d{2}_[0-9a-f]{6}$")
 BT_MISSING = {"missing": "backtest", "hint": "run a backtest"}
 BT_FOOTER = "Past results do not predict future results. Not financial advice, not a fatwa."
-BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "regime", "trades", "universe", "footer"]
+BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "robust", "regime", "trades", "universe",
+            "footer"]
 TOO_FEW_TEXT = "(too few to judge)"
 NIFTY_LABEL = "not halal-screened, reference only"
 EXIT_KIND = {"TARGET": "pass", "STOP": "block", "BREAKEVEN": "warn", "TIME EXIT": "info", "OPEN AT END": "info"}
@@ -1180,6 +1181,104 @@ def bt_regime(r):
             "ranges": bt_ranges(ix)}
 
 
+# --- v0.2.6: robustness (--robust, --robust-compare): a range per metric instead of one number -----------------
+
+RB_METRICS = (("cagr_pct", "CAGR"), ("expectancy_r", "Expectancy"), ("max_drawdown_pct", "Max drawdown"),
+              ("trades", "Trades"))
+RB_LEGEND = "Band: 10th to 90th percentile (8 in 10 runs). Mark: the median. Thin line: lowest to highest. Dashed: zero."
+
+
+def _rb_fmt(key, x, diff=False):
+    if x is None:
+        return UNKNOWN
+    if key == "expectancy_r":
+        return signed_r(x)
+    if key == "trades":
+        v = ("%d" % x) if float(x).is_integer() else ("%.1f" % x)
+        return ("+" + v if x > 0 else v.replace("-", "−")) if diff else v
+    if diff:
+        return ("+%.2f pts" % x) if x > 0 else ("−%.2f pts" % -x) if x < 0 else "0.00 pts"
+    return pct(x)
+
+
+def rb_bar(d, zero=True):
+    """Positions (0-100 % of the track) of the lowest, 10th, median, 90th and highest values, and of zero; the
+    track covers the lowest to the highest (and zero, when asked), with a little room at each end."""
+    lo, hi = d["min"], d["max"]
+    if zero:
+        lo, hi = min(lo, 0.0), max(hi, 0.0)
+    if hi - lo < 1e-9:
+        lo, hi = lo - 1, hi + 1
+    pad = (hi - lo) * 0.06
+    lo, hi = lo - pad, hi + pad
+    pos = lambda v: round((v - lo) / (hi - lo) * 100, 2)
+    return {"min": pos(d["min"]), "lo": pos(d["p10"]), "mid": pos(d["median"]), "hi": pos(d["p90"]), "max": pos(d["max"]),
+            "zero": pos(0.0) if lo <= 0 <= hi else None}
+
+
+def rb_metric(key, label, d, diff=False):
+    f = lambda x: _rb_fmt(key, x, diff)
+    out = {"key": key, "label": label + (" (B minus A)" if diff else ""),
+           "median": f(d.get("median")), "p10": f(d.get("p10")), "p90": f(d.get("p90")), "min": f(d.get("min")),
+           "max": f(d.get("max")), "n": d.get("n"), "unknown": d.get("unknown") or 0}
+    if d.get("median") is None:
+        out.update(bar=None, text="%s: UNKNOWN in every run." % out["label"])
+        return out
+    out["bar"] = rb_bar(d, zero=key != "trades")
+    out["text"] = ("%s: median %s; 8 in 10 runs between %s and %s (lowest %s, highest %s)%s." % (
+        out["label"], out["median"], out["p10"], out["p90"], out["min"], out["max"],
+        "; UNKNOWN in %d" % out["unknown"] if out["unknown"] else ""))
+    return out
+
+
+def rb_side(rb, title):
+    s = rb["summary"]
+    groups = []
+    for grp, kind in (("by_mode", "mode"), ("by_setup", "setup")):
+        for g, d in (s.get(grp) or {}).items():
+            bb = d.get("beat_benchmark") or {}
+            groups.append({"kind": kind, "name": g, "trades": _rb_fmt("trades", d["trades"]["median"]),
+                           "cagr": "%s (%s to %s)" % (pct(d["cagr_pct"]["median"]), pct(d["cagr_pct"]["p10"]), pct(d["cagr_pct"]["p90"])),
+                           "expectancy": "%s (%s to %s)" % (signed_r(d["expectancy_r"]["median"]), signed_r(d["expectancy_r"]["p10"]),
+                                                            signed_r(d["expectancy_r"]["p90"])),
+                           "max_dd": pct(d["max_drawdown_pct"]["median"]),
+                           "beat": UNKNOWN if bb.get("runs") is None else "%d of %d" % (bb["runs"], bb["of"])})
+    mp = [{"max_positions": str(r["max_positions"]), "trades": str(r["overall"]["trades"]),
+           "win_rate": pct(r["overall"].get("win_rate_pct"), 1), "expectancy": signed_r(r["overall"]["expectancy_r"]),
+           "cagr": pct(r["overall"]["cagr_pct"]), "max_dd": pct(r["overall"]["max_drawdown_pct"]),
+           "beat": UNKNOWN if r.get("beat_benchmark") is None else ("yes" if r["beat_benchmark"] else "no")}
+          for r in rb.get("max_positions") or []]
+    st = rb.get("settings") or {}
+    return {"title": title, "settings": "%s (%s)" % (st.get("label"), st.get("settings_label")) if st.get("settings_label") and
+            st.get("settings_label") != st.get("label") else text(st.get("label")),
+            "regime": rb.get("regime") or "off", "runs": s["runs"],
+            "metrics": [rb_metric(k, lab, s["overall"][k]) for k, lab in RB_METRICS],
+            "beat": (s.get("beat_benchmark") or {}).get("text") or UNKNOWN, "groups": groups, "max_positions": mp}
+
+
+def bt_robust(r):
+    """The --robust / --robust-compare sections shaped for the Backtest tab (None when the run has neither)."""
+    rb, rc = r.get("robust"), r.get("robust_compare")
+    if not rb and not rc:
+        return None
+    note = (rb or rc).get("note")
+    out = {"title": "Robustness", "note": note, "legend": RB_LEGEND, "compare": None, "sides": []}
+    if rc:
+        c = rc["compare"]
+        a, b = rc["a"]["settings"]["label"], rc["b"]["settings"]["label"]
+        out["compare"] = {"a": a, "b": b, "verdict": c["verdict"], "verdict_text": c["verdict_text"] + ".",
+                          "basis": c["basis"],
+                          "line": "A = %s, B = %s. B beat A on %d of %d seeds, lost on %d, equal or UNKNOWN on %d." % (
+                              a, b, c["b_beat_a"], c["seeds"], c["b_lost"], c["equal_or_unknown"]),
+                          "metrics": [rb_metric(k, lab, c["difference"][k], diff=True) for k, lab in RB_METRICS]}
+        out["sides"] += [rb_side(rc["a"], "A: " + a), rb_side(rc["b"], "B: " + b)]
+    if rb:
+        out["sides"].insert(0, rb_side(rb, "Your settings: " + text((rb.get("settings") or {}).get("label"))))
+    n = out["sides"][0]["runs"]
+    out["subtitle"] = "%d runs on the same prices, each with a different seed" % n
+    return out
+
+
 def bt_ranges(ix):
     """C3 (v0.2.5): the risk-off date ranges per rule, for a collapsible list (check them against a chart)."""
     out = []
@@ -1218,6 +1317,7 @@ def api_backtest(q):
         "breakdown": bt_breakdown(r),
         "compare": bt_compare(r),
         "regime": bt_regime(r),
+        "robust": bt_robust(r),
         "trades": trades,
         "filters": {"setup": sorted({t["setup"] for t in trades}), "mode": sorted({t["mode"] for t in trades}),
                     "exit_reason": sorted({t["exit_reason"] for t in trades})},

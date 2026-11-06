@@ -565,6 +565,22 @@ tr.few .few-note { display:inline-flex; align-items:center; gap:4px; font-size:1
 .r-up { color:var(--pass); } .r-down { color:var(--block); }
 .seg-row { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; margin:12px 0; }
 .seg-row .lbl { font:600 12px var(--sans); color:var(--muted); min-width:56px; }
+/* v0.2.6 robustness: one range bar per metric (10th to 90th percentile band, median mark, lowest to highest line) */
+.rb-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px 22px; }
+.rb-item { min-width:0; }
+.rb-head { display:flex; justify-content:space-between; gap:8px; align-items:baseline; font-size:13.5px; }
+.rb-head .rb-med { font:600 15px var(--serif); font-variant-numeric:tabular-nums lining-nums; }
+.rb-track { position:relative; height:22px; margin:6px 0 4px; border-radius:var(--r-sm); background:var(--surface-2); border:1px solid var(--line); }
+.rb-track span { position:absolute; top:0; bottom:0; }
+.rb-ext { top:10px !important; bottom:10px !important; background:var(--line-strong); }
+.rb-band { top:4px !important; bottom:4px !important; background:color-mix(in srgb, var(--info) 35%, transparent); border:1px solid var(--info); border-radius:3px; }
+.rb-mid { width:3px; margin-left:-1.5px; background:var(--fg); border-radius:1px; }
+.rb-zero { width:0; border-left:1px dashed var(--muted); }
+.rb-text { margin:2px 0 0; }
+.rb-side { margin-top:14px; }
+.rb-side h3 { margin:0 0 10px; }
+.rb-verdict { margin:0 0 10px; }
+.rb-verdict .banner { font-weight:700; }
 @media (max-width: 900px) { .bt-cards, .bt-cols { grid-template-columns:minmax(0, 1fr); } .bt-head h1 { font-size:22px; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition:none !important; animation:none !important; }
@@ -1995,6 +2011,22 @@ function btTrades(d) {
   draw();
   return box;
 }
+// v0.2.6: one range bar per metric, drawn from the server's positions (0-100 % of the track), with its text under it
+function btRanges(ms) {
+  return el("div", { cls:"rb-grid" }, ms.map(function (m) {
+    var b = m.bar, track = null;
+    if (b) {
+      track = el("div", { cls:"rb-track", role:"img", "aria-label":m.text },
+        b.zero !== null ? el("span", { cls:"rb-zero", style:"left:" + b.zero + "%" }) : null,
+        el("span", { cls:"rb-ext", style:"left:" + b.min + "%;width:" + Math.max(b.max - b.min, 0.5) + "%" }),
+        el("span", { cls:"rb-band", style:"left:" + b.lo + "%;width:" + Math.max(b.hi - b.lo, 0.8) + "%" }),
+        el("span", { cls:"rb-mid", style:"left:" + b.mid + "%" }));
+    }
+    return el("div", { cls:"rb-item", "data-metric":m.key },
+      el("div", { cls:"rb-head" }, el("b", { text:m.label }), el("span", { cls:"rb-med", text:m.median })),
+      track, el("p", { cls:"small muted rb-text", text:m.text }));
+  }));
+}
 function renderBacktest(panel, d, runs) {
   panel.textContent = "";
   if (d.missing) return btEmpty(panel, "No backtests yet", d.hint);
@@ -2038,6 +2070,35 @@ function renderBacktest(panel, d, runs) {
         el("p", { cls:"small muted", style:"margin:-6px 0 10px", text:d.compare.note }),
         d.compare.note_c ? el("p", { cls:"small muted", style:"margin:-4px 0 10px", text:d.compare.note_c }) : null,
         btCompareTable(d.compare));
+    },
+    robust:function () {
+      if (!d.robust) return null;
+      var rb = d.robust;
+      var box = el("div", { id:"btRobust" }, el("h2", { cls:"section" }, rb.title, el("small", { text:rb.subtitle })),
+        el("p", { cls:"small muted", style:"margin:-6px 0 10px", text:rb.note }));
+      if (rb.compare) {
+        var c = rb.compare;
+        add(box, el("div", { cls:"rb-verdict", id:"btVerdict", "data-verdict":c.verdict }, banner(c.verdict_text, "info")),
+          el("p", { cls:"small", text:c.line }), el("p", { cls:"small muted", style:"margin:0 0 10px", text:c.basis }),
+          el("div", { cls:"panel" }, el("h3", { cls:"bt-sec", text:"B minus A, seed by seed" }), btRanges(c.metrics),
+            el("p", { cls:"small muted", style:"margin-top:10px", text:rb.legend })));
+      }
+      rb.sides.forEach(function (s) {
+        add(box, el("div", { cls:"panel rb-side" }, el("h3", { text:s.title + " · " + s.runs + " runs" + (s.regime !== "off" ? " · regime " + s.regime : "") }),
+          btRanges(s.metrics), el("p", { cls:"small", style:"margin-top:10px", text:s.beat + "." }),
+          el("p", { cls:"small muted", text:rb.legend }),
+          s.groups.length ? el("h3", { cls:"bt-sec", text:"By mode and setup (median, with 10th to 90th percentile)" }) : null,
+          s.groups.length ? table([{ title:"", cell:function (g) { return el("b", { text:g.name }); } }, { title:"", cell:function (g) { return g.kind; } },
+            { title:"Trades", num:true, cell:function (g) { return g.trades; } }, { title:"CAGR", num:true, cell:function (g) { return g.cagr; } },
+            { title:"Expectancy", num:true, cell:function (g) { return g.expectancy; } }, { title:"Max DD", num:true, cell:function (g) { return g.max_dd; } },
+            { title:"Above the ETF", num:true, cell:function (g) { return g.beat; } }], s.groups, {}) : null,
+          el("h3", { cls:"bt-sec", text:"Max positions 3 / 5 / 8 (the plain run, only this limit changed)" }),
+          table([{ title:"Max positions", num:true, cell:function (r) { return el("b", { text:r.max_positions }); } }, { title:"Trades", num:true, cell:function (r) { return r.trades; } },
+            { title:"Win rate", num:true, cell:function (r) { return r.win_rate; } }, { title:"Expectancy", num:true, cell:function (r) { return r.expectancy; } },
+            { title:"CAGR", num:true, cell:function (r) { return r.cagr; } }, { title:"Max DD", num:true, cell:function (r) { return r.max_dd; } },
+            { title:"Above the ETF", num:true, cell:function (r) { return r.beat; } }], s.max_positions, {})));
+      });
+      return box;
     },
     regime:function () {
       if (!d.regime) return null;

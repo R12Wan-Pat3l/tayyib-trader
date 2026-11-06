@@ -7,7 +7,7 @@ description: >-
   expectancy in R, CAGR, max drawdown, in-sample vs out-of-sample and buy-and-hold of the Shariah ETF and
   Nifty 50. Writes trader/backtest/. Use when the user says "backtest", "test my strategy", "how did this
   strategy do", "past performance".
-argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions 5] [--no-take-warn] [--compare] [--write] | list | show ID"
+argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions 5] [--no-take-warn] [--compare] [--robust [N]] [--robust-compare A B] [--write] | list | show ID"
 ---
 
 # tayyib-backtest
@@ -56,6 +56,14 @@ How to present it:
   stocks with why.
 - With `--compare`, show (a) as run next to (b) score-only ranking: the difference is what the
   time-machine ranking added.
+- With `--robust [N]` (v0.2.6; 20 runs by default, at most 50), give the range, not one number: median and 10th to
+  90th percentile of CAGR, expectancy, max drawdown and trades, how many runs beat the Shariah ETF, and the max
+  positions 3 / 5 / 8 table. Each seed changes only the order of equal-ranked signals and the start by one trading
+  day, on the same prices.
+- With `--robust-compare "A" "B"` (e.g. "pullback=on" "pullback=off", "regime=off"
+  "regime=close_below_200dma:half_risk"), read the verdict line first and exactly as written. Only "B is better in X
+  of N runs" (80%+) supports changing a default; "No clear difference: don't change the default on this evidence"
+  means keep it.
 
 ## Rules this skill never bends
 

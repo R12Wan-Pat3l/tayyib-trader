@@ -44,8 +44,11 @@ analyses, plans and checks. It never places an order.
 12. Holdings import (v0.2.5): `ticket.py import FILE` reads a Zerodha / Groww holdings file the user saved. Run
    the preview first, show the table, and add `--yes` only after the user says yes to that import. Holdings are
    not trades: never give them a stop, target or tracker row, never count them in results, and never present a
-   "could not match" row as compliant. Pullback is off by default since v0.2.5 (default@3); switch it on only
-   when the user asks.
+   "could not match" row as compliant. Pullback is on by default again since v0.2.6 (default@4 = default@2);
+   switch it off only when the user asks.
+13. Defaults (v0.2.6): never propose changing a default on one backtest number. Run
+   `backtest.py run --years 5 --robust-compare "A" "B"` (and 3 years) and quote its verdict line; only "B is better
+   in X of N runs" (80%+) supports a change. "No clear difference" means keep the default.
 
 ## Today's list in one command
 
@@ -82,7 +85,8 @@ and never a button, endpoint or request that places, modifies or cancels an orde
 While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions|import`,
 `tayyib-halal/halal.py held` (re-check the stocks you hold), `tayyib-purify/purify.py estimate SYMBOL --since D`.
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.
-Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] --write` (writes only `trader/backtest/`),
+Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] [--robust [N]] [--robust-compare A B] --write`
+(writes only `trader/backtest/`),
 `backtest.py list`, `backtest.py show ID`. Read out every line of its `banners[]` first: they are the
 honest limits (today's halal list applied to the past, survivorship bias, news can't be replayed, too few
 trades, overfit, the Shariah ETF did better). The Nifty 50 is reference only, never a halal option. A benchmark it could not fetch is UNKNOWN, never 0.

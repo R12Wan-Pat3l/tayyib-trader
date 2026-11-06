@@ -162,7 +162,7 @@ class BacktestApi(ServerCase):
         self.assertEqual((row["id"], row["mode"], row["settings"], row["trades"]),
                          (res["id"], "all", ("default@%d" % tc.DEFAULTS_VERSION), res["metrics"]["overall"]["trades"]))
         d = self.get("/api/backtest?id=" + res["id"])
-        self.assertEqual(d["order"], ["header", "banners", "cards", "equity", "breakdown", "compare", "regime", "trades",  # regime: v0.2.4
+        self.assertEqual(d["order"], ["header", "banners", "cards", "equity", "breakdown", "compare", "robust", "regime", "trades",  # regime: v0.2.4, robust: v0.2.6
                                       "universe", "footer"])
         self.assertEqual(d["banners"], res["banners"])
         self.assertIn(bt.BANNER_NEWS, d["banners"])

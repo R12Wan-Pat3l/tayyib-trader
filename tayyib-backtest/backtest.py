@@ -30,6 +30,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -154,11 +155,36 @@ class Book:
         self.join = WARMUP_BARS - 1
 
 
-def scan_day(books, date, cfg, mode, setups, held):
+def scan_day(books, date, cfg, mode, setups, held, tie=None, cache=None):
     """tayyib-scanner + tayyib-daily's choice for one close: every compliant stock with a bar on `date` and
     WARMUP_BARS of history, its signals on bars[0..i], the liquidity filter on bars[0..i], a plan for each
     (tc.plan_trade), best score first, the scanner's top max(2 x daily.top, 25), held stocks dropped, then
-    tc.choose_candidates. -> list of picks {symbol, setup, mode, score, sig, plan, i}."""
+    tc.choose_candidates. -> list of picks {symbol, setup, mode, score, sig, plan, i}.
+    tie (v0.2.6, --robust): equal scores are ordered by tie(symbol) instead of the symbol (None: the symbol, as
+    always). cache: a RunCache, so the same day's signals are worked out once for every robust run."""
+    key = None
+    if cache is not None:
+        key = ("scan", cache.digest(cfg), cache.universe(books), mode, tuple(setups or ()), date)
+        if key in cache.store:
+            return _choose_day([dict(c) for c in cache.store[key]], cfg, mode, held, tie)
+    cands = _scan_cands(books, date, cfg, mode, setups)
+    if key is not None:
+        cache.store[key] = [dict(c) for c in cands]
+    return _choose_day(cands, cfg, mode, held, tie)
+
+
+def _choose_day(cands, cfg, mode, held, tie):
+    if tie is None:
+        cands.sort(key=lambda c: -c["score"])        # stable, like scan.py (the stocks in symbol order)
+    else:
+        cands.sort(key=lambda c: (-c["score"], tie(c["symbol"])))
+    top = cfg["daily"]["top"]
+    cands = [c for c in cands[: max(top * 2, 25)] if c["symbol"] not in held]
+    return tc.choose_candidates(cands, mode, top)
+
+
+def _scan_cands(books, date, cfg, mode, setups):
+    """Every signal with a plan on `date`, the stocks in symbol order (nothing sorted or cut yet)."""
     min_hist = cfg["scanner"]["min_history_bars"]
     tick = cfg["tick_size"]
     cands = []
@@ -182,10 +208,7 @@ def scan_day(books, date, cfg, mode, setups, held):
             pl["date"] = sig["date"]                 # trade_outcome follows the plan from its signal date
             cands.append({"symbol": s, "setup": sig["setup"], "mode": sig["mode"], "score": sig["score"],
                           "sig": sig, "plan": pl, "i": i})
-    cands.sort(key=lambda c: -c["score"])            # stable, like scan.py
-    top = cfg["daily"]["top"]
-    cands = [c for c in cands[: max(top * 2, 25)] if c["symbol"] not in held]
-    return tc.choose_candidates(cands, mode, top)
+    return cands
 
 
 def tm_window(bk, pick):
@@ -202,29 +225,46 @@ def tm_window(bk, pick):
     return bk.bars[j:i + 1]
 
 
-def rank_day(books, picks, cfg, all_mc=False):
+def rank_day(books, picks, cfg, all_mc=False, tie=None, cache=None):
     """Order the day's picks like tayyib-daily (tc.rank_key: best time-machine expectancy among stocks with at
     least daily.min_past_trades_for_rank past trades, then by setup score), ties by symbol, and apply
     daily.min_expectancy_r. The Monte Carlo runs where the ranking or that filter needs it, or for every pick
     with all_mc (its negative-expectancy WARN matters when WARN plans are not taken).
+    tie / cache: as in scan_day (the time machine's answer for a pick is worked out once per settings).
     -> (ordered picks, filtered[])."""
     K = cfg["daily"]["min_past_trades_for_rank"]
     mn = cfg["daily"].get("min_expectancy_r")
+    dg = cache.digest(cfg) if cache is not None else None
     for p in picks:
-        win = tm_window(books[p["symbol"]], p)
-        summ, _ = tc.tm_history(win, p["plan"], cfg)
-        n, exp = summ["trades"], None
-        if all_mc or mn is not None or not tc.thin_evidence(n, K):
-            exp = tc.tm_monte_carlo(win, p["plan"], cfg, TM_RUNS, TM_SEED)["expectancy_r"]
-        p["expectancy_r"], p["past_trades"], p["history"] = exp, n, summ
+        pl = p["plan"]
+        key = ("tm", dg, p["symbol"], p["sig"]["date"], pl["setup"], pl["entry"], pl["stop"], pl["target"])
+        hit = cache.store.get(key) if cache is not None else None
+        win = None
+        if hit is None:
+            win = tm_window(books[p["symbol"]], p)
+            hit = {"summ": tc.tm_history(win, pl, cfg)[0], "exp": None, "mc": False}
+            if cache is not None:
+                cache.store[key] = hit
+        summ = hit["summ"]
+        n = summ["trades"]
+        need_mc = all_mc or mn is not None or not tc.thin_evidence(n, K)
+        if need_mc and not hit["mc"]:
+            win = win or tm_window(books[p["symbol"]], p)
+            hit["exp"], hit["mc"] = tc.tm_monte_carlo(win, pl, cfg, TM_RUNS, TM_SEED)["expectancy_r"], True
+        p["expectancy_r"], p["past_trades"], p["history"] = hit["exp"] if need_mc else None, n, summ
         p["ranked_by"] = "score" if tc.thin_evidence(n, K) else "expectancy"
     filtered = []
     if mn is not None:
         filtered = [p for p in picks if p["expectancy_r"] is None or p["expectancy_r"] < mn]
         picks = [p for p in picks if p not in filtered]
+    tk = tie or _by_symbol
     picks = sorted(picks, key=lambda p: tc.rank_key(p.get("expectancy_r"), p.get("past_trades"), p["score"], K)
-                   + (p["symbol"],))
+                   + (tk(p["symbol"]),))
     return picks, filtered
+
+
+def _by_symbol(sym):
+    return sym
 
 
 # ---------------------------------------------------------------------------
@@ -410,14 +450,17 @@ def new_counts():
 
 
 def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, progress=None, uni=None,
-             take_warn=True, rank="tm", regime=None):
+             take_warn=True, rank="tm", regime=None, tie=None, cache=None):
     """Run the strategy over [start, end] on {sym: bars} (compliant stocks only, bars up to `end`).
     rank: "tm" (tayyib-daily's order, with the time machine) or "score" (setup score only, for --compare).
     regime (v0.2.4): None, or {"rule", "action", "states": {date: regime_state}}: on a risk-off day the action
     applies to that day's new plans, as live (an UNKNOWN day: no effect).
+    tie (v0.2.6, --robust): the order of equal-ranked signals (None: by symbol, as always). cache: a RunCache
+    shared by robust runs on the same bars (the result is the same with or without it).
     -> {trades[], curve[], counts, days}."""
     uni = uni if uni is not None else {"stocks": {}}
-    books = {s: Book(b) for s, b in data.items()}
+    books = cache.books_for(data) if cache is not None else {s: Book(b) for s, b in data.items()}
+    extra = {"tie": tie, "cache": cache} if tie is not None or cache is not None else {}
     days = sorted({b["date"] for bk in books.values() for b in bk.bars if start <= b["date"] <= end})
     capital = float(cfg["capital"])
     cash = capital
@@ -503,7 +546,7 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
                 if eff["risk_factor"] != 1.0:
                     counts["regime_half_risk_days"] += 1
                     cfg_day = dict(cfg, max_risk_per_trade_pct=cfg["max_risk_per_trade_pct"] * eff["risk_factor"])
-            picks = scan_day(books, d, cfg, mode, setups, set(held) | set(pending))
+            picks = scan_day(books, d, cfg, mode, setups, set(held) | set(pending), **extra)
             if eff["block_modes"]:
                 kept = [p for p in picks if p["mode"] not in eff["block_modes"]]
                 counts["regime_blocked"] += len(picks) - len(kept)
@@ -511,7 +554,7 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
             if picks:
                 counts["signal_days"] += 1
                 place_day(books, picks, cfg_day, uni, d, cash, held, pending, max_positions, take_warn, rank, counts,
-                          outcome)
+                          outcome, **extra)
         # 5. the last day: whatever is still held is valued at its last close, after the sell charges
         if d == days[-1]:
             for s in sorted(held):
@@ -528,7 +571,8 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
     return {"trades": trades, "curve": curve, "counts": counts, "days": days}
 
 
-def place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, take_warn, rank, counts, outcome):
+def place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, take_warn, rank, counts, outcome, tie=None,
+              cache=None):
     """Step 4 of a day, like tayyib-daily: rank, size in that order (each sized ticket uses up cash for the
     ones after it, as size.py does), risk-check each against held + waiting + earlier approved (check.py's
     file order), and place the PASS (and, with take_warn, WARN) plans. BLOCK is never placed."""
@@ -539,17 +583,18 @@ def place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, tak
     day = tc.parse_date(d)
     avail = cash - sum(r["reserve"] for r in pending.values())
     ledger = Ledger(held, pending, uni)
+    tk = tie or _by_symbol
     if rank == "score":
-        ordered = sorted(picks, key=lambda p: (-p["score"], p["symbol"]))
+        ordered = sorted(picks, key=lambda p: (-p["score"], tk(p["symbol"])))
         for p in ordered:
             p["ranked_by"] = "score only (--compare)"
     elif cfg["daily"].get("min_expectancy_r") is not None or not take_warn or \
             order_matters(picks, cfg, uni, ledger, cash, avail, free, day, take_warn):
-        ordered, filtered = rank_day(books, picks, cfg, all_mc=not take_warn)
+        ordered, filtered = rank_day(books, picks, cfg, all_mc=not take_warn, tie=tie, cache=cache)
         counts["tm_days"] += 1
         counts["not_sized"] += len(filtered)
     else:
-        ordered = sorted(picks, key=lambda p: p["symbol"])
+        ordered = sorted(picks, key=lambda p: tk(p["symbol"]))
         for p in ordered:
             p["ranked_by"] = "not needed (every pick fitted)"
     sizing_cash = avail
@@ -589,6 +634,320 @@ def place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, tak
         rec["out"] = outcome(rec)
         pending[p["symbol"]] = rec
         counts["plans"] += 1
+
+
+# ---------------------------------------------------------------------------
+# Robustness (v0.2.6): one window, many small variations, a range of results instead of one number
+# ---------------------------------------------------------------------------
+
+ROBUST_DEFAULT, ROBUST_MAX = 20, 50
+ROBUST_MAX_POSITIONS = (3, 5, 8)
+ROBUST_METRICS = (("cagr_pct", "CAGR", "%"), ("expectancy_r", "Expectancy", "R"),
+                  ("max_drawdown_pct", "Max drawdown", "%"), ("trades", "Trades", ""))
+VERDICT_SHARE = 0.8                     # B must beat A on at least 80% of the seeds (or lose on 80%) for a verdict
+NO_CLEAR = "No clear difference: don't change the default on this evidence"
+ROBUST_NOTE = ("Each run is the same window on the same prices (nothing downloaded again) with one small, "
+               "meaningless change, fixed by its seed: the order of signals that rank equal, and the start moved "
+               "one trading day earlier or later. A strategy whose result swings a lot under changes like these "
+               "cannot be judged on one run. Max positions 3 / 5 / 8: the plain run with only that limit changed.")
+
+
+class RunCache:
+    """Shared by every run on one set of bars: the stocks' indicators (built once), each day's signals and plans
+    and each pick's time-machine answer, keyed by the settings that decide them. A seed only changes the order
+    of equal-ranked signals and the start day, so with the cache a run gives exactly what it gives without it."""
+
+    def __init__(self):
+        self.books, self.store, self._dg = {}, {}, {}
+
+    def books_for(self, data):
+        for s, b in data.items():
+            if s not in self.books or self.books[s].bars is not b:
+                self.books[s] = Book(b)
+        return {s: self.books[s] for s in data}
+
+    def digest(self, cfg):
+        k = id(cfg)
+        hit = self._dg.get(k)
+        if hit is None or hit[0] is not cfg:
+            hit = (cfg, hashlib.sha1(json.dumps(cfg, sort_keys=True, default=str).encode("utf-8")).hexdigest())
+            self._dg[k] = hit
+        return hit[1]
+
+    def universe(self, books):
+        hit = self._dg.get(("u", id(books)))
+        if hit is None or hit[0] is not books:
+            hit = (books, hashlib.sha1("|".join(sorted(books)).encode("utf-8")).hexdigest()[:12])
+            self._dg[("u", id(books))] = hit
+        return hit[1]
+
+
+def tie_key(seed):
+    """The order of equal-ranked signals for a seed: a fixed shuffle of the symbols (sha1 of seed:symbol), the
+    same every time for the same seed. None -> by symbol (the plain run)."""
+    if seed is None:
+        return None
+
+    def key(sym):
+        return hashlib.sha1(("%d:%s" % (seed, sym)).encode("utf-8")).hexdigest()
+    return key
+
+
+def tie_order(seed, syms):
+    k = tie_key(seed) or _by_symbol
+    return sorted(syms, key=k)
+
+
+def seed_shift(seed):
+    """-1 or +1: the trading days the start moves for this seed (random.Random(seed): the same every time)."""
+    return random.Random(seed).choice((-1, 1))
+
+
+def shifted_start(dates, start, shift):
+    """The trading day `shift` sessions from the first session on or after `start` (dates: every bar date)."""
+    k = next((i for i, d in enumerate(dates) if d >= start), len(dates) - 1)
+    return dates[min(max(k + shift, 0), len(dates) - 1)]
+
+
+def percentile(xs, q):
+    """Linear between the closest ranks (numpy's default); xs sorted, not empty."""
+    if len(xs) == 1:
+        return xs[0]
+    pos = (len(xs) - 1) * q
+    lo = int(pos)
+    hi = min(lo + 1, len(xs) - 1)
+    return xs[lo] + (xs[hi] - xs[lo]) * (pos - lo)
+
+
+def distribution(values, d=2):
+    """-> {n, unknown, median, p10, p90, min, max} of the known values (None = UNKNOWN, left out and counted)."""
+    xs = sorted(v for v in values if v is not None)
+    out = {"n": len(xs), "unknown": sum(1 for v in values if v is None)}
+    if not xs:
+        out.update(median=None, p10=None, p90=None, min=None, max=None)
+        return out
+    out.update(median=round(percentile(xs, 0.5), d), p10=round(percentile(xs, 0.1), d),
+               p90=round(percentile(xs, 0.9), d), min=round(xs[0], d), max=round(xs[-1], d))
+    return out
+
+
+def _pick(m):
+    return {k: (m or {}).get(k) for k, _, _ in ROBUST_METRICS} if m else \
+        {"cagr_pct": None, "expectancy_r": None, "max_drawdown_pct": None, "trades": 0}
+
+
+def run_row(name, sim, capital, split, bench_cagr):
+    m, _ = all_metrics(sim, capital, split)
+    o = m["overall"]
+    beat = None if bench_cagr is None or o.get("cagr_pct") is None else o["cagr_pct"] > bench_cagr
+    return {"run": name, "start": sim["days"][0] if sim["days"] else None, "overall": dict(_pick(o), win_rate_pct=o["win_rate_pct"]),
+            "by_mode": {g: _pick(x) for g, x in m["by_mode"].items()},
+            "by_setup": {g: _pick(x) for g, x in m["by_setup"].items()},
+            "benchmark_cagr_pct": bench_cagr, "beat_benchmark": beat}
+
+
+def beat_share(rows, get):
+    """How many runs had a CAGR above the Shariah ETF's over the same days (UNKNOWN when it could not be had)."""
+    known = [(get(r), r["benchmark_cagr_pct"]) for r in rows]
+    known = [(c, b) for c, b in known if c is not None and b is not None]
+    if not known:
+        return {"runs": None, "of": len(rows), "pct": None,
+                "text": "Above the Shariah ETF: UNKNOWN (the ETF's prices could not be had)"}
+    k = sum(1 for c, b in known if c > b)
+    return {"runs": k, "of": len(known), "pct": round(k / len(known) * 100, 1),
+            "text": "CAGR above the Shariah ETF (buy and hold, same days) in %d of %d runs (%.0f%%)"
+                    % (k, len(known), k / len(known) * 100)}
+
+
+def summarise(rows):
+    """The spread of the seeded runs: each metric's distribution, overall, per mode and per setup, and the share
+    of runs that beat the Shariah ETF."""
+    out = {"runs": len(rows),
+           "overall": {k: distribution([r["overall"][k] for r in rows], 3 if u == "R" else 2) for k, _, u in ROBUST_METRICS},
+           "beat_benchmark": beat_share(rows, lambda r: r["overall"]["cagr_pct"])}
+    for grp in ("by_mode", "by_setup"):
+        out[grp] = {}
+        for g in sorted({g for r in rows for g in r[grp]}):
+            cells = [r[grp].get(g) or _pick(None) for r in rows]
+            d = {k: distribution([c[k] for c in cells], 3 if u == "R" else 2) for k, _, u in ROBUST_METRICS}
+            d["beat_benchmark"] = beat_share(rows, lambda r, g=g: (r[grp].get(g) or {}).get("cagr_pct"))
+            out[grp][g] = d
+    return out
+
+
+def robust_side(data, cfg, params, uni, n, cache, bench_cagr, regime=None, base_sim=None, progress=None, label=None):
+    """B1: n seeded runs and the fixed max-positions 3 / 5 / 8 runs for one set of settings -> {runs[], summary,
+    max_positions[]}. bench_cagr(start) -> the Shariah ETF's CAGR from that start (None when UNKNOWN)."""
+    start, end, split = params["from"], params["to"], params["split"]
+    dates = sorted({b["date"] for bs in data.values() for b in bs if b["date"] <= end})
+    capital = float(cfg["capital"])
+    kw = dict(mode=params["mode"], setups=params["setups"], uni=uni, take_warn=params["take_warn"], rank="tm",
+              regime=regime, cache=cache)
+    rows = []
+    for seed in range(1, n + 1):
+        if progress:
+            progress("robust%s: seed %d/%d" % (" " + label if label else "", seed, n))
+        sh = seed_shift(seed)
+        st = shifted_start(dates, start, sh)
+        sim = simulate(data, cfg, st, end, max_positions=params["max_positions"], tie=tie_key(seed), **kw)
+        row = run_row("seed %d" % seed, sim, capital, split, bench_cagr(st))
+        row.update(seed=seed, shift_days=sh, tie_first=tie_order(seed, sorted(data))[:5])
+        rows.append(row)
+    sens = []
+    for mp in ROBUST_MAX_POSITIONS:
+        if progress:
+            progress("robust%s: max positions %d" % (" " + label if label else "", mp))
+        if base_sim is not None and mp == params["max_positions"]:
+            sim = base_sim
+        else:
+            sim = simulate(data, cfg, start, end, max_positions=mp, **kw)
+        r = run_row("max positions %d" % mp, sim, capital, split, bench_cagr(start))
+        r["max_positions"] = mp
+        sens.append(r)
+    return {"runs": rows, "summary": summarise(rows), "max_positions": sens}
+
+
+def verdict(beat, lost, n):
+    """B3: "B is better in X of N runs" when B's CAGR beat A's on at least 80% of the seeds; "B is worse in X of N
+    runs" when it lost on at least 80% (B beat A on at most 20%; equal runs count for neither); otherwise no clear
+    difference."""
+    if n and beat >= VERDICT_SHARE * n:
+        return "better", "B is better in %d of %d runs" % (beat, n)
+    if n and lost >= VERDICT_SHARE * n:
+        return "worse", "B is worse in %d of %d runs" % (lost, n)
+    return "unclear", NO_CLEAR
+
+
+def paired(a_rows, b_rows):
+    """Per seed: B minus A for each metric (the same seed = the same tie order and start for both)."""
+    out = []
+    for ra, rb in zip(a_rows, b_rows):
+        assert ra["seed"] == rb["seed"] and ra["start"] == rb["start"], "unpaired seeds"
+        d = {"seed": ra["seed"], "start": ra["start"]}
+        for k, _, _ in ROBUST_METRICS:
+            x, y = ra["overall"][k], rb["overall"][k]
+            d[k] = None if x is None or y is None else round(y - x, 3)
+        out.append(d)
+    return out
+
+
+def compare_summary(pairs):
+    n = len(pairs)
+    beat = sum(1 for p in pairs if p["cagr_pct"] is not None and p["cagr_pct"] > 0)
+    lost = sum(1 for p in pairs if p["cagr_pct"] is not None and p["cagr_pct"] < 0)
+    kind, text = verdict(beat, lost, n)
+    return {"seeds": n, "b_beat_a": beat, "b_lost": lost, "equal_or_unknown": n - beat - lost,
+            "b_beat_a_pct": round(beat / n * 100, 1) if n else None,
+            "difference": {k: distribution([p[k] for p in pairs], 3 if u == "R" else 2) for k, _, u in ROBUST_METRICS},
+            "verdict": kind, "verdict_text": text,
+            "basis": "Judged on CAGR, seed by seed: B's run against A's run with the same seed (same prices, same "
+                     "tie order, same start). Equal runs count for neither side."}
+
+
+def parse_settings(text, raw):
+    """--robust-compare's settings: 'default' (your config.json as it is) or KEY=VALUE pairs separated by commas or
+    spaces, over your config.json: a dotted setting (scanner.setups.pullback.enabled=false; on / off mean true /
+    false), a setup by name (pullback=off), or regime=off|RULE:ACTION (the backtest's regime filter).
+    -> (label, config dict, regime text). Every value goes through tc.validate_config: one it would not accept is
+    refused, never ignored (so A and B differ in exactly what you wrote)."""
+    import copy as _copy
+    user = _copy.deepcopy(raw or {})
+    regime, label = "off", (text or "").strip() or "default"
+    parts = [x for x in re.split(r"[,\s]+", label) if x and x != "default"]
+    for part in parts:
+        k, eq, v = part.partition("=")
+        if not eq or not k:
+            raise ValueError("settings must be KEY=VALUE (got %r)" % part)
+        if k == "regime":
+            parse_regime(v)
+            regime = v
+            continue
+        if k in tc.SWING_SETUPS + tc.DELIVERY_SETUPS:
+            k = "scanner.setups.%s.enabled" % k
+        doc = tc.DEFAULT_CONFIG_DOCS.get(k)
+        if not doc or doc.get("type") == "locked" or tc.is_account_key(k):
+            raise ValueError("%s is not a strategy setting you can vary here" % k)
+        low = v.lower()
+        val = True if low in ("on", "true", "yes") else False if low in ("off", "false", "no") else None
+        if val is None:
+            try:
+                val = json.loads(v)
+            except ValueError:
+                val = v
+        d = user
+        ks = k.split(".")
+        for x in ks[:-1]:
+            d = d.setdefault(x, {})
+            if not isinstance(d, dict):
+                raise ValueError("%s: %s is not a group of settings" % (k, x))
+        d[ks[-1]] = val
+    cfg, notes = tc.validate_config(user)
+    errs = tc.config_errors(notes)
+    if errs:
+        raise ValueError("; ".join(errs))
+    return label, cfg, regime
+
+
+def robust_section(sides, params, uni, n, cache, bench_cagr, progress=None):
+    """B1 / B3 over the same bars: sides = [(name, label, data, cfg, regime text, regime dict, base sim or None)]."""
+    out = {}
+    for name, label, data, cfg, rtext, reg, base in sides:
+        rb = robust_side(data, cfg, params, uni, n, cache, bench_cagr, regime=reg, base_sim=base, progress=progress,
+                         label=name if len(sides) > 1 else None)
+        snap = tc.settings_snapshot(cfg)
+        rb["settings"] = {"label": label, "settings_label": snap["label"], "hash": snap["hash"], "same_as": snap["same_as"]}
+        rb["regime"] = rtext or "off"
+        out[name] = rb
+    return out
+
+
+def robust_md(rb, title="Robustness"):
+    s = rb["summary"]
+    L = ["## %s: %d seeded runs (%s)" % (title, s["runs"], rb["settings"]["label"]), "", ROBUST_NOTE, ""]
+    L += robust_table(s)
+    L += ["", s["beat_benchmark"]["text"] + ".", ""]
+    for grp, head in (("by_mode", "mode"), ("by_setup", "setup")):
+        if s[grp]:
+            L += ["| %s | trades (median) | CAGR median | CAGR 10th-90th | expectancy median | expectancy 10th-90th | "
+                  "max DD median | above the ETF |" % head, "|---|---|---|---|---|---|---|---|"]
+            for g, d in s[grp].items():
+                L.append("| %s | %s | %s | %s to %s | %s | %s to %s | %s | %s |" % (
+                    g, fmt(d["trades"]["median"], "", 0), fmt(d["cagr_pct"]["median"], "%"), fmt(d["cagr_pct"]["p10"], "%"),
+                    fmt(d["cagr_pct"]["p90"], "%"), fmt(d["expectancy_r"]["median"], "R"), fmt(d["expectancy_r"]["p10"], "R"),
+                    fmt(d["expectancy_r"]["p90"], "R"), fmt(d["max_drawdown_pct"]["median"], "%"),
+                    "UNKNOWN" if d["beat_benchmark"]["runs"] is None else "%d of %d" % (d["beat_benchmark"]["runs"], d["beat_benchmark"]["of"])))
+            L.append("")
+    L += ["Max positions (the plain run, only this limit changed):", "",
+          "| max positions | trades | win rate | expectancy | CAGR | max drawdown | above the ETF |", "|---|---|---|---|---|---|---|"]
+    for r in rb["max_positions"]:
+        o = r["overall"]
+        L.append("| %d | %d | %s | %s | %s | %s | %s |" % (r["max_positions"], o["trades"], fmt(o["win_rate_pct"], "%", 1),
+                                                           fmt(o["expectancy_r"], "R"), fmt(o["cagr_pct"], "%"),
+                                                           fmt(o["max_drawdown_pct"], "%"),
+                                                           "UNKNOWN" if r["beat_benchmark"] is None else ("yes" if r["beat_benchmark"] else "no")))
+    return L + [""]
+
+
+def robust_table(s):
+    L = ["| | median | 10th pct | 90th pct | min | max |", "|---|---|---|---|---|---|"]
+    for k, name, u in ROBUST_METRICS:
+        d = s["overall"][k] if "overall" in s else s[k]
+        dd = 0 if u == "" else 3 if u == "R" else 2
+        L.append("| %s | %s |" % (name, " | ".join(fmt(d[x], u, dd) for x in ("median", "p10", "p90", "min", "max"))))
+    return L
+
+
+def robust_compare_md(rc):
+    c = rc["compare"]
+    L = ["## Robust compare: A = %s, B = %s" % (rc["a"]["settings"]["label"], rc["b"]["settings"]["label"]), "",
+         "**%s.**" % c["verdict_text"], "", c["basis"], "",
+         "B beat A on %d of %d seeds, lost on %d, equal or UNKNOWN on %d." % (c["b_beat_a"], c["seeds"], c["b_lost"],
+                                                                            c["equal_or_unknown"]), "",
+         "B minus A, per seed:", ""]
+    L += robust_table(c["difference"]) + [""]
+    for side in ("a", "b"):
+        L += robust_md(rc[side], title="Side %s" % side.upper())
+    return L
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +1177,44 @@ def window(a, now, cfg):
     return start, end, split, rule
 
 
+def robust_results(params, cfg, uni, used, sim, main_regime, regimes, robust_sides, cache, bench_get, range_, capital,
+                   progress):
+    """--robust: the seeded runs for your settings; --robust-compare: the same for A and B (and --robust's section
+    reuses A when A is your settings as they are) -> (robust or None, robust_compare or None)."""
+    n, end = params["robust"], params["to"]
+    bmemo = {}
+
+    def bench_cagr(st):
+        if st not in bmemo:
+            b = benchmark(SHARIAH_BENCH, dict(BENCHMARKS)[SHARIAH_BENCH], range_, st, end, capital, cfg, fetch=bench_get)
+            bmemo[st] = b.get("cagr_pct") if b["status"] == "OK" else None
+        return bmemo[st]
+
+    main_dg = cache.digest(cfg)
+    done = {}
+
+    def side(name, label, c, rtext):
+        reg = regimes.get(rtext) if rtext not in (None, "off") else None
+        key = (cache.digest(c), rtext or "off")
+        if key not in done:
+            base = sim if key == (main_dg, main_regime or "off") else None
+            done[key] = robust_section([(name, label, used, c, rtext or "off", reg, base)], params, uni, n, cache,
+                                       bench_cagr, progress)[name]
+        return done[key]
+
+    out_cmp = None
+    if robust_sides:
+        a, b = [side(*x) for x in robust_sides]
+        out_cmp = {"a": a, "b": b, "compare": compare_summary(paired(a["runs"], b["runs"])), "note": ROBUST_NOTE}
+    out = None
+    if not robust_sides or params.get("robust_given"):
+        label = tc.settings_snapshot(cfg)["label"]
+        out = dict(side("main", label, cfg, main_regime or "off"))     # a copy: it may be side A's runs, reused
+        out["settings"] = dict(out["settings"], label=label)
+        out["note"] = ROBUST_NOTE
+    return out, out_cmp
+
+
 def run_id(params, label, syms):
     h = hashlib.sha1(json.dumps([params, label, syms], sort_keys=True).encode("utf-8")).hexdigest()[:6]
     return "%s_%s_%s_%s" % (params["to"], params["mode"], params["from"], h)
@@ -858,9 +1255,11 @@ def late_share(trades, late, excluded=False):
             "total_pnl_rs": tot, "pct_of_total": 0.0 if excluded else pct, "excluded": excluded, "text": text}
 
 
-def load_regime(params, cfg, range_, days, index_fn):
-    """-> (index info, {variant: regime dict or None}) for --regime and --regime-compare (index fetched once)."""
-    wanted = set()
+def load_regime(params, cfg, range_, days, index_fn, extra=(), extra_days=()):
+    """-> (index info, {variant: regime dict or None}) for --regime, --regime-compare and (v0.2.6) the regime of a
+    --robust-compare side (`extra`), with the index fetched once. States are also worked out for `extra_days`
+    (robust runs that start a day early); the counts and ranges stay those of the window's days."""
+    wanted = {v for v in extra if v and v != "off"}
     if params.get("regime") and params["regime"] != "off":
         wanted.add(params["regime"])
     if params.get("regime_compare"):
@@ -874,12 +1273,15 @@ def load_regime(params, cfg, range_, days, index_fn):
     except tc.FetchError as e:
         bars = []
         info.update(status="UNKNOWN", reason="could not be fetched: %s" % str(e)[:200])
-    out, by_rule = {}, {}
+    out, by_rule, all_days = {}, {}, sorted(set(days) | set(extra_days))
     for v in sorted(wanted):
         r = parse_regime(v)
         if r["rule"] not in by_rule:
-            by_rule[r["rule"]] = regime_states(bars, days, r["rule"], idx)
+            by_rule[r["rule"]] = regime_states(bars, all_days, r["rule"], idx)
         out[v] = dict(r, states=by_rule[r["rule"]])
+    if extra_days:
+        win = set(days)
+        by_rule = {rule: {d: x for d, x in sts.items() if d in win} for rule, sts in by_rule.items()}
     if bars:
         st = by_rule[sorted(by_rule)[0]]
         info["risk_off_days"] = {rule: sum(1 for x in sts.values() if x["state"] == "risk-off") for rule, sts in by_rule.items()}
@@ -888,8 +1290,28 @@ def load_regime(params, cfg, range_, days, index_fn):
     return info, out
 
 
-def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index_fn=None):
-    """The whole backtest -> result dict (no file is written here)."""
+def _memo_fetch(fetch):
+    """Benchmark prices fetched once per symbol and range (the robust runs ask for the ETF from several starts)."""
+    memo = {}
+    fn = fetch or tc.get_daily_bars
+
+    def get(sym, range_="2y"):
+        k = (sym, range_)
+        if k not in memo:
+            try:
+                memo[k] = ("ok", fn(sym, range_=range_))
+            except tc.FetchError as e:
+                memo[k] = ("err", e)
+        kind, v = memo[k]
+        if kind == "err":
+            raise v
+        return v
+    return get
+
+
+def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index_fn=None, robust_sides=None):
+    """The whole backtest -> result dict (no file is written here). robust_sides (v0.2.6, --robust-compare): the
+    two settings [(name, label, cfg, regime text)] from parse_settings."""
     syms, status_counts = halal_universe(uni)
     start, end, split = params["from"], params["to"], params["split"]
     first = tc.parse_date(start) - dt.timedelta(days=365 * TM_YEARS + 10)
@@ -901,11 +1323,18 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index
     capital = float(cfg["capital"])
     used = early if no_late else data
     all_days = sorted({b["date"] for bs in used.values() for b in bs if start <= b["date"] <= end})
-    rinfo, regimes = load_regime(params, cfg, range_, all_days, index_fn or bench_fn)
+    robust_n = params.get("robust")
+    early_days = []
+    if robust_n:
+        dates = sorted({b["date"] for bs in used.values() for b in bs if b["date"] <= end})
+        early_days = [shifted_start(dates, start, -1)]
+    rinfo, regimes = load_regime(params, cfg, range_, all_days, index_fn or bench_fn,
+                                 extra=[x[3] for x in robust_sides or []], extra_days=early_days)
     main_regime = params.get("regime") if params.get("regime") not in (None, "off") else None
+    cache = RunCache() if robust_n else None
     sim = simulate(used, cfg, start, end, params["mode"], params["setups"],
                    params["max_positions"], progress, uni=uni, take_warn=params["take_warn"], rank="tm",
-                   regime=regimes.get(main_regime) if main_regime else None)
+                   regime=regimes.get(main_regime) if main_regime else None, cache=cache)
     regime_cmp = None
     if params.get("regime_compare"):
         cols = []
@@ -946,9 +1375,14 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index
                              progress, uni=uni, take_warn=params["take_warn"], rank="tm")
             mc, sc = all_metrics(sim_c, capital, split)
             compare["no_late"] = compare_view(mc, sc)
+    bench_get = _memo_fetch(bench_fn)
+    robust = robust_cmp = None
+    if robust_n:
+        robust, robust_cmp = robust_results(params, cfg, uni, used, sim, main_regime, regimes, robust_sides, cache,
+                                            bench_get, range_, capital, progress)
     benches = {}
     for sym, name in BENCHMARKS:
-        benches[sym] = benchmark(sym, name, range_, start, end, capital, cfg, fetch=bench_fn)
+        benches[sym] = benchmark(sym, name, range_, start, end, capital, cfg, fetch=bench_get)
     snap = tc.settings_snapshot(cfg)
     res = {
         "id": run_id(params, snap["hash"], syms),
@@ -1004,6 +1438,10 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index
     res["regime"] = {"variant": main_regime or "off", "index": rinfo}
     if regime_cmp:
         res["regime_compare"] = regime_cmp
+    if robust:
+        res["robust"] = robust
+    if robust_cmp:
+        res["robust_compare"] = robust_cmp
     res["banners"] = banners(metrics["overall"], spl, benches)
     if rinfo and rinfo.get("status") != "OK":
         res["banners"].append(BANNER_REGIME_UNKNOWN)
@@ -1160,6 +1598,10 @@ def render_md(r):
         L += compare_md(r["compare"])
     if r.get("regime_compare"):
         L += regime_md(r["regime_compare"])
+    if r.get("robust"):
+        L += robust_md(r["robust"])
+    if r.get("robust_compare"):
+        L += robust_compare_md(r["robust_compare"])
     if (r.get("regime") or {}).get("variant", "off") != "off":
         L += ["Regime filter in this run: %s (index %s)." % (r["regime"]["variant"], (r["regime"].get("index") or {}).get("name")), ""]
         if not r.get("regime_compare"):
@@ -1234,6 +1676,14 @@ def main(argv=None):
                                                                                   ", ".join(tc.REGIME_ACTIONS)))
     r.add_argument("--regime-compare", action="store_true",
                    help="also run %s on the same bars, side by side" % ", ".join(REGIME_VARIANTS))
+    r.add_argument("--robust", type=int, nargs="?", const=ROBUST_DEFAULT, default=None, metavar="N",
+                   help="also run the same window N times (default %d, at most %d) on the same prices, each seed changing "
+                        "only the order of equal-ranked signals and the start by one trading day, plus max positions "
+                        "3 / 5 / 8: the spread of the results" % (ROBUST_DEFAULT, ROBUST_MAX))
+    r.add_argument("--robust-compare", nargs=2, metavar=("A", "B"),
+                   help="the --robust runs for settings A and settings B on the same prices and seeds, paired seed by "
+                        "seed, with a verdict. Each is 'default' or KEY=VALUE pairs over your config, e.g. "
+                        "\"pullback=on\" \"pullback=off\", or \"regime=off\" \"regime=close_below_200dma:half_risk\"")
     r.add_argument("--write", action="store_true", help="save trader/backtest/<id>.json and .md")
     r.add_argument("--json", action="store_true")
     ls = sub.add_parser("list", help="saved backtests")
@@ -1293,6 +1743,21 @@ def main(argv=None):
         parse_regime(a.regime)
     except ValueError as e:
         tc.die(str(e))
+    robust_n = a.robust if a.robust is not None else (ROBUST_DEFAULT if a.robust_compare else None)
+    if robust_n is not None and not 1 <= robust_n <= ROBUST_MAX:
+        tc.die("--robust N must be 1 to %d (got %d)" % (ROBUST_MAX, robust_n))
+    sides = None
+    if a.robust_compare:
+        raw = tc.read_json("config.json", None) or {}
+        sides = []
+        for name, text in zip(("a", "b"), a.robust_compare):
+            try:
+                label, c, rtext = parse_settings(text, raw)
+            except ValueError as e:
+                tc.die("--robust-compare %s (%r): %s" % (name.upper(), text, e))
+            if a.capital is not None:
+                c["capital"] = a.capital
+            sides.append((name, label, c, rtext))
     start, end, split, end_rule = window(a, tc.now_ist(), cfg)
     uni = tc.load_universe()
     if not uni.get("stocks"):
@@ -1303,9 +1768,13 @@ def main(argv=None):
               "late": a.late, "end_rule": end_rule}
     if a.regime != "off" or a.regime_compare:              # v0.2.4 (left out when off, so earlier ids stay the same)
         params.update(regime=a.regime, regime_compare=a.regime_compare)
+    if robust_n is not None:                                # v0.2.6 (left out when not used: earlier ids unchanged)
+        params.update(robust=robust_n, robust_given=a.robust is not None)
+        if sides:
+            params["robust_compare"] = [x[1] for x in sides]
     t0 = time.time()
     progress = None if a.json else (lambda m: sys.stderr.write("  %s\n" % m))
-    res = run(params, cfg, uni, progress=progress)
+    res = run(params, cfg, uni, progress=progress, robust_sides=sides)
     secs = time.time() - t0
     if a.write:
         jp = save(res)

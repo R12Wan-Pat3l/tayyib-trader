@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.5).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.6).
 
 ## What it is
 
@@ -12,8 +12,8 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.5** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.5; v0.1.3 is folded into v0.1.4)
-- Tests: 429 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.2.6** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.6; v0.1.3 is folded into v0.1.4)
+- Tests: 450 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -45,7 +45,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
 | tayyib-entry / tayyib-exit | trigger status; stop (swing max 10%, delivery max 15%), target (2R / 3R), time stop |
 | tayyib-timemachine | 10,000 simulated futures plus historical replay, in R after charges |
-| tayyib-backtest | the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars (`--no-late`, their P&L share always shown); ends on the last completed session; metrics, in/out-of-sample, `--compare` (b: score-only ranking, c: no late joiners), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/`; dashboard tab (v0.2.0 to v0.2.2) |
+| tayyib-backtest | (v0.2.6) `--robust N` (20, max 50: seeded tie order + start ±1 day, max positions 3/5/8, ranges) and `--robust-compare A B` (paired seeds, 80% verdict); the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars (`--no-late`, their P&L share always shown); ends on the last completed session; metrics, in/out-of-sample, `--compare` (b: score-only ranking, c: no late joiners), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/`; dashboard tab (v0.2.0 to v0.2.2) |
 | tayyib-budget / tayyib-risk | sizing (1% risk, 20% max position) and PASS / WARN / BLOCK |
 | tayyib-broker | order ticket (manual placement) and journal (placed, stop, close, positions) |
 | tayyib-alerts, tayyib-results, tayyib-insider, tayyib-purify | alerts, quarterly results, NSE insider and bulk deals, dividend purification |
@@ -94,9 +94,14 @@ over MCP (stdio), none of which place orders.
   daily list and halal list output starts with "Halal thresholds are looser than TASIS (your
   setting): <note>". **No AAOIFI preset:** it needs market value, and we fetch no share count; we do
   not approximate it.
-- **Pullback off by default (v0.2.5, default@3):** owner decision from the 5-year backtest (its own trades:
-  46, -0.21R). Still available in Settings; with it on, decisions equal default@2 exactly (snapshot test). The
-  whole-strategy backtest was worse without it on both windows (recorded in the CHANGELOG).
+- **Pullback on by default (v0.2.6, default@4):** v0.2.5 switched it off (default@3) from its own trades (5 y: 46,
+  -0.21R); the whole-strategy backtest was worse without it on both windows (5 y CAGR 8.0% -> 4.1%, 3 y 7.9% -> 7.0%),
+  so the owner reversed it. The v0.2.6 robust test then showed that single comparison was noise: pullback off beat on
+  in 15 of 20 seeds (75%, no verdict), so the default stays on (the default@2 behaviour) under the 80% rule. default@4 equals default@2 in every value and decision (test against the default@2
+  snapshot); default@3 stays a known historic label (`tc.DEFAULTS_HISTORY`, `settings_snapshot()["same_as"]`).
+- **Rule: no default change without a `--robust-compare` verdict of 80%+ (v0.2.6).** A change to a decision default
+  needs `backtest.py run --robust-compare "A" "B"` on 5 years (and 3) to say "B is better in X of N runs" (B's CAGR
+  above A's on at least 80% of the seeds). Anything else ("No clear difference") keeps the default.
 - **Holdings are not trades (v0.2.5):** imported from broker files (read only), kind "holding"; they count for
   the halal re-check, "already held" and purification, never for sizing, the risk check or any result.
 - **Why this stock:** every daily row carries `why[]`, recorded at decision time, never recomputed.
@@ -209,13 +214,16 @@ over MCP (stdio), none of which place orders.
   market-regime filter, OFF (live, the Today header, `backtest --regime` / `--regime-compare`, a Settings
   group); Why ordering, the time-machine label, market-closed detection (`--force`). No daily-list changes
   with defaults (default@2).
-- **v0.2.5** (this release): **pullback off by default (default@3)**, owner decision from the 5-year backtest
+- **v0.2.5**: **pullback off by default (default@3; reversed in v0.2.6)**, owner decision from the 5-year backtest
   (pullback's own trades: 46, -0.21R); with it on, every decision is the default@2 one (test + snapshots). Note:
   the whole strategy did worse without it on the same windows (5 y CAGR 8.0% -> 4.1%, 3 y 7.9% -> 7.0%); see the
   CHANGELOG. Holdings import from Zerodha / Groww files (`ticket.py import`, read only, preview first, kind
   "holding": not trades). "Not compliant now (status at purchase unknown)". Risk-off date ranges.
-- **Next:** switch the regime filter on only if `--regime-compare` shows a variant helps on more than one
-  window. Revisit pullback with a backtest that varies max positions.
+- **v0.2.6** (this release): **pullback back on (default@4 = default@2)**, the v0.2.5 banner replaced by a one-time
+  "Pullback is back on by default (v0.2.6)" banner (configs with their own pullback setting untouched), and the
+  robustness test: `backtest.py run --robust [N]` and `--robust-compare "A" "B"`, with range bars and the verdict in
+  the Backtest tab.
+- **Next:** switch the regime filter on only with a robust-compare verdict of 80%+ on 3 and 5 years.
 
 Later:
 - Read-only Zerodha / Groww connection (holdings, positions)

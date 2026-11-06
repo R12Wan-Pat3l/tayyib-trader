@@ -60,10 +60,15 @@ How to present it:
 - Halal-compliant stocks only (see `tayyib-halal`). Anything else is skipped or blocked.
 - Delivery (CNC) only: no intraday (MIS), no F&O, no short selling, no margin or MTF.
 - Nothing in tayyib-trader places an order. The user places it in their broker app after an explicit yes.
-- ## v0.2.5
+## v0.2.6
 
-- Pullback is off by default (default@3). A folder used before gets one banner: "Pullback is now off by default
-  (see CHANGELOG v0.2.5). Turn it on in Settings if you want it." Read it out once.
+- Pullback is back on by default (default@4: every decision equals default@2). A folder used before gets one banner:
+  "Pullback is back on by default (v0.2.6): removing it made the whole strategy worse in 3- and 5-year backtests.
+  You can still switch it off in Settings." Read it out once. A pullback setting you made yourself is left alone.
+  The v0.2.5 banner is never shown again.
+
+## v0.2.5
+
 - Imported holdings (tayyib-broker import) count as "already held": the list skips them.
 
 ## v0.2.4

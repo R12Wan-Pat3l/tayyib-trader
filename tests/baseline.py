@@ -159,6 +159,9 @@ def capture():
 # off: with PULLBACK_ON the v0.2.5 code must reproduce default@2 exactly. Never rewrite a snapshot to make
 # a failing test pass (the writer refuses an existing file).
 PULLBACK_ON = {"scanner": {"setups": {"pullback": {"enabled": True}}}}
+# v0.2.6: pullback is on by default again (default@4 = default@2 in every value); with it switched off the code must
+# reproduce the historic default@3 snapshot exactly.
+PULLBACK_OFF = {"scanner": {"setups": {"pullback": {"enabled": False}}}}
 
 
 def snapshot_path(version):

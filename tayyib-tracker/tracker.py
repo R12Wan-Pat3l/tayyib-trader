@@ -394,10 +394,10 @@ def export(store):
             ["Result R = profit or loss in units of the planned risk, after Indian charges (+2R = twice the risk)."],
             ["A day that touched both the stop and the target counts as the stop (conservative)."],
             ["Compare 'check: PASS' with 'check: BLOCK' in the Summary to see whether the risk check helped."],
-            ["'settings: ...' rows split the results by the settings each list was made with: default@1, default@2, default@3 = all "
-             "defaults of that version (default@3, v0.2.5: pullback off), a code like abcd1234 = your changes (the last column says which). pre-0.1.5 = recorded "
+            ["'settings: ...' rows split the results by the settings each list was made with: default@1 to default@4 = all "
+             "defaults of that version (default@3, v0.2.5 only: pullback off; default@4, v0.2.6: the same as default@2), a code like abcd1234 = your changes (the last column says which). pre-0.1.5 = recorded "
              "before settings were tracked."],
-            ["Settings = the label of the settings the list was made with: default@3, default@2, default@1, pre-0.1.5, or a code "
+            ["Settings = the label of the settings the list was made with: default@4, default@3, default@2, default@1, pre-0.1.5, or a code "
              "like abcd1234 for your own changes."],
             ["SUPERSEDED = the list for that date was made again with other settings before this pick filled. The row "
              "is kept for the record, not followed and not counted in the Summary. Picks that had filled stay."],

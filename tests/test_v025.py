@@ -1,4 +1,4 @@
-"""v0.2.5: pullback off by default (default@3; with it on, every decision is the default@2 one), the import of your
+"""v0.2.5: pullback off by default (default@3, historic since v0.2.6; with it on, every decision is the default@2 one), the import of your
 real holdings from a Zerodha / Groww export (read only, preview first, holdings are not trades), and fixes: the
 "status at purchase unknown" wording, risk-off date ranges in the backtest. Offline: fixtures only; the export
 files are built here (small CSV and XLSX files, standard library only). Nothing is placed anywhere."""
@@ -124,33 +124,21 @@ class ImportCase(OfflineCase):
 # --- A. pullback off by default --------------------------------------------------------------------------
 
 class DefaultsV3(unittest.TestCase):
-    def test_default3_has_no_pullback_and_the_note(self):
-        c = tc.validate_config({})[0]
-        self.assertEqual(tc.DEFAULTS_VERSION, 3)
-        self.assertEqual(tc.settings_snapshot(c)["label"], "default@3")
-        self.assertFalse(c["scanner"]["setups"]["pullback"]["enabled"])
-        for s in ("breakout", "oversold", "squeeze", "trend"):
-            self.assertTrue(c["scanner"]["setups"][s]["enabled"], s)
-        self.assertNotIn("pullback", tc.enabled_setups(c, tc.SWING_SETUPS))
-        note = "Off by default since v0.2.5: lost money in 5-year backtests (\u22120.21R over 46 trades). You can switch it on."
-        self.assertEqual(tc.DEFAULT_CONFIG_DOCS["scanner.setups.pullback.enabled"]["note"], note)
+    """default@3 is historic since v0.2.6 (pullback back on, default@4): its record and its label stay known."""
+
+    def test_default3_record_and_label(self):
         hist = baseline.load_defaults()
         self.assertEqual([k for k in hist["3"] if k in hist["2"] and hist["2"][k] != hist["3"][k]],
-                         ["scanner.setups.pullback.enabled"])            # the ONLY changed default
-        on = tc.settings_snapshot(tc.validate_config(baseline.PULLBACK_ON)[0])
-        self.assertEqual([d["key"] for d in on["differs_from_default"]], ["scanner.setups.pullback.enabled"])
-
-    def test_settings_shows_the_checkbox_unticked_with_the_note(self):
-        os.environ["TAYYIB_DIR"] = os.path.join(FIX, "no-such-folder")
-        f = DASH.setting_field("scanner.setups.pullback.enabled", A._flat(tc.validate_config({})[0]), {}, False)
-        self.assertEqual((f["value"], f["default"], f["toggle_section"]), (False, False, True))
-        self.assertIn("lost money in 5-year backtests", f["note"])
-        self.assertIn("if (t.note) box.appendChild", open(os.path.join(ROOT, "tayyib-dashboard", "index.html"),
-                                                          encoding="utf-8").read())
+                         ["scanner.setups.pullback.enabled"])            # the ONLY default v0.2.5 changed
+        self.assertIs(hist["3"]["scanner.setups.pullback.enabled"], False)
+        off = tc.settings_snapshot(tc.validate_config(baseline.PULLBACK_OFF)[0])
+        self.assertEqual([d["key"] for d in off["differs_from_default"]], ["scanner.setups.pullback.enabled"])
+        self.assertEqual(off["same_as"], "default@3")
 
 
 class BaselineV3(unittest.TestCase):
-    """A2: pullback off is the only decision change. Snapshots: tests/fixtures/baseline_default{2,3}.json.gz."""
+    """A2: pullback off was v0.2.5's only decision change. Snapshots: tests/fixtures/baseline_default{2,3}.json.gz.
+    Since v0.2.6 pullback is on by default again; PULLBACK_OFF reproduces default@3."""
 
     def test_pullback_on_matches_default2_exactly(self):
         d2 = baseline.load_default_snapshot(2)
@@ -159,74 +147,22 @@ class BaselineV3(unittest.TestCase):
 
     def test_default3_snapshot(self):
         d3, d2 = baseline.load_default_snapshot(3), baseline.load_default_snapshot(2)
-        cur = baseline.pipeline(config=None)
+        cur = baseline.pipeline(config=baseline.PULLBACK_OFF)
         self.assertEqual(baseline.diff(d3["pipeline"], cur), [])
         setups = lambda p: {c.get("setup") for r in p.values() for c in (r["scan"] or [])}
         self.assertIn("pullback", setups(d2["pipeline"]))                # the fixtures do arm a pullback...
-        self.assertNotIn("pullback", setups(cur))                         # ...which default@3 leaves out
+        self.assertNotIn("pullback", setups(cur))                         # ...which pullback off leaves out
         self.assertEqual(d2["pipeline"]["delivery"], cur["delivery"])      # delivery never had pullback
 
     def test_snapshot_writer_refuses_to_rewrite(self):
         p = subprocess.run([sys.executable, os.path.join(ROOT, "tests", "baseline.py"), "--write-default", "3"],
                            capture_output=True, encoding="utf-8")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("never rewrite a snapshot", p.stderr)
+        self.assertIn("refused", p.stderr)                  # since v0.2.6 also: 3 is not the code's version
 
 
 class Migration(OfflineCase):
-    def earlier(self):
-        os.makedirs(os.path.join(self.dir, "daily"), exist_ok=True)
-        self.write(os.path.join("daily", "2026-10-29.json"), {"date": "2026-10-29"})
-
-    def test_exact_old_default_is_migrated_with_a_backup(self):
-        self.earlier()
-        self.write("config.json", {"capital": 200000, "scanner": {"setups": {"pullback": {"enabled": True},
-                                                                              "squeeze": {"enabled": True}}}})
-        banner, rec = tc.pullback_migration()
-        self.assertEqual(banner, tc.PULLBACK_BANNER)
-        self.assertTrue(rec["migrated"])
-        cfg = self.read("config.json")
-        self.assertEqual(cfg, {"capital": 200000, "scanner": {"setups": {"squeeze": {"enabled": True}}}})
-        self.assertFalse(tc.load_config()["scanner"]["setups"]["pullback"]["enabled"])
-        bk = os.listdir(os.path.join(self.dir, "config_backups"))
-        self.assertEqual(len(bk), 1)
-        self.assertRegex(bk[0], A.BACKUP_RE)
-        # not shown yet: still offered until a list is written; then never again
-        self.assertEqual(tc.pullback_migration()[0], tc.PULLBACK_BANNER)
-        tc.pullback_banner_shown("2026-10-30")
-        self.assertIsNone(tc.pullback_migration()[0])
-
-    def test_custom_setups_left_alone(self):
-        self.earlier()
-        raw = {"scanner": {"setups": {"pullback": {"enabled": True}, "squeeze": {"enabled": False}}}}
-        self.write("config.json", raw)
-        banner, rec = tc.pullback_migration()
-        self.assertIsNone(banner)
-        self.assertEqual(self.read("config.json"), raw)
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "config_backups")))
-        self.assertEqual(rec["result"], "your own setups: left alone")
-
-    def test_no_config_follows_new_default_with_banner_and_new_folder_says_nothing(self):
-        self.earlier()
-        self.assertEqual(tc.pullback_migration()[0], tc.PULLBACK_BANNER)
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "config.json")))
-        os.remove(os.path.join(self.dir, "notices.json"))
-        os.remove(os.path.join(self.dir, "daily", "2026-10-29.json"))
-        banner, rec = tc.pullback_migration()
-        self.assertIsNone(banner)
-        self.assertEqual(rec["result"], "new folder: nothing to change")
-
-    def test_banner_once_on_the_daily_list(self):
-        self.build_universe()
-        self.earlier()
-        out = self.run_script("tayyib-daily/daily.py", "--no-news", "--runs", "200")
-        self.assertIn(tc.PULLBACK_BANNER, out["banners"])
-        md = open(os.path.join(self.dir, "daily", "2026-10-30.md"), encoding="utf-8").read()
-        self.assertIn("Pullback is now off by default", md)
-        again = self.run_script("tayyib-daily/daily.py", "--no-news", "--runs", "200")
-        self.assertNotIn(tc.PULLBACK_BANNER, again["banners"])
-        self.assertEqual(self.read("notices.json")[tc.PULLBACK_NOTICE]["shown"], "2026-10-30")
-        self.assertEqual(again["settings"]["label"], "default@3")
+    """The v0.2.5 migration (pullback off) was replaced in v0.2.6: see tests/test_v026.py."""
 
     def test_old_tracker_rows_keep_default2(self):
         import importlib
@@ -513,13 +449,12 @@ class Fixes(OfflineCase):
 
 class Docs(unittest.TestCase):
     def test_version_and_docs(self):
-        self.assertEqual(tc.VERSION, "0.2.5")
+        self.assertTrue(tc.VERSION >= "0.2.5")              # pinned exactly by the newest test file
         guide = open(os.path.join(ROOT, "docs", "USER_GUIDE.md"), encoding="utf-8").read()
         faq = open(os.path.join(ROOT, "docs", "FAQ.md"), encoding="utf-8").read()
         readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
         self.assertIn("Import your holdings (Zerodha / Groww)", guide)
         self.assertLess(guide.index("Start without Claude Code"), guide.index("## Part 2"))   # an option in Part 1
-        self.assertIn("Why is pullback off?", faq)
         self.assertIn("Quick start without Claude Code", readme)
         for img in ("email-held-example.png", "today-regime-held.png", "tickets-held.png"):
             for doc in (guide, readme):
@@ -530,7 +465,7 @@ class Docs(unittest.TestCase):
         self.assertIn("## v0.2.5", ch)
         self.assertIn("46 trades", ch.split("## v0.2.4")[0])
         for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-            self.assertIn('"0.2.5"', open(os.path.join(ROOT, f), encoding="utf-8").read())
+            self.assertIn('"%s"' % tc.VERSION, open(os.path.join(ROOT, f), encoding="utf-8").read())
 
 
 if __name__ == "__main__":

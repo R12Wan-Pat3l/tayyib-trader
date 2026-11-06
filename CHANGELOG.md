@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.2.6 (2026-11-06)
+
+Pullback is back on by default, and the backtest can now show a range of results instead of one number.
+
+### Changed (a default: default@4, which equals default@2)
+
+- **Pullback is back on by default.** In v0.2.5 we turned it off because its own trades lost money over 5 years
+  (46 trades, -0.21R). The whole-strategy backtest showed that this made things worse (5-year CAGR 8.0% -> 4.1%,
+  3-year 7.9% -> 7.0%): other trades took its slots and did worse. So it is back on. `DEFAULTS_VERSION` is 4 and
+  the label is **default@4**. Every default and every decision is exactly the default@2 one (a new test against
+  the default@2 snapshot). default@3 stays a known label for old tracker rows; a config with only pullback off
+  shows "same as default@3".
+- **From now on, a default only changes with a `--robust-compare` verdict of 80% or more** (see below).
+- If you never set pullback yourself, you are on default@4 with no change to your `config.json`, and the next daily
+  list shows one banner: "Pullback is back on by default (v0.2.6): removing it made the whole strategy worse in 3-
+  and 5-year backtests. You can still switch it off in Settings." If the v0.2.5 banner had not been shown yet, you
+  see only the new one. If you set pullback yourself (on or off), nothing changes and there is no banner.
+- The Settings note under the switch: "On by default. On its own it lost money in 5-year backtests (-0.21R over
+  46 trades), but switching it off made the whole strategy worse (5-year CAGR 8.0% -> 4.1%), because other trades
+  took its place."
+
+### Added: the robustness test (tayyib-backtest)
+
+- `backtest.py run --robust [N]` (20 by default, at most 50): the same window N times on the same prices (nothing
+  downloaded again). Each seed changes only the order of signals that rank equal and moves the start by one
+  trading day, and the result is the same every time for the same seed. Plus the plain run at max positions 3, 5
+  and 8. The report gives median, 10th and 90th percentile, min and max of CAGR, expectancy, max drawdown and
+  trades, overall and per mode and setup, and how many runs beat the Shariah ETF.
+- `--robust-compare "A" "B"`: both settings on the same prices and seeds, compared seed by seed (B minus A). Each
+  side is `default` or `KEY=VALUE` pairs over your config (`pullback=off`, `daily.top=8`,
+  `regime=close_below_200dma:half_risk`), checked by the same validation as Settings. Verdict on CAGR: "B is
+  better in X of N runs" (80%+), "B is worse in X of N runs" (B lost on 80%+), otherwise "No clear difference:
+  don't change the default on this evidence".
+- The Backtest tab shows a range bar per metric (10th to 90th percentile, median marked, lowest to highest), a
+  sentence under each, the verdict line, and the by-mode / by-setup and max-positions tables.
+- User guide and FAQ: "Why one backtest number isn't enough", with the pullback story.
+
+### What the robustness test showed (your data, 5 years to 2026-11-06, mode all, 20 seeds)
+
+- **default@4 (= default@2), `--robust 20`:** the plain run is 144 trades, CAGR 8.01%, exactly the v0.2.5 default@2
+  run. Across the 20 seeds:
+
+  | | median | 10th pct | 90th pct | min | max |
+  |---|---|---|---|---|---|
+  | CAGR | 6.21% | 4.49% | 7.58% | 3.44% | 8.56% |
+  | expectancy | +0.234R | +0.155R | +0.314R | +0.112R | +0.370R |
+  | max drawdown | -15.12% | -22.14% | -12.58% | -22.14% | -12.58% |
+  | trades | 154 | 150 | 166 | 150 | 178 |
+
+  CAGR is above the Shariah ETF in 20 of 20 runs (the ETF made 0.82% a year over this window). Swing alone loses
+  money in most runs (median expectancy -0.07R); delivery trend carries the result (+0.75R). Max positions 3 / 5 / 8:
+  CAGR 3.82% / 8.01% / 7.92%.
+- **Pullback on (A) vs off (B):** "No clear difference: don't change the default on this evidence." B beat A in 15 of
+  20 seeds (75%). Median B minus A: +0.54 pts CAGR, +0.18R expectancy, 49 fewer trades. Pullback off had a median CAGR
+  of 7.24% (the single v0.2.5 run, 4.05%, was below all 20 seeds). The "8.0% -> 4.1%" behind this release was one
+  lucky run against one unlucky one. The default stays on, because nothing reached 80% either way.
+- **Regime off (A) vs close_below_200dma:half_risk (B):** "No clear difference: don't change the default on this
+  evidence." B beat A in 7 of 20 seeds. Median -0.18 pts CAGR. The regime filter stays off.
+
 ## v0.2.5 (2026-11-06)
 
 The pullback setup is off by default (an owner decision, from the backtests), your real holdings can be imported

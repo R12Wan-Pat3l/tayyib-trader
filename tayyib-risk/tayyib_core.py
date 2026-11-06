@@ -44,7 +44,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -53,7 +53,24 @@ VERSION = "0.2.5"
 #      0 gives the default@1 order exactly
 #   3  v0.2.5: scanner.setups.pullback.enabled = False (it lost money in the 5-year backtests); with it switched
 #      back on every decision is the default@2 one (tests/baseline.py, baseline_default2.json.gz)
-DEFAULTS_VERSION = 3
+#   4  v0.2.6: pullback back on (switching it off made the whole strategy worse in the 3- and 5-year backtests):
+#      every default and every decision equals default@2 exactly (tests/test_v026.py). default@3 stays a known
+#      historic label (DEFAULTS_HISTORY)
+DEFAULTS_VERSION = 4
+# What each defaults version was, for labels on old rows and the "same as" line of the settings snapshot.
+DEFAULTS_HISTORY = {
+    1: "v0.1.5: every threshold in config, the v0.1.4 values",
+    2: "v0.1.7: ranking on thin evidence (daily.min_past_trades_for_rank 8)",
+    3: "v0.2.5: default@2 with the pullback setup off (historic: reversed in v0.2.6)",
+    4: "v0.2.6: pullback back on; every value and decision equals default@2",
+}
+DEFAULTS_SAME_AS = {4: 2}                     # default@4 is default@2 in every decision-affecting value
+# the differences from the current defaults that make up an earlier defaults version exactly
+DEFAULTS_HISTORIC_DIFFS = {3: (("scanner.setups.pullback.enabled", False),)}
+# the Settings note under the pullback switch (v0.2.6)
+PULLBACK_NOTE = ("On by default. On its own it lost money in 5-year backtests (\u22120.21R over 46 trades), but "
+                 "switching it off made the whole strategy worse (5-year CAGR 8.0% \u2192 4.1%), because other trades "
+                 "took its place.")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 
@@ -135,8 +152,8 @@ DEFAULT_CONFIG = {
                          "volume_fast_days": 5, "volume_slow_days": 20, "volume_dry_ratio": 0.9,
                          "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 5, "valid_days": 3,
                          "min_score": 0},
-            # pullback: off since v0.2.5 (default@3)
-            "pullback": {"enabled": False, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
+            # pullback: off in v0.2.5 (default@3), back on since v0.2.6 (default@4)
+            "pullback": {"enabled": True, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
                          "ema_length": 20, "touch_band_pct": 1.0, "max_close_below_ema_pct": 1.5,
                          "rsi_length": 14, "rsi_min": 35, "rsi_max": 58,
                          "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 3,
@@ -425,8 +442,7 @@ for _s, _rows in _SETUP_DOCS.items():
     _pre = "scanner.setups.%s." % _s
     DEFAULT_CONFIG_DOCS[_pre + "enabled"] = _doc("%s setup on (true) or off (false)" % _s, type="bool")
     if _s == "pullback":
-        DEFAULT_CONFIG_DOCS[_pre + "enabled"]["note"] = ("Off by default since v0.2.5: lost money in 5-year "
-                                                         "backtests (\u22120.21R over 46 trades). You can switch it on.")
+        DEFAULT_CONFIG_DOCS[_pre + "enabled"]["note"] = PULLBACK_NOTE
     for _r in _rows:
         _k, _desc, _mn, _mx, _u = _r[:5]
         _t = _r[5] if len(_r) > 5 else ("int" if _u == "days" else "number")
@@ -719,7 +735,20 @@ def settings_snapshot(cfg):
     account = [d for d in differs if is_account_key(d["key"])]
     return {"hash": h, "label": "default@%d" % DEFAULTS_VERSION if len(account) == len(differs) else h,
             "defaults_version": DEFAULTS_VERSION, "values": vals, "differs_from_default": differs,
-            "account_differs": account}
+            "account_differs": account, "same_as": same_as_label(differs)}
+
+
+def same_as_label(differs):
+    """v0.2.6: the defaults version whose decisions these settings equal, or None. Nothing but account facts
+    differs -> the version default@N stands in for (default@4 -> "default@2"); exactly an earlier version's
+    differences -> that historic label ("default@3": pullback off)."""
+    mine = tuple(sorted((d["key"], d["value"]) for d in differs if not is_account_key(d["key"])))
+    if not mine:
+        return "default@%d" % DEFAULTS_SAME_AS.get(DEFAULTS_VERSION, DEFAULTS_VERSION)
+    for v, diffs in sorted(DEFAULTS_HISTORIC_DIFFS.items()):
+        if mine == tuple(sorted(diffs)):
+            return "default@%d" % v
+    return None
 
 
 RISK_WARN_PCT = 2.0      # risk_preview warns in plain words above this risk per trade
@@ -2810,12 +2839,15 @@ DISCLAIMER = ("Not financial advice. Not a fatwa. Software that reads public dat
               "arithmetic; check everything with your broker and your scholar.")
 
 
-# --- v0.2.5: pullback off by default (default@3), with a one-time notice for existing folders ------------------
+# --- v0.2.6: pullback back on by default (default@4); its one-time notice replaces v0.2.5's ---------------------
 
-PULLBACK_NOTE = ("Off by default since v0.2.5: lost money in 5-year backtests (\u22120.21R over 46 trades). "
-                 "You can switch it on.")
-PULLBACK_BANNER = ("Pullback is now off by default (see CHANGELOG v0.2.5). Turn it on in Settings if you want it.")
-PULLBACK_NOTICE = "pullback_off_v025"
+PULLBACK_BANNER = ("Pullback is back on by default (v0.2.6): removing it made the whole strategy worse in 3- and "
+                   "5-year backtests. You can still switch it off in Settings.")
+PULLBACK_NOTICE = "pullback_on_v026"
+# v0.2.5 (historic): the banner and notice key of "pullback off by default". Its banner is never shown again; a
+# folder that had not seen it yet gets only the v0.2.6 one.
+PULLBACK_BANNER_V025 = "Pullback is now off by default (see CHANGELOG v0.2.5). Turn it on in Settings if you want it."
+PULLBACK_NOTICE_V025 = "pullback_off_v025"
 NOTICES_FILE = "notices.json"
 SETUPS_V2_ENABLED = {"breakout": True, "pullback": True, "oversold": True, "squeeze": True, "trend": True}
 CONFIG_BACKUP_DIR = "config_backups"
@@ -2832,6 +2864,13 @@ def setups_follow_old_default(raw):
         if isinstance(rec, dict) and "enabled" in rec and rec["enabled"] is not SETUPS_V2_ENABLED.get(name, True):
             return False
     return True
+
+
+def pullback_set_by_user(raw):
+    """True when config.json sets scanner.setups.pullback.enabled itself (the Settings page writes only the keys
+    you change, and v0.2.5 removed the old explicit `true`): your own choice, which no migration touches."""
+    pb = (((raw or {}).get("scanner") or {}).get("setups") or {}).get("pullback")
+    return isinstance(pb, dict) and "enabled" in pb
 
 
 def _earlier_lists(today):
@@ -2858,13 +2897,15 @@ def backup_config_file():
 
 
 def pullback_migration(write=True):
-    """v0.2.5, once per trader folder (recorded in trader/notices.json): -> (banner or None, record).
+    """v0.2.6, once per trader folder (recorded in trader/notices.json): -> (banner or None, record).
 
-    A folder used before (an earlier daily list exists) whose config.json leaves the setups as the old default
-    gets the banner once: on the next daily list that is written (pullback_banner_shown marks it). If that
-    config.json switched pullback on explicitly (the old default value), the key is removed so it follows the new
-    default (config.json backed up first). A config with customised setups is left alone, with no banner. A new
-    folder: nothing to say. Run it before loading the config."""
+    Pullback is on by default again (default@4). A config that follows the default (no
+    scanner.setups.pullback.enabled of its own) moves to default@4 by itself: nothing in config.json changes. A
+    folder used before (an earlier daily list exists) gets PULLBACK_BANNER once, on the next daily list that is
+    written (pullback_banner_shown marks it). A config where you set pullback yourself is left alone, with no
+    banner. A new folder: nothing to say. v0.2.5's banner is never shown again: if it was still waiting it is
+    marked superseded, so such a folder sees only the new one. config.json is never written. Run it before
+    loading the config."""
     notices = read_json(NOTICES_FILE, {}) or {}
     if not isinstance(notices, dict):
         return None, None
@@ -2876,22 +2917,17 @@ def pullback_migration(write=True):
         raw = read_json("config.json", None)
     except (OSError, ValueError):
         return None, None                                # an unreadable config: try again next time
-    rec = {"date": today, "migrated": False, "banner": False, "backup": None, "shown": None}
+    old = notices.get(PULLBACK_NOTICE_V025)
+    rec = {"date": today, "banner": False, "shown": None, "replaced_v025_banner": False}
+    if isinstance(old, dict) and old.get("banner") and not old.get("shown"):
+        old["superseded"] = "v0.2.6: never shown (pullback is back on)"
+        rec["replaced_v025_banner"] = True
     if not _earlier_lists(today):
         rec["result"] = "new folder: nothing to change"
-    elif raw is not None and not setups_follow_old_default(raw):
-        rec["result"] = "your own setups: left alone"
+    elif pullback_set_by_user(raw):
+        rec["result"] = "you set pullback yourself: left alone"
     else:
-        rec.update(banner=True, result="follows the new default (pullback off)")
-        pb = (((raw or {}).get("scanner") or {}).get("setups") or {}).get("pullback")
-        if isinstance(pb, dict) and pb.get("enabled") is True:
-            if write:
-                rec["backup"] = backup_config_file()
-                del pb["enabled"]
-                if not pb:
-                    del raw["scanner"]["setups"]["pullback"]
-                write_json("config.json", raw)
-            rec["migrated"] = True
+        rec.update(banner=True, result="follows the default: pullback on again (default@4)")
     if write:
         notices[PULLBACK_NOTICE] = rec
         write_json(NOTICES_FILE, notices)

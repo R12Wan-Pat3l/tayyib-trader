@@ -145,7 +145,8 @@ link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank"
 ## Backtest (`tayyib-backtest`, v0.2.0, closer to live in v0.2.1, dashboard tab v0.2.2)
 
 `backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions 5] [--split]
-[--no-take-warn] [--no-late] [--compare] [--write] [--json]`, `list`, `show ID`.
+[--no-take-warn] [--no-late] [--compare] [--regime R] [--regime-compare] [--robust [N]] [--robust-compare A B]
+[--write] [--json]`, `list`, `show ID`.
 
 **Window end (v0.2.2):** without `--to`, `default_end(now, cfg)` picks the last completed session: today
 once it is 15:30 IST on a trading day (`tc.is_trading_day`: weekends and `holidays`), otherwise the
@@ -217,23 +218,73 @@ its CAGR is higher (reference only, not a halal option).
 
 MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
 
-## Pullback off by default (v0.2.5, default@3)
+## Pullback back on (v0.2.6, default@4); default@3 is historic
 
-`scanner.setups.pullback.enabled` is False; `DEFAULTS_VERSION` 3 (`tests/fixtures/defaults_versions.json`
-records version 3: only that key changed in value). The doc entry carries a `note` the Settings page shows
-under the switch (`setting_field` -> `note`). Proof: `tests/baseline.py --write-default N` writes the full
-daily pipeline on the TRUE defaults to `tests/fixtures/baseline_default{N}.json.gz` (refused if it exists or N
-is not the code's version); default@2 was written by the v0.2.4 code before any v0.2.5 change. `test_v025`
-checks `pipeline(config=PULLBACK_ON)` == default@2 and `pipeline(config=None)` == default@3. The v0.1.4
-fixture and its tests are unchanged.
+`scanner.setups.pullback.enabled` is True again; `DEFAULTS_VERSION` 4. `tests/fixtures/defaults_versions.json`
+version 4 equals version 2 on every v2 key (plus the four `regime.*` keys added off in v0.2.4). `test_v026` checks
+`pipeline(config=None)` against the **default@2** snapshot with no allowed new keys and the same sha256; no
+default@4 snapshot is written (it would be default@2). `test_v025` keeps the history: `PULLBACK_ON` == default@2,
+`PULLBACK_OFF` == default@3. `tc.DEFAULTS_HISTORY` names every version; `settings_snapshot()` has `same_as`:
+"default@2" for default@4 (or account facts only), "default@3" when the only decision difference is pullback off,
+else None. The label stays `default@4` or the hash. The Settings note is `tc.PULLBACK_NOTE`.
 
-`tc.pullback_migration()` (run by `daily.py` before it loads the config, once per folder, recorded in
-`trader/notices.json`): a folder with an earlier daily list whose `config.json` leaves every setup's `enabled`
-unset or at its old default (`setups_follow_old_default`) gets `PULLBACK_BANNER` in the next written list's
-banners (`pullback_banner_shown`). An explicit `pullback.enabled: true` in such a config is removed (backup in
-`config_backups/`, the dashboard's naming). Customised setups: left alone, no banner. New folder: nothing.
-Tracker rows keep the label stored with their hash (`store["settings"][hash]["label"]`), so earlier rows stay
-default@2.
+`tc.pullback_migration()` (v0.2.6, run by `daily.py` before it loads the config, once per folder, recorded in
+`trader/notices.json` as `pullback_on_v026`) never writes `config.json`. Following the default (no
+`scanner.setups.pullback.enabled` in `config.json`) moves to default@4 by itself. A folder with an earlier daily list
+gets `PULLBACK_BANNER` ("Pullback is back on by default (v0.2.6): ...") once, on the next written list
+(`pullback_banner_shown`). An explicit pullback setting (`pullback_set_by_user`: the Settings page writes only keys
+you change): left alone, no banner. New folder: nothing. A v0.2.5 notice whose banner was not shown yet is marked
+`superseded` (`replaced_v025_banner`), so that folder sees only the new banner. `PULLBACK_BANNER_V025` is never
+shown again. Tracker rows keep their stored labels (default@2, default@3).
+
+## Robustness (`--robust`, `--robust-compare`, v0.2.6)
+
+`backtest.py run ... --robust [N]` (N defaults to 20 when the flag is given, 1 to 50, else exit 1) and
+`--robust-compare "A" "B"` (N from `--robust`, else 20).
+
+- **Seeds.** Seed s = 1..N changes two things only:
+  - `tie_key(s)`: equal-ranked signals are ordered by sha1("s:SYMBOL"), not by the symbol. This applies in the
+    scanner's score sort (`_choose_day`), in `rank_day`'s `rank_key` + tie, and in the score-only and "not needed"
+    orders of `place_day`.
+  - `seed_shift(s)` = `random.Random(s).choice((-1, 1))`: the start moves one trading day (`shifted_start` over every
+    bar date).
+
+  The end, split, settings and bars stay the same. Without a seed the order is by symbol, as before: plain runs,
+  their JSON and their ids are byte-identical (`params` gets `robust`, `robust_given`, `robust_compare` only when
+  used).
+- **Sensitivity.** `ROBUST_MAX_POSITIONS` (3, 5, 8): the plain run with only `max_positions` changed (the main run
+  is reused for its own value).
+- **Same bars.** Everything runs on the bars `run()` loaded once. `RunCache` holds the indicators (`Book`), each
+  day's raw candidates (key: settings digest, stock set, mode, setups, date) and each pick's time-machine answer
+  (key: settings digest, symbol, signal date, setup, entry, stop, target). Picks are copied out, so a seed never
+  sees another run's fields. A simulation gives the same result with or without the cache (test). Causality is
+  unchanged (test_v020's look-ahead test, repeated with a seed and the cache). Benchmarks are fetched once per symbol
+  (`_memo_fetch`).
+- **Report.** `robust{runs[], summary, max_positions[], settings{label, settings_label, hash, same_as}, regime, note}`:
+  - each run: `seed, shift_days, start, tie_first[5], overall{cagr_pct, expectancy_r, max_drawdown_pct, trades,
+    win_rate_pct}, by_mode{}, by_setup{}, benchmark_cagr_pct, beat_benchmark`;
+  - `summary.overall/by_mode/by_setup`: per metric `distribution()` = `{n, unknown, median, p10, p90, min, max}`
+    (linear between ranks; UNKNOWN left out and counted);
+  - `beat_benchmark {runs, of, pct, text}`: CAGR above the Shariah BeES buy and hold from the same start (UNKNOWN,
+    never 0, when the ETF could not be fetched).
+- **Compare.** `--robust-compare`: each side is `parse_settings(text, config.json)`:
+  - "default", or KEY=VALUE pairs (commas or spaces): a dotted setting, a setup name (`pullback=off`, on / off =
+    true / false), or `regime=off|RULE:ACTION`;
+  - every value goes through `tc.validate_config`; any `CONFIG` error, unknown, locked or account key exits 1;
+  - `config.json` is never written;
+  - `robust_compare{a, b, compare, note}`: `paired()` subtracts A from B per seed (it asserts the same seed and
+    start). `compare_summary`: `b_beat_a, b_lost, equal_or_unknown, difference{metric: distribution}, verdict,
+    verdict_text, basis`.
+  - Verdict (`verdict()`, on CAGR): "B is better in X of N runs" when B beat A on at least 80% of the seeds; "B is
+    worse in X of N runs" (X = seeds B lost) when B lost on at least 80% (so B beat A on at most 20%); equal seeds
+    count for neither; else "No clear difference: don't change the default on this evidence".
+  - With `--robust` too, `robust` is your settings (A's runs reused when A is your config as it is).
+- **Output.** The .md gets "## Robustness" / "## Robust compare". The dashboard's `/api/backtest` has `robust`
+  (`bt_robust`; in `order` after compare): sides with `metrics[{key, label, median, p10, p90, min, max, text, bar{min,
+  lo, mid, hi, max, zero}}]` (0 to 100 % of the track, zero included except for trades), `beat`, `groups[]`,
+  `max_positions[]`, and `compare{verdict, verdict_text, line, basis, metrics}` (B minus A). The page only draws
+  them (`btRanges`).
+- **Rule (PROJECT_BRIEF).** No decision default changes without an 80%+ verdict.
 
 ## Holdings import (v0.2.5)
 
@@ -536,7 +587,7 @@ config that still has it gets `CONFIG: halal.list_url removed: it was never used
 are screened) and each `news.feeds.<name>` (which headlines can raise a WARN) are included. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
 spaces) of `{"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}`: it depends only on
 what you changed, so adding a key whose default keeps the old behaviour does not change it. `label` is
-`default@<DEFAULTS_VERSION>` (now `default@2`) when nothing differs, otherwise the hash. **Account facts
+`default@<DEFAULTS_VERSION>` (now `default@4`) when nothing differs, otherwise the hash. **Account facts
 (v0.1.8 review):** `capital`, `cash_available`, `broker`, `exchange`, `charges.*` and `brokers.*`
 (`tc.ACCOUNT_KEYS`, `tc.is_account_key`) are facts about the user, not strategy: they stay in the hash
 (they change quantities and charges, so a re-run with another capital is a different run), but a config

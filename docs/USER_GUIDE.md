@@ -163,19 +163,27 @@ halal stock once a day). It saves `trader\backtest\<id>.md` (read it in any text
 changes nothing else: not your tracker, tickets, positions or settings.
 
 How to read it:
-- **The bold lines at the top come first.** Three are always there: today's halal list is used for the
-  past, companies that dropped out are missing (so results are likely better than reality), and the
-  past is no promise. Others may say there were too few trades, that the last third of the years was much
-  weaker (possibly overfit), or that simply holding the Shariah ETF did better.
+- **The bold lines at the top come first.** Four are always there: today's halal list is used for the
+  past, companies that dropped out are missing (so results are likely better than reality), the past is
+  no promise, and news checks can't be replayed. Others may say there were too few trades, that the last
+  third of the years was much weaker (possibly overfit), that simply holding the Shariah ETF did better, or
+  that the Nifty 50 did better (shown for reference only: it is not halal-screened).
 - **Overall**: number of trades, win rate, **expectancy** (the average result per trade, in R after
   charges; above 0 means it made money on average), profit factor (money won / money lost), CAGR (the
   yearly growth rate of your capital), **max drawdown** (the worst fall from a high, with the dates) and
   exposure (how often you had money in a trade).
-- **By setup / by mode**: which setups made or lost the money.
+- **By setup / by mode**: which setups made or lost the money. A column marked "(too few to judge)" has
+  fewer than 30 trades: luck can swing it either way.
 - **In-sample vs out-of-sample**: the first two thirds of the years next to the last third. If the last
   third is far worse, be careful.
 - **Benchmarks**: the same years for the Shariah ETF and the Nifty 50, bought once and held.
-- **Skipped stocks**: stocks with no prices, or listed too recently to have a year of history first.
+- **What happened to the plans**: how many the risk check blocked, and why (too much total risk, already
+  two stocks in that industry, reward too small...). It is the same check as the daily list, except news,
+  which can't be replayed. WARN plans are taken (as you could take them); `--no-take-warn` takes PASS only.
+- **Joined late**: stocks listed during the years tested; they join once they have a year of prices.
+- **Skipped stocks**: stocks with no prices, or listed too recently to ever have a year of prices.
+- With `--compare` there is one more table: the same years with the stocks ranked by setup score only, so
+  you can see how much the time-machine ranking helped.
 
 Options: `--mode swing` or `delivery`, `--years 5`, `--capital 200000`, `--max-positions 4`, or
 `--from 2023-01-01 --to 2025-12-31`. `py tayyib-backtest\backtest.py list` shows your saved runs.

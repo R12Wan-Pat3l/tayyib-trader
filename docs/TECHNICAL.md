@@ -142,10 +142,10 @@ link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank"
   and writes the Excel file. Use `--no-track` to skip this. The `.xlsx` file is written with the standard
   library (zipfile plus SpreadsheetML), with 3 sheets: Tracker, Summary and Read me.
 
-## Backtest (`tayyib-backtest`, v0.2.0)
+## Backtest (`tayyib-backtest`, v0.2.0, closer to live in v0.2.1)
 
 `backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions 5] [--split]
-[--write] [--json]`, `list`, `show ID`. Writes `trader/backtest/<id>.json` and `.md` with `--write`, and
+[--no-take-warn] [--compare] [--write] [--json]`, `list`, `show ID`. Writes `trader/backtest/<id>.json` and `.md` with `--write`, and
 nothing else (prices go to `trader/cache/`, range `5y` for 3 years, `10y` / `max` for longer). The id is
 `<to>_<mode>_<from>_<hash6>` of the parameters, the settings hash and the universe, so the same inputs
 give the same file, byte for byte.
@@ -155,27 +155,36 @@ no change in behaviour (the old names are aliases, and the v0.1.4 baseline test 
 `tc.size_trade` (was `size.size`), `tc.choose_candidates` (was `daily.choose`), `tc.tm_walk`,
 `tc.tm_monte_carlo`, `tc.tm_history`, `tc.tm_cost_r` (were in `timemachine.py`), plus `tc.detect_at`
 (`detect_all` with the indicators already computed; `detect_all` now calls it). `tc.yahoo_symbol` passes an
-index symbol (`^NSEI`) through unchanged.
+index symbol (`^NSEI`) through unchanged. v0.2.1 moved tayyib-risk's check into core the same way:
+`tc.risk_check_order` (was `check.check_order`) and `tc.risk_news_why` (was `check.news_why`), with two optional
+arguments only the backtest uses: `today` (the date for the plan-expiry check) and `replay=True` (leaves out the
+halal list's age and the news). With the defaults it is the live check, byte for byte.
 
 | step | how |
 |---|---|
 | universe | `halal_universe.json` stocks whose `tc.halal_status` (overrides last) is `compliant`; never review |
-| data | `get_daily_bars(sym, range)`, cut at `--to`; fewer than 250 bars before the window: `skipped[]` with the reason; gaps stay gaps |
+| data | `get_daily_bars(sym, range)`, cut at `--to`. A stock joins on the first day it has 250 bars (`join_date`; no signals before), listed in `joined_late[]` when that is after the window start; one that never gets there by `--to` (or has no data) is in `skipped[]` with the reason; gaps stay gaps |
 | each close t | per stock: `tc.detect_at(bars, ind, i)` (indicators are causal: bar i uses bars 0..i), `tc.liquidity_ok(bars[:i+1])`, `tc.plan_trade`; best score first, the scanner's top `max(2 x daily.top, 25)`, held / waiting stocks dropped, `tc.choose_candidates` |
-| ranking | `tc.rank_key` + symbol (ties). Expectancy and past trades from `tm_history` / `tm_monte_carlo` (3000 runs, seed 7: tayyib-daily's) on the stock's last 2 years up to t, run only when the order can change what is bought (more picks than free slots, or not enough cash for all of them); `daily.min_expectancy_r` applies |
-| sizing | `tc.size_trade(plan, cfg, cash - cash promised to waiting plans)`; capital is the configured capital, as live |
+| ranking | `tc.rank_key` + symbol (ties). Expectancy and past trades from `tm_history` / `tm_monte_carlo` (3000 runs, seed 7: tayyib-daily's) on the stock's last 2 years up to t, run only when the order can change what is bought: more picks than free slots, not enough cash for all of them, or one of them would be blocked (or WARNed with `--no-take-warn`) with all the others approved. Every limit only tightens with more approved orders, so otherwise no order changes the result. With `--no-take-warn` the Monte Carlo runs for every pick (its negative-expectancy WARN then matters); `daily.min_expectancy_r` applies |
+| sizing | `tc.size_trade(plan, cfg, cash)` in rank order, where cash = cash - cash promised to waiting plans, and each sized plan uses up cash for the next (as `size.py`, even one the risk check then blocks); capital is the configured capital, as live |
+| risk check (v0.2.1) | `tc.risk_check_order(order, cfg + cash_available=cash, held positions, uni, {}, extras..., sim, today=day, replay=True)`, in rank order like `check.py`: waiting plans and plans approved earlier that day count as approved tickets (heat, count, industry, cash). Replayed: hard rules, halal status, loss at stop, max position %, cash, `max_open_positions`, portfolio heat, positions per industry, net reward:risk, plan expiry, time-machine expectancy WARN. Not replayed (counted in `counts.not_replayed`): news / HALAL-WATCH, halal list age. BLOCK is never placed; WARN only with `take_warn` (default true, `--no-take-warn`); reasons in `counts.risk_blocked` / `risk_warned` |
 | account | one cash balance, never negative; at most `--max-positions` held + waiting; one per symbol; a plan waits until `valid_until` |
-| outcome | `tc.trade_outcome(bars, plan, cfg, today=to)`: buy-stop fill at max(open, entry), gap through the stop at the open, stop + target on one day = stop, swing breakeven at +1R, time stop at that day's close. A gap up that needs more cash than is free cuts the quantity (counted in `counts.qty_cut_at_fill`) |
+| outcome | `tc.trade_outcome(bars, plan, cfg, today=to)`: buy-stop fill at max(open, entry), gap through the stop at the open, stop + target on one day = stop, swing breakeven at +1R, time stop at that day's close. A fill is paid from cash free that day: not other plans' cash and (v0.2.1) not that day's sale proceeds, which count from the next trading day. A gap up that needs more cuts the quantity (`counts.qty_cut_at_fill`) |
 | charges | `tc.order_charges` on every buy and sell; still open on the last day: valued at the last close after the sell charge (`OPEN AT END`) |
 
-Not applied: tayyib-risk's portfolio heat, positions per industry, net reward:risk and news (no news
-history). The result's `rules[]` says so.
+`--compare` (v0.2.1) runs `simulate` a second time on the same bars with `rank="score"` (setup score, ties by
+symbol; no time machine) and adds `compare{as_run, score_only, note}` (overall metrics, by-mode trades and
+expectancy, out-of-sample expectancy). The result's `rules[]` lists what is and is not replayed.
 
 Result JSON: `id, version, params, settings{label, hash, differs_from_default, capital, ...}, window{from, to,
 split, first_day, last_day, trading_days, price_range}, universe{list_updated, statuses, compliant, tested,
-skipped}, skipped[{symbol, reason}], banners[], metrics{overall, by_setup{}, by_mode{}}, split{in_sample,
+joined_late, skipped}, skipped[{symbol, reason}], joined_late[{symbol, join_date, data_starts}], banners[],
+metrics{overall, by_setup{}, by_mode{}}, split{in_sample,
 out_of_sample}, benchmarks{SHARIABEES.NS, ^NSEI}, counts{}, rules[], trades[], equity_curve[{date, equity,
-cash, open_positions, waiting_plans}], disclaimer`. Each trade: `symbol, setup, mode, signal_date,
+cash, open_positions, waiting_plans}], compare (with --compare), disclaimer`. `counts`: plans, not_triggered,
+no_slot, not_sized, no_cash_at_fill, qty_cut_at_fill, risk_checked, risk_blocked_plans, risk_blocked{reason: n},
+risk_warned{reason: n}, warn_taken, warn_skipped, not_replayed{news / HALAL-WATCH, halal list age}. Every
+by_setup, by_mode, in_sample and out_of_sample group has `too_few` (under 30 trades). Each trade: `symbol, setup, mode, signal_date,
 entry_date, entry_price, exit_date, exit_price, exit_reason, qty, charges, pnl_rs, r` plus the plan levels.
 Metrics: `trades, win_rate_pct, avg_r, avg_win_r, avg_loss_r, expectancy_r` (p x avg win + (1 - p) x avg
 loss, equal to avg_r), `profit_factor` (null with a note when nothing lost), `pnl_rs, total_return_pct,
@@ -185,13 +194,14 @@ sample split trades by signal date; their return, CAGR and drawdown come from th
 side. Benchmarks: all the capital at the first close (fractional units), one buy and one sell charge;
 UNKNOWN with `reason` when they cannot be fetched, never 0.
 
-Banners: always the three limits (today's halal list, survivorship, past results); plus "Too few trades
-to judge." under 30 trades, "Out-of-sample results are much weaker..." when the in-sample expectancy is
+Banners: always the four limits (today's halal list, survivorship, past results, news can't be replayed);
+plus "Too few trades to judge." under 30 trades, "Out-of-sample results are much weaker..." when the in-sample expectancy is
 positive and the out-of-sample one is under half of it (including below 0), "Buying and holding the
-Shariah ETF did better." when the strategy's CAGR is lower, and a line saying the ETF comparison was
-impossible when the ETF is UNKNOWN.
+Shariah ETF did better." when the strategy's CAGR is lower, a line saying the ETF comparison was
+impossible when the ETF is UNKNOWN, and "The Nifty 50 (not halal-screened, price only) did better..." when
+its CAGR is higher (reference only, not a halal option).
 
-MCP: `backtest_run` (never passes `--write`) and `backtest_list` (list, or show with `id`).
+MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
 
 ## Rules in code (not configurable)
 

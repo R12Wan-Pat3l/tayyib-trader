@@ -287,10 +287,21 @@ But three things make it look better (or simply different) than real life, and e
    backtest splits the years: the first two thirds ("in-sample") and the last third ("out-of-sample").
    If the last third is much weaker, it says the strategy may be overfit. With fewer than 30 trades it
    says there are too few to judge.
+4. **News can't be replayed.** The live list warns you about HALAL-WATCH headlines (new borrowing, a move
+   into an impermissible business) and results days. We have no record of the news as it was on each past
+   day, so the backtest cannot apply those checks: some trades it took, you would have been warned about.
+   Every other check of the live risk step (heat, 2 per industry, reward:risk, cash and so on) is replayed.
+
+**Small groups are noise.** The result is also split by setup (breakout, pullback, trend...) and by swing /
+delivery. A group with only 10 or 15 trades can look great or terrible by luck alone: two lucky trades can
+turn it from a loss into a win. Any group with fewer than 30 trades is marked "(too few to judge)": don't
+switch a setup on or off because of it.
 
 It also compares the result with simply buying and holding the Shariah ETF (Nippon India ETF Shariah
 BeES) and the Nifty 50 over the same years. If holding the ETF did better, it says so: that is a real
-choice you have, with much less work. Not financial advice, not a fatwa.
+choice you have, with much less work. The Nifty 50 is shown for reference only: it is not halal-screened
+(it holds banks, for example) and counts the price only, without dividends. Not financial advice, not a
+fatwa.
 
 ### How do I know if the daily list actually works?
 Open `trader/tracker.xlsx`. Every stock each list showed is followed on the real prices afterwards,

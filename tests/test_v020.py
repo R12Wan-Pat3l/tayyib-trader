@@ -68,9 +68,10 @@ class Patched(unittest.TestCase):
     def tearDown(self):
         bt.scan_day = self._scan
 
-    def sim(self, data, by_date, start, end, max_positions=5, cfg=CFG):
+    def sim(self, data, by_date, start, end, max_positions=5, cfg=CFG, uni=None, take_warn=True):
         bt.scan_day = FakeScan(by_date)
-        return bt.simulate(data, cfg, start, end, "all", None, max_positions)
+        uni = uni or {"stocks": {s: {"status": "compliant", "industry": "industry %s" % s} for s in data}}
+        return bt.simulate(data, cfg, start, end, "all", None, max_positions, uni=uni, take_warn=take_warn)
 
 
 def fixture_bars():
@@ -124,8 +125,8 @@ class NoLookAhead(unittest.TestCase):
             self.assertEqual(strip(a), strip(c), t)
             if a:
                 seen += 1
-                ra = bt.rank_day(books, copy.deepcopy(a), CFG, 0.0, 0)          # forces the time machine
-                rc = bt.rank_day(books2, copy.deepcopy(c), CFG, 0.0, 0)
+                ra = bt.rank_day(books, copy.deepcopy(a), CFG, all_mc=True)     # the full time machine
+                rc = bt.rank_day(books2, copy.deepcopy(c), CFG, all_mc=True)
                 self.assertEqual(ra, rc, t)
         self.assertGreater(seen, 3, "the fixtures should arm setups on several of these days")
 
@@ -248,13 +249,13 @@ class Universe(OfflineCase):
         self.assertTrue(res["trades"])
 
     def test_missing_data_is_skipped(self):
-        data, skipped = bt.load_bars(["ALFA", "NODATA"], "2y", "2025-10-30", "2026-10-30", sleep=0)
+        data, skipped, _ = bt.load_bars(["ALFA", "NODATA"], "2y", "2025-10-30", "2026-10-30", sleep=0)
         self.assertIn("ALFA", data)
         self.assertEqual([x["symbol"] for x in skipped], ["NODATA"])
         self.assertIn("no price data", skipped[0]["reason"])
-        data, skipped = bt.load_bars(["ALFA"], "2y", "2025-01-30", "2026-10-30", sleep=0)
-        self.assertEqual(data, {})
-        self.assertIn("warm-up", skipped[0]["reason"])
+        data, skipped, _ = bt.load_bars(["ALFA"], "2y", "2024-01-30", "2024-11-30", sleep=0)   # v0.2.1: never
+        self.assertEqual(data, {})                                                             # reaches 250 bars
+        self.assertIn("needs 250 to join", skipped[0]["reason"])
 
 
 class Output(OfflineCase):
@@ -318,7 +319,7 @@ class Banners(unittest.TestCase):
 
     def test_always(self):
         b = bt.banners(self.m(), self.split(0.3, 0.3), {"SHARIABEES.NS": {"status": "OK", "cagr_pct": 5.0}})
-        self.assertEqual(b, [bt.BANNER_HALAL, bt.BANNER_SURVIVOR, bt.BANNER_PAST])
+        self.assertEqual(b, [bt.BANNER_HALAL, bt.BANNER_SURVIVOR, bt.BANNER_PAST, bt.BANNER_NEWS])   # v0.2.1: + news
 
     def test_few_trades(self):
         etf = {"SHARIABEES.NS": {"status": "OK", "cagr_pct": 5.0}}
@@ -386,7 +387,6 @@ class Safety(OfflineCase):
 
 class Version(unittest.TestCase):
     def test_version_and_defaults(self):
-        self.assertEqual(tc.VERSION, "0.2.0")
         self.assertEqual(tc.DEFAULTS_VERSION, 2)              # no default changed: still default@2
 
 

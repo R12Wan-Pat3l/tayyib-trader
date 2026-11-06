@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.0).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.1).
 
 ## What it is
 
@@ -12,7 +12,7 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.0** (tags v0.1.0 to v0.1.11 and v0.2.0; v0.1.3 is folded into v0.1.4)
+- Latest release: **v0.2.1** (tags v0.1.0 to v0.1.11, v0.2.0, v0.2.1; v0.1.3 is folded into v0.1.4)
 - Tests: 319 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
@@ -44,7 +44,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
 | tayyib-entry / tayyib-exit | trigger status; stop (swing max 10%, delivery max 15%), target (2R / 3R), time stop |
 | tayyib-timemachine | 10,000 simulated futures plus historical replay, in R after charges |
-| tayyib-backtest | the daily strategy replayed every day of the last N years on one cash account, no look-ahead; metrics, in/out-of-sample, Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/` (v0.2.0) |
+| tayyib-backtest | the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars; metrics, in/out-of-sample, `--compare` (score-only ranking), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/` (v0.2.0, v0.2.1) |
 | tayyib-budget / tayyib-risk | sizing (1% risk, 20% max position) and PASS / WARN / BLOCK |
 | tayyib-broker | order ticket (manual placement) and journal (placed, stop, close, positions) |
 | tayyib-alerts, tayyib-results, tayyib-insider, tayyib-purify | alerts, quarterly results, NSE insider and bulk deals, dividend purification |
@@ -140,12 +140,15 @@ over MCP (stdio), none of which place orders.
   niftyindices.com gets the honest user agent too; if refused, the halal build uses the last good cached
   copy (age shown), then the user's own `ind_nifty500list.csv`, else stops with instructions. Never a
   made-up or partial list.
-- **Backtest (v0.2.0):** `tayyib-backtest` calls the live functions, never copies; sizing, the daily pick
-  order and the time machine moved into core for that (old names are aliases; baseline unchanged). On day t
-  only bars[0..t] are used; fills from t+1. Ranking uses the time machine only when the order can change
-  what is bought. Universe = today's compliant list (overrides win); stocks with under 250 bars before the
-  window are skipped, not partly traded. tayyib-risk's heat / industry / net R:R / news limits are not part
-  of the replay. Banners: today's halal list, survivorship bias and "past results" always.
+- **Backtest (v0.2.0, v0.2.1):** `tayyib-backtest` calls the live functions, never copies; sizing, the daily
+  pick order, the time machine and (v0.2.1) the risk check moved into core for that (old names are aliases;
+  baseline unchanged). On day t only bars[0..t] are used; fills from t+1. The risk check runs on the
+  simulated book (held + waiting + approved that day); BLOCK never placed, WARN placed unless
+  `--no-take-warn`; news and halal-list age can't be replayed (skipped, counted, banner). Ranking uses the
+  time machine only when the order can change what is bought. Universe = today's compliant list
+  (overrides win); a stock joins on its 250th bar (`joined_late[]`). Sale proceeds pay for fills from the
+  next day. Groups under 30 trades are `too_few`. Banners: today's halal list, survivorship bias, "past
+  results" and "news can't be replayed" always; Nifty 50 did better (reference only, not halal).
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
@@ -177,9 +180,10 @@ over MCP (stdio), none of which place orders.
   ✓); real failures stay UNKNOWN. Display only: no decision changes (still default@2).
 - **v0.1.11:** tracker accounting: REPLACED and ALREADY_HELD rows (repeat listings of a
   waiting or held stock), not counted; Excel Settings column shows the label; empty results blank.
-- **v0.2.0** (this release): `tayyib-backtest` (engine, CLI, MCP tools, tests). No pick, plan or verdict
-  changes (still default@2).
-- **v0.2.1 (next):** a Backtest tab in the dashboard.
+- **v0.2.0:** `tayyib-backtest` (engine, CLI, MCP tools, tests). No pick, plan or verdict changes.
+- **v0.2.1** (this release): the backtest replays the risk check, lets recent listings join, settles sales
+  next day, flags groups under 30 trades, Nifty banner, `--compare`. No daily-list changes (still default@2).
+- **Next:** a Backtest tab in the dashboard.
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

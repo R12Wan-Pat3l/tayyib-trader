@@ -64,8 +64,8 @@ While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|cl
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.
 Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] --write` (writes only `trader/backtest/`),
 `backtest.py list`, `backtest.py show ID`. Read out every line of its `banners[]` first: they are the
-honest limits (today's halal list applied to the past, survivorship bias, too few trades, overfit, the
-Shariah ETF did better). A benchmark it could not fetch is UNKNOWN, never 0.
+honest limits (today's halal list applied to the past, survivorship bias, news can't be replayed, too few
+trades, overfit, the Shariah ETF did better). The Nifty 50 is reference only, never a halal option. A benchmark it could not fetch is UNKNOWN, never 0.
 Year end: `tayyib-purify/purify.py report --year 2026`.
 
 Every script accepts `--json` (after the subcommand, where there is one) for machine-readable output.
@@ -87,7 +87,8 @@ placement. See the README for client configuration.
 - Ranking (default@2): `tc.rank_key` orders the daily list, the sizing order and the top picks. With
   `daily.min_past_trades_for_rank = 0` the baseline test proves every decision is the v0.1.4 one.
 - tayyib-backtest must call the live functions (`detect_at`, `liquidity_ok`, `plan_trade`, `choose_candidates`,
-  `rank_key`, `tm_history` / `tm_monte_carlo`, `size_trade`, `trade_outcome`, `order_charges`), never a copy.
+  `rank_key`, `tm_history` / `tm_monte_carlo`, `size_trade`, `risk_check_order`, `trade_outcome`, `order_charges`),
+  never a copy.
   On day t it may use bars[0..t] only (a test changes every later bar and expects the same plans).
 - A future official Shariah-list import may only compare with the self-screen or make it stricter. It must
   never mark a stock compliant on its own.

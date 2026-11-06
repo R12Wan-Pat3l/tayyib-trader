@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.2.1 (2026-11-06)
+
+The backtest is closer to what the live pipeline would really have done. Engine only (no dashboard tab yet).
+
+No pick, plan or verdict changes in the daily list (still default@2; the baseline is unchanged).
+
+### Changed
+
+- **The risk check is replayed.** At each close every sized plan goes through the same tayyib-risk check as
+  live, against the simulated book (held positions, waiting plans and the plans approved earlier that day):
+  portfolio heat, max open positions, 2 per industry, net reward:risk, loss at the stop, max position %,
+  cash, halal status, plan expiry and the time-machine WARN. BLOCK is never placed. WARN is placed by
+  default, as you can live; `--no-take-warn` places PASS only. `counts.risk_blocked` / `risk_warned` count
+  the reasons, and the `.md` shows them.
+- News / HALAL-WATCH and the halal list's age cannot be replayed for past dates: they are skipped and
+  counted, and a new banner is always shown: "News and HALAL-WATCH checks can't be replayed for past
+  dates; live results may differ."
+- **Recent listings join when they are ready**: a stock enters on the first day it has 250 bars of history
+  (no signals before), listed in `joined_late[]`. Only stocks that never get there are skipped.
+- **Sale proceeds pay for fills from the next trading day**, not the same day.
+- **Honest labels**: every setup, mode, in-sample and out-of-sample group with fewer than 30 trades has
+  `too_few: true` and shows "(too few to judge)". A banner says when the Nifty 50 (not halal-screened,
+  price only) beat the strategy: "for reference only, not as a halal option".
+
+### Added
+
+- `--compare`: the same window twice, side by side: (a) as run and (b) ranked by setup score only, to show
+  what the time-machine ranking adds. Same bars, no new downloads, deterministic.
+- MCP `backtest_run` takes `take_warn` and `compare` (still never `--write`).
+- `marketplace.json` carries the version too, checked by the version test.
+
+### Changed (no behaviour change)
+
+- tayyib-risk's `check_order` and `news_why` moved into core (`tc.risk_check_order`, `tc.risk_news_why`) so
+  the backtest runs the live check; `check.py` calls them under their old names. Two optional arguments,
+  `today` and `replay`, are used only by the backtest; with the defaults the check is the live one.
+
 ## v0.2.0 (2026-11-06)
 
 A new 17th skill, **tayyib-backtest**: "if I had run this strategy every day for the last N years across

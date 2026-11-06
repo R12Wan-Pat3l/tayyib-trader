@@ -98,8 +98,8 @@ class States(unittest.TestCase):
 
     def test_decisions_do_not_read_the_why_lines(self):
         """warn[] (and so PASS / WARN / BLOCK) comes from the headlines, not from these display lines."""
-        src = open(os.path.join(ROOT, "tayyib-risk", "check.py"), encoding="utf-8").read()
-        body = src[src.index("def check_order("):]
+        src = open(os.path.join(ROOT, "core", "tayyib_core.py"), encoding="utf-8").read()   # v0.2.1: moved to core
+        body = src[src.index("def risk_check_order("):]
         self.assertIn('warn.append("HALAL-WATCH news: %s', body)
         self.assertIn('warn.append("results news in the window: gaps are likely', body)
         self.assertEqual(tc.DEFAULTS_VERSION, 2)

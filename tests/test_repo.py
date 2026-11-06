@@ -58,9 +58,10 @@ class Versions(unittest.TestCase):
         core = re.search(r'VERSION = "([^"]+)"', open(os.path.join(ROOT, "core", "tayyib_core.py")).read()).group(1)
         mcp = re.search(r'VERSION = "([^"]+)"', open(os.path.join(ROOT, "mcp", "server.py")).read()).group(1)
         top = re.search(r"^## v(\S+)", open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8").read(), re.M).group(1)
-        self.assertEqual(len({pl, core, mcp, top}), 1,
-                         "bump every version together: plugin.json %s, core %s, mcp %s, CHANGELOG %s"
-                         % (pl, core, mcp, top))
+        mk = json.load(open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))["plugins"][0].get("version", pl)
+        self.assertEqual(len({pl, core, mcp, top, mk}), 1,
+                         "bump every version together: plugin.json %s, core %s, mcp %s, CHANGELOG %s, marketplace %s"
+                         % (pl, core, mcp, top, mk))
 
 
 class ReleaseNotes(unittest.TestCase):

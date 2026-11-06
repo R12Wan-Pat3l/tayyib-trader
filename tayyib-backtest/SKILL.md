@@ -7,7 +7,7 @@ description: >-
   expectancy in R, CAGR, max drawdown, in-sample vs out-of-sample and buy-and-hold of the Shariah ETF and
   Nifty 50. Writes trader/backtest/. Use when the user says "backtest", "test my strategy", "how did this
   strategy do", "past performance".
-argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions 5] [--write] | list | show ID"
+argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions 5] [--no-take-warn] [--compare] [--write] | list | show ID"
 ---
 
 # tayyib-backtest
@@ -35,21 +35,27 @@ What it does, in order, every trading day of the window:
    that day only, with the live liquidity filter and exit plan.
 2. Picks and ranks the day's stocks exactly like tayyib-daily (one setup per stock, swing and delivery
    alternated in `--mode all`, time-machine expectancy for stocks with enough past trades, else score).
-3. Sizes each with tayyib-budget's rule (1% risk incl. charges, 20% max position, by default) against the
-   cash not already used, and places a buy-stop plan that waits until its valid-until date.
+3. Sizes each with tayyib-budget's rule (1% risk incl. charges, 20% max position, by default), runs the
+   live tayyib-risk check against the simulated book (heat, 2 per industry, reward:risk, cash...; news
+   can't be replayed), never places a BLOCK, places WARN unless `--no-take-warn`, and leaves a buy-stop
+   plan waiting until its valid-until date. Recent listings join once they have 250 days of prices.
 4. Fills and exits follow the paper tracker's rules: gap through the stop fills at the open, a day touching
    stop and target counts as the stop, swing breakeven at +1R, time stop at that day's close.
 
 How to present it:
-- **Read every banner first, word for word.** Three are always there (today's halal list applied to the
-  past, survivorship bias, past results are no promise). Others say there were too few trades, that
-  out-of-sample was much weaker (possibly overfit), or that holding the Shariah ETF did better.
+- **Read every banner first, word for word.** Four are always there (today's halal list applied to the
+  past, survivorship bias, past results are no promise, news can't be replayed). Others say there were too
+  few trades, that out-of-sample was much weaker (possibly overfit), that holding the Shariah ETF did
+  better, or that the Nifty 50 did (say it is reference only: not halal-screened, never a halal option).
+- A group marked "(too few to judge)" (under 30 trades) is noise: never suggest switching a setup on or off
+  because of it.
 - Then the overall table (trades, win rate, expectancy R, profit factor, CAGR, max drawdown with dates),
   then in-sample vs out-of-sample side by side, then the two benchmarks. A benchmark that could not be
   fetched is UNKNOWN: say so, never treat it as 0.
-- Name the skipped stocks and why (no data, or not enough history before the window).
-- tayyib-risk's portfolio heat, industry and news checks are not part of the replay: say so if the user
-  compares it with their live list.
+- Say how many plans the risk check blocked and the top reasons, which stocks joined late, and the skipped
+  stocks with why.
+- With `--compare`, show (a) as run next to (b) score-only ranking: the difference is what the
+  time-machine ranking added.
 
 ## Rules this skill never bends
 

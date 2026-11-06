@@ -2,22 +2,23 @@
 """tayyib-backtest: if you had run this strategy every day for the last N years, what happened?
 
 Replays tayyib-daily day by day over the halal list with your capital and settings, using the same
-functions the live pipeline uses (setups, liquidity, exit plan, ranking, sizing, the paper outcome rules
-and Zerodha delivery charges):
+functions the live pipeline uses (setups, liquidity, exit plan, ranking, sizing, the risk check, the paper
+outcome rules and Zerodha delivery charges):
 
   each close   scan every compliant stock on its bars up to that day only, pick and rank the day's
-               stocks like tayyib-daily, size them against the cash left and place buy-stop plans
+               stocks like tayyib-daily, size them, risk-check them against the simulated book (PASS, and
+               WARN unless --no-take-warn; never BLOCK) and place buy-stop plans
   next days    a plan fills when price trades through its entry (by its valid-until date), then exits at
                the stop, the target, breakeven or the time stop exactly like the paper tracker
-  one account  one cash balance (never negative, no margin), one position per stock, at most
-               --max-positions open or waiting, charges on every buy and sell
+  one account  one cash balance (never negative, no margin; sale proceeds usable from the next day), one
+               position per stock, at most --max-positions open or waiting, charges on every buy and sell
 
 Writes trader/backtest/<id>.json and .md with --write, and nothing else (prices go to the usual cache).
 A replay of the past with today's halal list: read the banners. Places no order.
 
   backtest.py run [--mode swing|delivery|all] [--setups breakout,pullback] [--years 3]
                   [--from YYYY-MM-DD --to YYYY-MM-DD] [--capital N] [--max-positions 5]
-                  [--split YYYY-MM-DD] [--write] [--json]
+                  [--split YYYY-MM-DD] [--no-take-warn] [--compare] [--write] [--json]
   backtest.py list
   backtest.py show ID
 """
@@ -26,18 +27,19 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
-WARMUP_BARS = 250              # bars a stock needs before the window starts
+WARMUP_BARS = 250              # a stock joins on the first day it has this many bars of history
 TM_RUNS, TM_SEED = 3000, 7     # what tayyib-daily asks the time machine for (daily.py --runs, timemachine --seed)
 TM_YEARS = 2                   # the time machine sees the stock's last 2 years (get_daily_bars' default range)
 BENCHMARKS = (("SHARIABEES.NS", "Nippon India ETF Shariah BeES"),
               ("^NSEI", "Nifty 50 (price index: dividends not included)"))
-SHARIAH_BENCH = "SHARIABEES.NS"
+SHARIAH_BENCH, NIFTY = "SHARIABEES.NS", "^NSEI"
 MIN_TRADES = 30
 
 BANNER_HALAL = ("Halal status is today's list applied to past years (point-in-time halal data is not "
@@ -45,12 +47,32 @@ BANNER_HALAL = ("Halal status is today's list applied to past years (point-in-ti
 BANNER_SURVIVOR = ("Universe is today's list: companies that dropped out are missing (survivorship bias), so "
                    "results are likely better than reality.")
 BANNER_PAST = "Past results do not predict future results. Not financial advice, not a fatwa."
+BANNER_NEWS = "News and HALAL-WATCH checks can't be replayed for past dates; live results may differ."
 BANNER_FEW = "Too few trades to judge."
 BANNER_OVERFIT = "Out-of-sample results are much weaker: the strategy may be overfit."
 BANNER_ETF = "Buying and holding the Shariah ETF did better."
 BANNER_NO_ETF = ("The Shariah ETF benchmark is UNKNOWN (it could not be fetched), so the strategy could not be "
                  "compared with it.")
+BANNER_NIFTY = ("The Nifty 50 (not halal-screened, price only) did better over this window; it is shown for "
+                "reference only, not as a halal option.")
 EXIT_AT_END = "OPEN AT END"
+TOO_FEW = "(too few to judge)"
+NOT_REPLAYED = ("news / HALAL-WATCH", "halal list age")
+
+# A risk check's BLOCK / WARN text -> a stable reason name for counts.risk_blocked / risk_warned
+REASONS = ((r"^hard rule", "hard rules"), (r"^halal: ", "halal status"), (r"^loss at stop", "loss at stop"),
+           (r"^position ", "max position %"), (r"^needs ", "cash"), (r"^open positions", "max open positions"),
+           (r"^portfolio heat", "portfolio heat"), (r"^\d+ open in ", "positions per industry"),
+           (r"^net reward:risk", "min net reward:risk"), (r"^plan expired", "plan expired"),
+           (r"^time machine expectancy is negative", "time-machine expectancy negative"),
+           (r"^already holding", "already holding"))
+
+
+def reason_name(text):
+    for pat, name in REASONS:
+        if re.search(pat, text):
+            return name
+    return "other: " + text[:40]
 
 
 # ---------------------------------------------------------------------------
@@ -79,10 +101,16 @@ def yahoo_range(first_needed, today):
     return "max"
 
 
+def join_date(bars):
+    """The first day a stock has WARMUP_BARS bars of history (that day included), or None."""
+    return bars[WARMUP_BARS - 1]["date"] if len(bars) >= WARMUP_BARS else None
+
+
 def load_bars(syms, range_, start, end, sleep=0.25, progress=None):
-    """-> ({sym: bars up to `end`}, skipped[]). A stock with no data, or fewer than WARMUP_BARS bars before
-    the window starts, is skipped with the reason. Nothing is filled in: a missing day stays missing."""
-    data, skipped = {}, []
+    """-> ({sym: bars up to `end`}, skipped[], joined_late[]). A stock joins on the first day it has
+    WARMUP_BARS bars of history; one that never gets there by `end` (or has no data) is skipped with the
+    reason. A stock that joins after `start` is listed in joined_late[]. Nothing is filled in."""
+    data, skipped, late = {}, [], []
     for k, s in enumerate(syms):
         if progress:
             progress("prices %d/%d %s" % (k + 1, len(syms), s))
@@ -95,15 +123,17 @@ def load_bars(syms, range_, start, end, sleep=0.25, progress=None):
             if sleep and not tc.fixtures_dir():
                 time.sleep(sleep)
         bars = [b for b in bars if b["date"] <= end]
-        before = sum(1 for b in bars if b["date"] < start)
+        j = join_date(bars)
         if not bars:
             skipped.append({"symbol": s, "reason": "no price data up to %s" % end})
-        elif before < WARMUP_BARS:
-            skipped.append({"symbol": s, "reason": "only %s before %s (needs %d warm-up bars); data starts %s"
-                            % (tc.plural(before, "bar"), start, WARMUP_BARS, bars[0]["date"])})
+        elif j is None or j > end:
+            skipped.append({"symbol": s, "reason": "only %s up to %s (needs %d to join); data starts %s"
+                            % (tc.plural(len(bars), "bar"), end, WARMUP_BARS, bars[0]["date"])})
         else:
             data[s] = bars
-    return data, skipped
+            if j > start:
+                late.append({"symbol": s, "join_date": j, "data_starts": bars[0]["date"]})
+    return data, skipped, late
 
 
 # ---------------------------------------------------------------------------
@@ -111,26 +141,28 @@ def load_bars(syms, range_, start, end, sleep=0.25, progress=None):
 # ---------------------------------------------------------------------------
 
 class Book:
-    """A stock's bars, its indicators (causal: bar i uses bars 0..i) and a date -> index map."""
+    """A stock's bars, its indicators (causal: bar i uses bars 0..i), a date -> index map and the index from
+    which it may give signals (WARMUP_BARS of history)."""
 
     def __init__(self, bars):
         self.bars = bars
         self.ind = tc.indicators(bars)
         self.idx = {b["date"]: k for k, b in enumerate(bars)}
+        self.join = WARMUP_BARS - 1
 
 
 def scan_day(books, date, cfg, mode, setups, held):
-    """tayyib-scanner + tayyib-daily's choice for one close: every compliant stock with a bar on `date`, its
-    signals on bars[0..i], the liquidity filter on bars[0..i], a plan for each (tc.plan_trade), best score
-    first, the scanner's top max(2 x daily.top, 25), held stocks dropped, then tc.choose_candidates.
-    -> list of picks {symbol, setup, mode, score, sig, plan, i}."""
+    """tayyib-scanner + tayyib-daily's choice for one close: every compliant stock with a bar on `date` and
+    WARMUP_BARS of history, its signals on bars[0..i], the liquidity filter on bars[0..i], a plan for each
+    (tc.plan_trade), best score first, the scanner's top max(2 x daily.top, 25), held stocks dropped, then
+    tc.choose_candidates. -> list of picks {symbol, setup, mode, score, sig, plan, i}."""
     min_hist = cfg["scanner"]["min_history_bars"]
     tick = cfg["tick_size"]
     cands = []
     for s in sorted(books):
         bk = books[s]
         i = bk.idx.get(date)
-        if i is None or i + 1 < min_hist:
+        if i is None or i < bk.join or i + 1 < min_hist:
             continue
         sigs = tc.detect_at(bk.bars, bk.ind, i, mode, setups, tick, cfg)
         if not sigs:
@@ -153,10 +185,9 @@ def scan_day(books, date, cfg, mode, setups, held):
     return tc.choose_candidates(cands, mode, top)
 
 
-def time_machine(bk, pick, cfg, K, mn):
-    """What tayyib-daily's time machine says about a pick on its signal day: history replay (and, when the
-    ranking or daily.min_expectancy_r needs it, the Monte Carlo) on the stock's last TM_YEARS of bars up to
-    that day. -> (expectancy_r or None, past trades)."""
+def tm_window(bk, pick):
+    """The bars tayyib-daily's time machine would see for a pick on its signal day: the stock's last TM_YEARS
+    of bars up to that day (get_daily_bars' default range)."""
     i, d = pick["i"], tc.parse_date(pick["sig"]["date"])
     try:
         cut = d.replace(year=d.year - TM_YEARS).isoformat()
@@ -165,36 +196,24 @@ def time_machine(bk, pick, cfg, K, mn):
     j = i
     while j > 0 and bk.bars[j - 1]["date"] > cut:
         j -= 1
-    win = bk.bars[j:i + 1]
-    summ, _ = tc.tm_history(win, pick["plan"], cfg)
-    exp = None
-    if mn is not None or not tc.thin_evidence(summ["trades"], K):
-        exp = tc.tm_monte_carlo(win, pick["plan"], cfg, TM_RUNS, TM_SEED)["expectancy_r"]
-    return exp, summ["trades"]
+    return bk.bars[j:i + 1]
 
 
-def rank_day(books, picks, cfg, avail, free):
+def rank_day(books, picks, cfg, all_mc=False):
     """Order the day's picks like tayyib-daily (tc.rank_key: best time-machine expectancy among stocks with at
     least daily.min_past_trades_for_rank past trades, then by setup score), ties by symbol, and apply
-    daily.min_expectancy_r. The time machine only runs when the order can change what is bought: more picks
-    than free slots, or not enough cash for all of them in any order. -> (ordered picks, filtered[], tm_runs)."""
+    daily.min_expectancy_r. The Monte Carlo runs where the ranking or that filter needs it, or for every pick
+    with all_mc (its negative-expectancy WARN matters when WARN plans are not taken).
+    -> (ordered picks, filtered[])."""
     K = cfg["daily"]["min_past_trades_for_rank"]
     mn = cfg["daily"].get("min_expectancy_r")
-    if mn is None and len(picks) <= free:
-        need = 0.0
-        for p in picks:
-            sz = tc.size_trade(p["plan"], cfg, avail)
-            need += sz["qty"] * p["plan"]["entry"] * 1.002
-        if need <= avail:
-            for p in picks:
-                p["ranked_by"] = "not needed (every pick fitted)"
-            return sorted(picks, key=lambda p: p["symbol"]), [], 0
-    runs = 0
     for p in picks:
-        bk = books[p["symbol"]]
-        exp, n = time_machine(bk, p, cfg, K, mn)
-        runs += 1
-        p["expectancy_r"], p["past_trades"] = exp, n
+        win = tm_window(books[p["symbol"]], p)
+        summ, _ = tc.tm_history(win, p["plan"], cfg)
+        n, exp = summ["trades"], None
+        if all_mc or mn is not None or not tc.thin_evidence(n, K):
+            exp = tc.tm_monte_carlo(win, p["plan"], cfg, TM_RUNS, TM_SEED)["expectancy_r"]
+        p["expectancy_r"], p["past_trades"], p["history"] = exp, n, summ
         p["ranked_by"] = "score" if tc.thin_evidence(n, K) else "expectancy"
     filtered = []
     if mn is not None:
@@ -202,7 +221,7 @@ def rank_day(books, picks, cfg, avail, free):
         picks = [p for p in picks if p not in filtered]
     picks = sorted(picks, key=lambda p: tc.rank_key(p.get("expectancy_r"), p.get("past_trades"), p["score"], K)
                    + (p["symbol"],))
-    return picks, filtered, runs
+    return picks, filtered
 
 
 # ---------------------------------------------------------------------------
@@ -213,26 +232,119 @@ def _charges(side, price, qty, cfg):
     return tc.order_charges(side, price, qty, cfg)["total"]
 
 
-def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, progress=None):
+def make_order(p, sz, cfg):
+    """The ticket tayyib-budget would write for a pick (the fields tayyib-risk checks)."""
+    pl = p["plan"]
+    o = {"id": "%s-%s-%s" % (p["symbol"], pl["signal_date"], pl["setup"]), "symbol": p["symbol"],
+         "exchange": cfg["exchange"], "side": "BUY", "product": "CNC", "instrument": "EQ", "qty": sz["qty"],
+         "order_type": "SL", "trigger_price": pl["entry"], "limit_price": sz["limit_price"], "stop": pl["stop"],
+         "target": pl["target"], "mode": pl["mode"], "setup": pl["setup"], "valid_until": pl["valid_until"],
+         "risk_per_share": pl["risk_per_share"], "broker": cfg["broker"], "status": "SIZED"}
+    o.update({k: v for k, v in sz.items() if k not in ("qty", "limit_price")})
+    return o
+
+
+def sim_for(p):
+    """The time-machine result tayyib-risk reads (sim.json shape), when the Monte Carlo ran for this pick."""
+    if p.get("expectancy_r") is None:
+        return None
+    return {"results": {p["symbol"]: {"plan": {"setup": p["setup"]}, "monte_carlo": {"expectancy_r": p["expectancy_r"]},
+                                      "history": p.get("history") or {"trades": p.get("past_trades")}}}}
+
+
+class Ledger:
+    """The book the risk check sees at a close: held positions (positions.json shape) and the plans already
+    waiting or approved (counted like approved tickets: heat, count, industry, cash)."""
+
+    def __init__(self, held, pending, uni):
+        self.positions = [{"symbol": s, "qty": r["qty"], "entry": r["fill"], "stop": r["plan"]["stop"],
+                           "status": "open"} for s, r in sorted(held.items())]
+        self.heat = sum(r["loss_at_stop"] for r in pending.values())
+        self.count = len(pending)
+        self.value = sum(r["reserve"] for r in pending.values())
+        self.inds = {}
+        for s in sorted(pending):
+            self.add_ind(s, uni)
+
+    def add_ind(self, sym, uni):
+        ind = tc.halal_status(sym, uni).get("industry") or ""
+        if ind:
+            self.inds[ind] = self.inds.get(ind, 0) + 1
+
+    def check(self, o, cfg, uni, cash, sim, day, others=()):
+        """tc.risk_check_order on this book (plus `others`, extra orders counted as approved), replay mode."""
+        heat, count, value, inds = self.heat, self.count, self.value, dict(self.inds)
+        for x in others:
+            heat += x.get("loss_at_stop_rs", 0)
+            value += x["qty"] * x["trigger_price"] + x.get("buy_charges_rs", 0)
+            count += 1
+            ind = tc.halal_status(x["symbol"], uni).get("industry") or ""
+            if ind:
+                inds[ind] = inds.get(ind, 0) + 1
+        return tc.risk_check_order(o, dict(cfg, cash_available=cash), self.positions, uni, {}, heat, count, inds,
+                                   value, sim, today=day, replay=True)
+
+    def approve(self, o, uni):
+        self.heat += o.get("loss_at_stop_rs", 0)
+        self.value += o["qty"] * o["trigger_price"] + o.get("buy_charges_rs", 0)
+        self.count += 1
+        self.add_ind(o["symbol"], uni)
+
+
+def order_matters(picks, cfg, uni, ledger, cash, avail, free, day, take_warn):
+    """False when every pick would be bought whatever the order: they fit in the free slots and the cash
+    together, and each passes the risk check (WARN counts when WARN plans are taken) with all the others
+    already approved. Every limit only gets tighter with more approved orders, so then no order can change
+    what is bought, and the time machine need not run."""
+    if len(picks) > free:
+        return True
+    orders, need = [], 0.0
+    for p in picks:
+        sz = tc.size_trade(p["plan"], cfg, avail)
+        if not sz["qty"]:
+            return True
+        need += sz["qty"] * p["plan"]["entry"] * 1.002
+        orders.append(make_order(p, sz, cfg))
+    if need > avail:
+        return True
+    for k, o in enumerate(orders):
+        r = ledger.check(o, cfg, uni, cash, None, day, orders[:k] + orders[k + 1:])
+        if r["status"] == "BLOCK" or (r["status"] == "WARN" and not take_warn):
+            return True
+    return False
+
+
+def new_counts():
+    return {"signal_days": 0, "plans": 0, "not_triggered": 0, "no_cash_at_fill": 0, "qty_cut_at_fill": 0,
+            "not_sized": 0, "no_slot": 0, "tm_days": 0, "risk_checked": 0, "risk_blocked_plans": 0,
+            "risk_blocked": {}, "risk_warned": {}, "warn_taken": 0, "warn_skipped": 0,
+            "not_replayed": {k: 0 for k in NOT_REPLAYED}}
+
+
+def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, progress=None, uni=None,
+             take_warn=True, rank="tm"):
     """Run the strategy over [start, end] on {sym: bars} (compliant stocks only, bars up to `end`).
-    -> {trades[], curve[], unfilled, fill_cuts[], counts}."""
+    rank: "tm" (tayyib-daily's order, with the time machine) or "score" (setup score only, for --compare).
+    -> {trades[], curve[], counts, days}."""
+    uni = uni if uni is not None else {"stocks": {}}
     books = {s: Book(b) for s, b in data.items()}
     days = sorted({b["date"] for bk in books.values() for b in bk.bars if start <= b["date"] <= end})
     capital = float(cfg["capital"])
     cash = capital
     pending, held, trades, curve = {}, {}, [], []
     last_close = {}
-    counts = {"plans": 0, "not_triggered": 0, "no_cash_at_fill": 0, "qty_cut_at_fill": 0, "not_sized": 0,
-              "no_slot": 0, "tm_days": 0, "signal_days": 0}
+    counts = new_counts()
 
     def outcome(rec):
         pl = dict(rec["plan"], qty=rec["qty"])
         return tc.trade_outcome(books[rec["symbol"]].bars, pl, cfg, today=end)
 
     def close(rec, px, date, reason):
+        """Sell; returns the proceeds (usable from the next trading day)."""
         nonlocal cash
         sell = _charges("SELL", px, rec["qty"], cfg)
-        cash += rec["qty"] * px - sell
+        got = rec["qty"] * px - sell
+        cash += got
         o = rec["out"]
         trades.append({
             "symbol": rec["symbol"], "setup": rec["setup"], "mode": rec["mode"],
@@ -242,7 +354,8 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
             "plan_entry": rec["plan"]["entry"], "stop": rec["plan"]["stop"], "target": rec["plan"]["target"],
             "valid_until": rec["plan"]["valid_until"], "score": rec["score"], "ranked_by": rec["ranked_by"],
             "expectancy_r": rec.get("expectancy_r"), "past_trades": rec.get("past_trades"),
-            "qty_cut_at_fill": rec.get("qty_cut", False)})
+            "risk": rec["risk"], "qty_cut_at_fill": rec.get("qty_cut", False)})
+        return got
 
     for n_day, d in enumerate(days):
         if progress and n_day % 50 == 0:
@@ -251,20 +364,22 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
             k = bk.idx.get(d)
             if k is not None:
                 last_close[s] = bk.bars[k]["close"]
+        settling = 0.0                                       # today's sale proceeds: usable from tomorrow
         # 1. exits of positions already held
         for s in sorted(held):
             rec = held[s]
             if rec["out"]["exited"] == d:
-                close(rec, rec["out"]["exit"], d, rec["out"]["status"])
+                settling += close(rec, rec["out"]["exit"], d, rec["out"]["status"])
                 del held[s]
-        # 2. fills (cash checked again at the fill price: a gap up costs more than planned)
+        # 2. fills: paid from cash that is free today (not today's proceeds, not other plans' cash); a gap up
+        #    that costs more than that cuts the quantity
         for s in sorted(pending):
             rec = pending[s]
             if rec["out"]["filled"] != d:
                 continue
             del pending[s]
             fill = rec["out"]["fill"]
-            room = cash - sum(r["reserve"] for r in pending.values())
+            room = cash - settling - sum(r["reserve"] for r in pending.values())
             q = rec["qty"]
             while q > 0 and q * fill + _charges("BUY", fill, q, cfg) > room:
                 q -= 1
@@ -280,41 +395,20 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
             cash -= q * fill + rec["buy_charges"]
             held[s] = rec
             if rec["out"]["exited"] == d:                      # stopped out on the fill day
-                close(rec, rec["out"]["exit"], d, rec["out"]["status"])
+                settling += close(rec, rec["out"]["exit"], d, rec["out"]["status"])
                 del held[s]
         # 3. plans that were never triggered expire at valid_until
         for s in sorted(pending):
             if pending[s]["plan"]["valid_until"] <= d:
                 counts["not_triggered"] += 1
                 del pending[s]
-        # 4. the close: today's list, ranked, sized against the cash not already promised
+        # 4. the close: today's list, ranked, sized and risk-checked against the simulated book
         if d != days[-1]:
             picks = scan_day(books, d, cfg, mode, setups, set(held) | set(pending))
             if picks:
                 counts["signal_days"] += 1
-                free = max_positions - len(held) - len(pending)
-                avail = cash - sum(r["reserve"] for r in pending.values())
-                if free > 0:
-                    picks, _, runs = rank_day(books, picks, cfg, avail, free)
-                    counts["tm_days"] += 1 if runs else 0
-                    for p in picks:
-                        if len(held) + len(pending) >= max_positions:
-                            counts["no_slot"] += 1
-                            continue
-                        sz = tc.size_trade(p["plan"], cfg, avail)
-                        if not sz["qty"]:
-                            counts["not_sized"] += 1
-                            continue
-                        rec = {"symbol": p["symbol"], "setup": p["setup"], "mode": p["mode"], "score": p["score"],
-                               "plan": p["plan"], "qty": sz["qty"], "ranked_by": p.get("ranked_by"),
-                               "expectancy_r": p.get("expectancy_r"), "past_trades": p.get("past_trades"),
-                               "reserve": sz["position_value_rs"] + sz["buy_charges_rs"]}
-                        rec["out"] = outcome(rec)
-                        avail -= rec["reserve"]
-                        pending[p["symbol"]] = rec
-                        counts["plans"] += 1
-                else:
-                    counts["no_slot"] += len(picks)
+                place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, take_warn, rank, counts,
+                          outcome)
         # 5. the last day: whatever is still held is valued at its last close, after the sell charges
         if d == days[-1]:
             for s in sorted(held):
@@ -329,6 +423,69 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
         if cash < -1e-6:
             raise AssertionError("cash went negative on %s: %.2f" % (d, cash))
     return {"trades": trades, "curve": curve, "counts": counts, "days": days}
+
+
+def place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, take_warn, rank, counts, outcome):
+    """Step 4 of a day, like tayyib-daily: rank, size in that order (each sized ticket uses up cash for the
+    ones after it, as size.py does), risk-check each against held + waiting + earlier approved (check.py's
+    file order), and place the PASS (and, with take_warn, WARN) plans. BLOCK is never placed."""
+    free = max_positions - len(held) - len(pending)
+    if free <= 0:
+        counts["no_slot"] += len(picks)
+        return
+    day = tc.parse_date(d)
+    avail = cash - sum(r["reserve"] for r in pending.values())
+    ledger = Ledger(held, pending, uni)
+    if rank == "score":
+        ordered = sorted(picks, key=lambda p: (-p["score"], p["symbol"]))
+        for p in ordered:
+            p["ranked_by"] = "score only (--compare)"
+    elif cfg["daily"].get("min_expectancy_r") is not None or not take_warn or \
+            order_matters(picks, cfg, uni, ledger, cash, avail, free, day, take_warn):
+        ordered, filtered = rank_day(books, picks, cfg, all_mc=not take_warn)
+        counts["tm_days"] += 1
+        counts["not_sized"] += len(filtered)
+    else:
+        ordered = sorted(picks, key=lambda p: p["symbol"])
+        for p in ordered:
+            p["ranked_by"] = "not needed (every pick fitted)"
+    sizing_cash = avail
+    for p in ordered:
+        if len(held) + len(pending) >= max_positions:
+            counts["no_slot"] += 1
+            continue
+        sz = tc.size_trade(p["plan"], cfg, sizing_cash)
+        if not sz["qty"]:
+            counts["not_sized"] += 1
+            continue
+        sizing_cash -= sz["position_value_rs"]
+        o = make_order(p, sz, cfg)
+        r = ledger.check(o, cfg, uni, cash, sim_for(p), day)
+        counts["risk_checked"] += 1
+        for k in NOT_REPLAYED:
+            counts["not_replayed"][k] += 1
+        if r["status"] == "BLOCK":
+            counts["risk_blocked_plans"] += 1
+            for x in r["block"]:
+                n = reason_name(x)
+                counts["risk_blocked"][n] = counts["risk_blocked"].get(n, 0) + 1
+            continue
+        if r["status"] == "WARN":
+            for x in r["warn"]:
+                n = reason_name(x)
+                counts["risk_warned"][n] = counts["risk_warned"].get(n, 0) + 1
+            if not take_warn:
+                counts["warn_skipped"] += 1
+                continue
+            counts["warn_taken"] += 1
+        ledger.approve(o, uni)
+        rec = {"symbol": p["symbol"], "setup": p["setup"], "mode": p["mode"], "score": p["score"],
+               "plan": p["plan"], "qty": sz["qty"], "ranked_by": p.get("ranked_by"),
+               "expectancy_r": p.get("expectancy_r"), "past_trades": p.get("past_trades"), "risk": r["status"],
+               "reserve": sz["position_value_rs"] + sz["buy_charges_rs"], "loss_at_stop": sz["loss_at_stop_rs"]}
+        rec["out"] = outcome(rec)
+        pending[p["symbol"]] = rec
+        counts["plans"] += 1
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +546,12 @@ def trade_stats(trades):
     return out
 
 
+def flag_few(m):
+    """Groups (setup, mode, in / out of sample) with under MIN_TRADES trades are noise: too_few true."""
+    m["too_few"] = m["trades"] < MIN_TRADES
+    return m
+
+
 def realised_points(trades, days, capital):
     """A curve for a subset of trades (one setup or one mode): capital + the P&L of its trades closed by each
     day; exposed while one of them is held."""
@@ -411,7 +574,7 @@ def group_metrics(trades, days, capital, key):
         m = trade_stats(sub)
         m.update(curve_stats(realised_points(sub, days, capital)))
         m["curve_basis"] = "realised: capital + P&L of these trades when they closed"
-        out[g] = m
+        out[g] = flag_few(m)
     return out
 
 
@@ -429,8 +592,16 @@ def split_metrics(trades, curve, split):
         m = trade_stats(sub)
         m.update(curve_stats(seg))
         m["from"], m["to"] = (seg[0][0], seg[-1][0]) if seg else (None, None)
-        res[name] = m
+        res[name] = flag_few(m)
     return res
+
+
+def all_metrics(sim, capital, split):
+    trades, curve, days = sim["trades"], sim["curve"], sim["days"]
+    overall = trade_stats(trades)
+    overall.update(curve_stats([(c["date"], c["equity"], c["open_positions"] > 0) for c in curve]))
+    return ({"overall": overall, "by_setup": group_metrics(trades, days, capital, "setup"),
+             "by_mode": group_metrics(trades, days, capital, "mode")}, split_metrics(trades, curve, split))
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +642,13 @@ def benchmark(sym, name, range_, start, end, capital, cfg, fetch=None):
 # Banners
 # ---------------------------------------------------------------------------
 
+def _beat(bench, overall):
+    return (bench or {}).get("status") == "OK" and overall.get("cagr_pct") is not None \
+        and bench.get("cagr_pct") is not None and overall["cagr_pct"] < bench["cagr_pct"]
+
+
 def banners(overall, split, benches):
-    b = [BANNER_HALAL, BANNER_SURVIVOR, BANNER_PAST]
+    b = [BANNER_HALAL, BANNER_SURVIVOR, BANNER_PAST, BANNER_NEWS]
     if overall["trades"] < MIN_TRADES:
         b.append(BANNER_FEW)
     ise, ose = split["in_sample"]["expectancy_r"], split["out_of_sample"]["expectancy_r"]
@@ -481,9 +657,10 @@ def banners(overall, split, benches):
     etf = benches.get(SHARIAH_BENCH) or {}
     if etf.get("status") != "OK":
         b.append(BANNER_NO_ETF)
-    elif overall.get("cagr_pct") is not None and etf.get("cagr_pct") is not None \
-            and overall["cagr_pct"] < etf["cagr_pct"]:
+    elif _beat(etf, overall):
         b.append(BANNER_ETF)
+    if _beat(benches.get(NIFTY), overall):
+        b.append(BANNER_NIFTY)
     return b
 
 
@@ -524,23 +701,44 @@ def run_id(params, label, syms):
     return "%s_%s_%s_%s" % (params["to"], params["mode"], params["from"], h)
 
 
+COMPARE_KEYS = ("trades", "win_rate_pct", "expectancy_r", "profit_factor", "pnl_rs", "total_return_pct", "cagr_pct",
+                "max_drawdown_pct", "exposure_pct", "total_charges_rs")
+
+
+def compare_view(metrics, split):
+    o = metrics["overall"]
+    v = {k: o.get(k) for k in COMPARE_KEYS}
+    v["by_mode"] = {m: {k: g.get(k) for k in ("trades", "win_rate_pct", "expectancy_r", "too_few")}
+                    for m, g in metrics["by_mode"].items()}
+    v["out_of_sample_expectancy_r"] = split["out_of_sample"]["expectancy_r"]
+    return v
+
+
 def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
     """The whole backtest -> result dict (no file is written here)."""
     syms, status_counts = halal_universe(uni)
     start, end, split = params["from"], params["to"], params["split"]
     first = tc.parse_date(start) - dt.timedelta(days=365 * TM_YEARS + 10)
     range_ = yahoo_range(first, tc.today_ist())
-    data, skipped = data_fn(syms, range_, start, end, progress=progress)
-    sim = simulate(data, cfg, start, end, params["mode"], params["setups"], params["max_positions"], progress)
-    trades, curve, days = sim["trades"], sim["curve"], sim["days"]
+    data, skipped, late = data_fn(syms, range_, start, end, progress=progress)
     capital = float(cfg["capital"])
-    pts = [(c["date"], c["equity"], c["open_positions"] > 0) for c in curve]
-    overall = trade_stats(trades)
-    overall.update(curve_stats(pts))
+    sim = simulate(data, cfg, start, end, params["mode"], params["setups"], params["max_positions"], progress,
+                   uni=uni, take_warn=params["take_warn"], rank="tm")
+    metrics, spl = all_metrics(sim, capital, split)
+    compare = None
+    if params.get("compare"):
+        if progress:
+            progress("compare: the same window ranked by setup score only")
+        sim_b = simulate(data, cfg, start, end, params["mode"], params["setups"], params["max_positions"], progress,
+                         uni=uni, take_warn=params["take_warn"], rank="score")
+        mb, sb = all_metrics(sim_b, capital, split)
+        compare = {"as_run": compare_view(metrics, spl), "score_only": compare_view(mb, sb),
+                   "note": "(a) as run: tayyib-daily's ranking with the time machine; (b) the same days, data, "
+                           "sizing and risk check, picks ranked by setup score only. The difference is what the "
+                           "time-machine ranking added (or cost)."}
     benches = {}
     for sym, name in BENCHMARKS:
         benches[sym] = benchmark(sym, name, range_, start, end, capital, cfg, fetch=bench_fn)
-    spl = split_metrics(trades, curve, split)
     snap = tc.settings_snapshot(cfg)
     res = {
         "id": run_id(params, snap["hash"], syms),
@@ -549,38 +747,47 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
         "settings": {"label": snap["label"], "hash": snap["hash"], "differs_from_default": snap["differs_from_default"],
                      "capital": capital, "risk_per_trade_pct": cfg["max_risk_per_trade_pct"],
                      "max_position_pct": cfg["max_position_pct"], "broker": cfg["broker"]},
-        "window": {"from": start, "to": end, "split": split, "first_day": days[0] if days else None,
-                   "last_day": days[-1] if days else None, "trading_days": len(days), "price_range": range_},
+        "window": {"from": start, "to": end, "split": split, "first_day": sim["days"][0] if sim["days"] else None,
+                   "last_day": sim["days"][-1] if sim["days"] else None, "trading_days": len(sim["days"]),
+                   "price_range": range_},
         "universe": {"list_updated": uni.get("updated"), "statuses": status_counts, "compliant": len(syms),
-                     "tested": len(data), "skipped": len(skipped)},
+                     "tested": len(data), "joined_late": len(late), "skipped": len(skipped)},
         "skipped": skipped,
+        "joined_late": late,
         "banners": [],
-        "metrics": {"overall": overall, "by_setup": group_metrics(trades, days, capital, "setup"),
-                    "by_mode": group_metrics(trades, days, capital, "mode")},
+        "metrics": metrics,
         "split": spl,
         "benchmarks": benches,
         "counts": sim["counts"],
         "rules": [
-            "Signals, liquidity, plans and ranking on each day use that day's bars and earlier only; fills from "
-            "the next session.",
+            "Signals, liquidity, plans, ranking and the risk check on each day use that day's bars and earlier "
+            "only; fills from the next session.",
+            "A stock joins on the first day it has %d bars of history; stocks listed later join when they get "
+            "there (joined_late[])." % WARMUP_BARS,
             "Each day's stocks are picked and ranked like tayyib-daily (scanner top max(2 x daily.top, 25), one "
             "setup per stock, rank_key with the time machine on the stock's last 2 years; ties by symbol).",
-            "A plan waits as a buy-stop until valid_until; it fills at max(open, entry) and then follows "
-            "trade_outcome: a gap through the stop fills at the open, a day touching stop and target is the "
-            "stop, swing breakeven at +1R, time stop at that day's close.",
-            "Sized with tayyib-budget's rule (risk per trade incl. charges, max position) on the configured "
-            "capital, against the cash not already held or promised to waiting plans; at most max_positions "
-            "held or waiting; one per stock; no margin. A gap up that needs more cash than is free cuts the "
-            "quantity.",
-            "tayyib-risk's other limits (portfolio heat, positions per industry, net reward:risk, news) are not "
-            "applied: they need data the past does not keep (news) or are left for a later version.",
-            "Zerodha delivery charges (or your broker in config) on every buy and sell. Positions still open on the "
-            "last day are valued at the last close after the sell charges (exit reason %s)." % EXIT_AT_END],
-        "trades": trades,
-        "equity_curve": curve,
+            "Sized with tayyib-budget's rule on the configured capital, in rank order (each sized plan uses up "
+            "cash for the next, as live); then tayyib-risk's check_order against held positions + waiting plans "
+            "+ plans approved earlier that day: portfolio heat, max open positions, positions per industry, "
+            "net reward:risk, loss at stop, max position %%, cash, halal status, plan expiry, the time-machine "
+            "WARN. BLOCK is never placed; WARN %s." % ("is placed (--take-warn)" if params["take_warn"]
+                                                       else "is not placed (--no-take-warn)"),
+            "Not replayed (no history of them): news / HALAL-WATCH and the halal list's age.",
+            "At most max_positions held or waiting; one per stock; no margin. A plan waits as a buy-stop until "
+            "valid_until; it fills at max(open, entry) and then follows trade_outcome: a gap through the stop "
+            "fills at the open, a day touching stop and target is the stop, swing breakeven at +1R, time stop "
+            "at that day's close.",
+            "Sale proceeds can pay for fills from the next trading day, not the same day; a gap up that needs "
+            "more cash than is free cuts the quantity.",
+            "Zerodha delivery charges (or your broker in config) on every buy and sell. Positions still open on "
+            "the last day are valued at the last close after the sell charges (exit reason %s)." % EXIT_AT_END],
+        "trades": sim["trades"],
+        "equity_curve": sim["curve"],
         "disclaimer": tc.DISCLAIMER,
     }
-    res["banners"] = banners(overall, spl, benches)
+    if compare:
+        res["compare"] = compare
+    res["banners"] = banners(metrics["overall"], spl, benches)
     return res
 
 
@@ -604,40 +811,81 @@ def metrics_rows(m):
         dd += " (%s to %s)" % (m["drawdown_peak"], m["drawdown_trough"])
     return [("trades", str(m["trades"])), ("win rate", fmt(m["win_rate_pct"], "%", 1)),
             ("average R", fmt(m["avg_r"], "R")), ("expectancy", fmt(m["expectancy_r"], "R")),
-            ("profit factor", "no losing trades" if m.get("profit_factor_note") else fmt(m["profit_factor"])), ("P&L", fmt(m["pnl_rs"], "Rs")),
+            ("profit factor", "no losing trades" if m.get("profit_factor_note") else fmt(m["profit_factor"])),
+            ("P&L", fmt(m["pnl_rs"], "Rs")),
             ("total return", fmt(m.get("total_return_pct"), "%")), ("CAGR", fmt(m.get("cagr_pct"), "%")),
             ("max drawdown", dd), ("longest losing streak", str(m["longest_losing_streak"])),
             ("exposure", fmt(m.get("exposure_pct"), "%", 1)), ("charges", fmt(m["total_charges_rs"], "Rs"))]
 
 
 def table(cols):
-    """cols: [(title, metrics)] -> markdown table with one column per title."""
+    """cols: [(title, metrics)] -> markdown table with one column per title ("(too few to judge)" when the
+    group has under MIN_TRADES trades)."""
     names = [r[0] for r in metrics_rows(cols[0][1])]
     vals = [dict(metrics_rows(m)) for _, m in cols]
-    L = ["| | " + " | ".join(t for t, _ in cols) + " |", "|---" * (len(cols) + 1) + "|"]
+    heads = [t + (" " + TOO_FEW if m.get("too_few") else "") for t, m in cols]
+    L = ["| | " + " | ".join(heads) + " |", "|---" * (len(cols) + 1) + "|"]
     for n in names:
         L.append("| %s | %s |" % (n, " | ".join(v[n] for v in vals)))
     return L
+
+
+def counts_md(c):
+    L = ["Plans placed %d; never triggered %d; no free slot %d; not sized %d; no cash at the fill %d; quantity "
+         "cut at the fill %d." % (c["plans"], c["not_triggered"], c["no_slot"], c["not_sized"], c["no_cash_at_fill"],
+                                  c["qty_cut_at_fill"]),
+         "", "Risk check (tayyib-risk, replayed): %d plans checked, %d blocked, WARN placed %d, WARN skipped %d."
+         % (c["risk_checked"], c["risk_blocked_plans"], c["warn_taken"], c["warn_skipped"])]
+    if c["risk_blocked"]:
+        L += ["", "| blocked by | plans |", "|---|---|"] + \
+             ["| %s | %d |" % (k, v) for k, v in sorted(c["risk_blocked"].items(), key=lambda kv: (-kv[1], kv[0]))]
+    if c["risk_warned"]:
+        L += ["", "| warned by | plans |", "|---|---|"] + \
+             ["| %s | %d |" % (k, v) for k, v in sorted(c["risk_warned"].items(), key=lambda kv: (-kv[1], kv[0]))]
+    L += ["", "Not replayed (skipped on every checked plan): " +
+          ", ".join("%s %d" % kv for kv in c["not_replayed"].items()) + "."]
+    return L
+
+
+def compare_md(cp):
+    a, b = cp["as_run"], cp["score_only"]
+    rows = (("trades", "trades", ""), ("win rate", "win_rate_pct", "%"), ("expectancy", "expectancy_r", "R"),
+            ("profit factor", "profit_factor", ""), ("P&L", "pnl_rs", "Rs"), ("total return", "total_return_pct", "%"),
+            ("CAGR", "cagr_pct", "%"), ("max drawdown", "max_drawdown_pct", "%"), ("exposure", "exposure_pct", "%"),
+            ("out-of-sample expectancy", "out_of_sample_expectancy_r", "R"))
+    L = ["## Compare: time-machine ranking vs score only", "", cp["note"], "",
+         "| | (a) as run | (b) score only |", "|---|---|---|"]
+    for name, k, u in rows:
+        L.append("| %s | %s | %s |" % (name, str(a[k]) if k == "trades" else fmt(a[k], u),
+                                       str(b[k]) if k == "trades" else fmt(b[k], u)))
+    for m in sorted(set(a["by_mode"]) | set(b["by_mode"])):
+        x, y = a["by_mode"].get(m) or {}, b["by_mode"].get(m) or {}
+        L.append("| %s: trades / expectancy | %s / %s%s | %s / %s%s |" % (
+            m, x.get("trades", 0), fmt(x.get("expectancy_r"), "R"), " " + TOO_FEW if x.get("too_few") else "",
+            y.get("trades", 0), fmt(y.get("expectancy_r"), "R"), " " + TOO_FEW if y.get("too_few") else ""))
+    return L + [""]
 
 
 def render_md(r):
     w, u, s = r["window"], r["universe"], r["settings"]
     L = ["**%s**" % b for b in r["banners"]] + ["", "# Backtest %s" % r["id"], "",
          "%s mode%s, %s to %s (%d trading days), split %s. Capital %s, risk %s%% a trade, max %d positions, "
-         "settings %s, broker %s." % (r["params"]["mode"], " (%s)" % ", ".join(r["params"]["setups"])
-                                      if r["params"]["setups"] else "", w["first_day"], w["last_day"],
-                                      w["trading_days"], w["split"], tc.fmt_rs(s["capital"], 0),
-                                      tc._fmt_val(s["risk_per_trade_pct"]), r["params"]["max_positions"],
-                                      s["label"], s["broker"]),
-         "Universe: %d compliant stocks on today's halal list (built %s), %d tested, %d skipped."
-         % (u["compliant"], u["list_updated"], u["tested"], u["skipped"]), "", "## Overall", ""]
+         "settings %s, broker %s, WARN plans %s." % (
+             r["params"]["mode"], " (%s)" % ", ".join(r["params"]["setups"]) if r["params"]["setups"] else "",
+             w["first_day"], w["last_day"], w["trading_days"], w["split"], tc.fmt_rs(s["capital"], 0),
+             tc._fmt_val(s["risk_per_trade_pct"]), r["params"]["max_positions"], s["label"], s["broker"],
+             "taken" if r["params"].get("take_warn", True) else "not taken"),
+         "Universe: %d compliant stocks on today's halal list (built %s): %d tested (%d of them joined late), %d "
+         "skipped." % (u["compliant"], u["list_updated"], u["tested"], u.get("joined_late", 0), u["skipped"]), "",
+         "## Overall", ""]
     L += table([("strategy", r["metrics"]["overall"])]) + [""]
     if r["metrics"]["by_setup"]:
         L += ["## By setup", ""] + table(list(r["metrics"]["by_setup"].items())) + [""]
     if r["metrics"]["by_mode"]:
         L += ["## By mode", ""] + table(list(r["metrics"]["by_mode"].items())) + [""]
     L += ["Setup and mode columns: return, CAGR and drawdown are on the capital plus those trades' realised "
-          "P&L.", "", "## In-sample vs out-of-sample (split %s, by signal date)" % w["split"], ""]
+          "P&L. A column marked %s has under %d trades: its numbers are noise." % (TOO_FEW, MIN_TRADES), "",
+          "## In-sample vs out-of-sample (split %s, by signal date)" % w["split"], ""]
     L += table([("in-sample", r["split"]["in_sample"]), ("out-of-sample", r["split"]["out_of_sample"])]) + [""]
     L += ["## Benchmarks (buy and hold, one buy and one sell charge)", "",
           "| | total return | CAGR | max drawdown | note |", "|---|---|---|---|---|",
@@ -651,19 +899,23 @@ def render_md(r):
             L.append("| %s (%s) | %s | %s | %s | %s to %s%s |" % (
                 b["name"], b["symbol"], fmt(b["total_return_pct"], "%"), fmt(b["cagr_pct"], "%"),
                 fmt(b["max_drawdown_pct"], "%"), b["start"], b["end"], "; " + b["note"] if b.get("note") else ""))
-    c = r["counts"]
-    L += ["", "Plans placed %d; never triggered %d; no free slot %d; not sized %d; no cash at the fill %d; "
-          "quantity cut at the fill %d." % (c["plans"], c["not_triggered"], c["no_slot"], c["not_sized"],
-                                            c["no_cash_at_fill"], c["qty_cut_at_fill"]), ""]
+    L += ["", "The Nifty 50 is not halal-screened: it is there for reference only, not as a halal option.", ""]
+    if r.get("compare"):
+        L += compare_md(r["compare"])
+    L += ["## What happened to the plans", ""] + counts_md(r["counts"]) + [""]
+    if r.get("joined_late"):
+        L += ["## Joined late (listed recently)", ""] + \
+             ["- %s: joined %s (data starts %s)" % (x["symbol"], x["join_date"], x["data_starts"])
+              for x in r["joined_late"]] + [""]
     if r["skipped"]:
         L += ["## Skipped stocks", ""] + ["- %s: %s" % (x["symbol"], x["reason"]) for x in r["skipped"]] + [""]
     L += ["## Rules", ""] + ["- " + x for x in r["rules"]] + ["", "## Trades", "",
-          "| signal | stock | setup | entry | price | exit | price | reason | qty | charges | P&L | R |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+          "| signal | stock | setup | check | entry | price | exit | price | reason | qty | charges | P&L | R |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for t in r["trades"]:
-        L.append("| %s | %s | %s %s | %s | %.2f | %s | %.2f | %s | %d | %.2f | %.2f | %+.2f |" % (
-            t["signal_date"], t["symbol"], t["mode"], t["setup"], t["entry_date"], t["entry_price"], t["exit_date"],
-            t["exit_price"], t["exit_reason"], t["qty"], t["charges"], t["pnl_rs"], t["r"]))
+        L.append("| %s | %s | %s %s | %s | %s | %.2f | %s | %.2f | %s | %d | %.2f | %.2f | %+.2f |" % (
+            t["signal_date"], t["symbol"], t["mode"], t["setup"], t.get("risk", "-"), t["entry_date"], t["entry_price"],
+            t["exit_date"], t["exit_price"], t["exit_reason"], t["qty"], t["charges"], t["pnl_rs"], t["r"]))
     L += ["", r["disclaimer"]]
     return "\n".join(L) + "\n"
 
@@ -688,7 +940,8 @@ def summary(res):
     return {"id": res["id"], "from": res["window"]["first_day"], "to": res["window"]["last_day"],
             "mode": res["params"]["mode"], "settings": res["settings"]["label"], "trades": m["trades"],
             "total_return_pct": m["total_return_pct"], "cagr_pct": m["cagr_pct"],
-            "max_drawdown_pct": m["max_drawdown_pct"], "banners": len(res["banners"])}
+            "max_drawdown_pct": m["max_drawdown_pct"], "banners": len(res["banners"]),
+            "version": res.get("version")}
 
 
 def main(argv=None):
@@ -703,6 +956,11 @@ def main(argv=None):
     r.add_argument("--capital", type=float, help="default: capital in config")
     r.add_argument("--max-positions", type=int, default=5)
     r.add_argument("--split", help="in-sample / out-of-sample date (default: the start of the last third)")
+    r.add_argument("--take-warn", dest="take_warn", action="store_true", default=True,
+                   help="place plans the risk check WARNs about, as you can live (default)")
+    r.add_argument("--no-take-warn", dest="take_warn", action="store_false", help="place PASS plans only")
+    r.add_argument("--compare", action="store_true",
+                   help="also run the same window ranked by setup score only, and show both side by side")
     r.add_argument("--write", action="store_true", help="save trader/backtest/<id>.json and .md")
     r.add_argument("--json", action="store_true")
     ls = sub.add_parser("list", help="saved backtests")
@@ -729,9 +987,10 @@ def main(argv=None):
             if "error" in x:
                 print("%s  (%s)" % (x["id"], x["error"]))
                 continue
-            print("%s  %s to %s  %s  %s  %d trades  return %s  CAGR %s  max drawdown %s"
+            print("%s  %s to %s  %s  %s  %d trades  return %s  CAGR %s  max drawdown %s  (v%s)"
                   % (x["id"], x["from"], x["to"], x["mode"], x["settings"], x["trades"],
-                     fmt(x["total_return_pct"], "%"), fmt(x["cagr_pct"], "%"), fmt(x["max_drawdown_pct"], "%")))
+                     fmt(x["total_return_pct"], "%"), fmt(x["cagr_pct"], "%"), fmt(x["max_drawdown_pct"], "%"),
+                     x.get("version") or "?"))
         return
     if a.cmd == "show":
         name = os.path.basename(a.id)
@@ -763,7 +1022,7 @@ def main(argv=None):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first")
     params = {"mode": a.mode, "setups": setups, "from": start, "to": end, "split": split,
               "max_positions": a.max_positions, "top": cfg["daily"]["top"], "warmup_bars": WARMUP_BARS,
-              "tm_runs": TM_RUNS, "tm_seed": TM_SEED}
+              "tm_runs": TM_RUNS, "tm_seed": TM_SEED, "take_warn": a.take_warn, "compare": a.compare}
     t0 = time.time()
     progress = None if a.json else (lambda m: sys.stderr.write("  %s\n" % m))
     res = run(params, cfg, uni, progress=progress)

@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.4).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.5).
 
 ## What it is
 
@@ -12,8 +12,8 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.4** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.4; v0.1.3 is folded into v0.1.4)
-- Tests: 404 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.2.5** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.5; v0.1.3 is folded into v0.1.4)
+- Tests: 429 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -94,6 +94,11 @@ over MCP (stdio), none of which place orders.
   daily list and halal list output starts with "Halal thresholds are looser than TASIS (your
   setting): <note>". **No AAOIFI preset:** it needs market value, and we fetch no share count; we do
   not approximate it.
+- **Pullback off by default (v0.2.5, default@3):** owner decision from the 5-year backtest (its own trades:
+  46, -0.21R). Still available in Settings; with it on, decisions equal default@2 exactly (snapshot test). The
+  whole-strategy backtest was worse without it on both windows (recorded in the CHANGELOG).
+- **Holdings are not trades (v0.2.5):** imported from broker files (read only), kind "holding"; they count for
+  the halal re-check, "already held" and purification, never for sizing, the risk check or any result.
 - **Why this stock:** every daily row carries `why[]`, recorded at decision time, never recomputed.
   Missing input is `ok: null` and shown as UNKNOWN.
 - **UI design tool:** UI/UX Pro Max (a Claude Code plugin) is a development-time design aid for the
@@ -199,13 +204,18 @@ over MCP (stdio), none of which place orders.
 - **v0.2.3:** `tayyib-email`, `daily.py --email`, the Windows scheduled task, `start.bat` and
   the first-run setup, the Settings Email section with "Send test email", drawdown labels that never cross
   their lines. No daily-list changes (default@2).
-- **v0.2.4** (this release): held-stock halal alerts (`halal.py held`: No longer compliant / Near a limit /
+- **v0.2.4:** held-stock halal alerts (`halal.py held`: No longer compliant / Near a limit /
   Could not verify, one per status change, a SELL ticket and a purification estimate, resolved on sale); the
   market-regime filter, OFF (live, the Today header, `backtest --regime` / `--regime-compare`, a Settings
   group); Why ordering, the time-machine label, market-closed detection (`--force`). No daily-list changes
   with defaults (default@2).
+- **v0.2.5** (this release): **pullback off by default (default@3)**, owner decision from the 5-year backtest
+  (pullback's own trades: 46, -0.21R); with it on, every decision is the default@2 one (test + snapshots). Note:
+  the whole strategy did worse without it on the same windows (5 y CAGR 8.0% -> 4.1%, 3 y 7.9% -> 7.0%); see the
+  CHANGELOG. Holdings import from Zerodha / Groww files (`ticket.py import`, read only, preview first, kind
+  "holding": not trades). "Not compliant now (status at purchase unknown)". Risk-off date ranges.
 - **Next:** switch the regime filter on only if `--regime-compare` shows a variant helps on more than one
-  window.
+  window. Revisit pullback with a backtest that varies max positions.
 
 Later:
 - Read-only Zerodha / Groww connection (holdings, positions)

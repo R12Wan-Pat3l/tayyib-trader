@@ -160,7 +160,7 @@ class BacktestApi(ServerCase):
         for k in ("id", "run_at", "window_text", "mode", "settings", "trades", "cagr", "max_dd", "label"):
             self.assertIn(k, row)
         self.assertEqual((row["id"], row["mode"], row["settings"], row["trades"]),
-                         (res["id"], "all", "default@2", res["metrics"]["overall"]["trades"]))
+                         (res["id"], "all", ("default@%d" % tc.DEFAULTS_VERSION), res["metrics"]["overall"]["trades"]))
         d = self.get("/api/backtest?id=" + res["id"])
         self.assertEqual(d["order"], ["header", "banners", "cards", "equity", "breakdown", "compare", "regime", "trades",  # regime: v0.2.4
                                       "universe", "footer"])
@@ -170,7 +170,7 @@ class BacktestApi(ServerCase):
         self.assertLess(d["order"].index("banners"), d["order"].index("equity"))
         h = {x["label"]: x["value"] for x in d["header"]["items"]}
         self.assertEqual((h["Capital"], h["Max positions"], h["Settings"], h["WARN plans"], h["Risk per trade"]),
-                         ("₹1,00,000", "5", "default@2", "taken", "1%"))
+                         ("₹1,00,000", "5", ("default@%d" % tc.DEFAULTS_VERSION), "taken", "1%"))
         self.assertEqual([c["key"] for c in d["cards"]], ["strategy", "SHARIABEES.NS", "^NSEI"])
         self.assertEqual([i["label"] for i in d["cards"][0]["items"]],
                          ["CAGR", "Max drawdown", "Expectancy", "Trades", "Win rate"])
@@ -353,7 +353,7 @@ class RunBacktest(ServerCase):
 
 class Version(unittest.TestCase):
     def test_version_and_defaults(self):
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)          # the version itself is pinned by the newest test file
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 2)   # pinned exactly by the newest test file (v0.2.5: 3)          # the version itself is pinned by the newest test file
 
 
 if __name__ == "__main__":

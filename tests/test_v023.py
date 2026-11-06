@@ -295,7 +295,7 @@ class Password(EmailCase):
         base = tc.settings_snapshot(tc.validate_config({})[0])
         mine = tc.settings_snapshot(tc.validate_config({"email": {"enabled": True, "from": "me@example.com",
                                                                    "to": ["a@example.com"], "smtp_port": 587}})[0])
-        self.assertEqual((mine["hash"], mine["label"]), (base["hash"], "default@2"))
+        self.assertEqual((mine["hash"], mine["label"]), (base["hash"], ("default@%d" % tc.DEFAULTS_VERSION)))
         self.assertNotIn("email", mine["values"])
         self.assertNotIn("me@example.com", json.dumps(mine))
 

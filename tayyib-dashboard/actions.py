@@ -9,6 +9,10 @@
    mode (all, swing, delivery) and compare (on / off) for a backtest.
 3. (v0.2.3) "Send test email": tayyib-email/email_report.py test and nothing else, refused before it starts when
    TAYYIB_SMTP_PASSWORD is not set. The password stays in the environment: never read, stored or shown here.
+4. (v0.2.5) "Preview" / "Import" of a holdings export: tayyib-broker/ticket.py import FILE [--yes], only for a
+   file the user saved in trader/import/ (a plain file name: no folder, no "..", no link; .csv or .xlsx). Import
+   needs a Preview of the same file first (same name, same contents). No file is uploaded over HTTP. It writes
+   only trader/positions.json (backed up first) and never talks to a broker.
 
 Nothing here places, changes or cancels an order, and nothing here talks to a broker.
 """
@@ -16,6 +20,7 @@ import collections
 import copy
 import datetime as dt
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -31,6 +36,10 @@ ROOT = os.path.dirname(HERE)
 DAILY = os.path.join(ROOT, "tayyib-daily", "daily.py")
 BACKTEST = os.path.join(ROOT, "tayyib-backtest", "backtest.py")
 EMAIL = os.path.join(ROOT, "tayyib-email", "email_report.py")
+TICKET = os.path.join(ROOT, "tayyib-broker", "ticket.py")
+IMPORT_DIR = "import"
+IMPORT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._()\-]{0,120}\.(csv|xlsx)$", re.I)
+NEED_PREVIEW = "Preview this file first: Import needs a Preview of the same file (same name, same contents)"
 PW_ENV = "TAYYIB_SMTP_PASSWORD"
 PASSWORD_MISSING = "TAYYIB_SMTP_PASSWORD is not set: see User guide, Get the list by email"
 BT_YEARS = (3, 5)
@@ -273,10 +282,62 @@ def run_advice(now=None, cfg=None):
     return {"confirm": True, "message": "Prices aren't final yet, levels may change. " + why}
 
 
+def import_dir():
+    return os.path.join(tc.data_dir(), IMPORT_DIR)
+
+
+def import_file(name):
+    """A file name from the page -> its full path inside trader/import/, or Refused. Only a plain name of a .csv or
+    .xlsx file that is there now: no folder, no '..', no drive, no link (so nothing outside the folder is read)."""
+    if not isinstance(name, str) or not IMPORT_NAME_RE.match(name) or ".." in name or name != os.path.basename(name):
+        raise Refused(400, "a file name from trader/import/ (.csv or .xlsx, no folders) is needed")
+    d = os.path.realpath(import_dir())
+    p = os.path.join(d, name)
+    if os.path.islink(p) or os.path.dirname(os.path.realpath(p)) != d or not os.path.isfile(p):
+        raise Refused(404, "no file %s in trader/import/" % name)
+    return p
+
+
+def file_sha1(p):
+    h = hashlib.sha1()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def import_files():
+    """The .csv / .xlsx files in trader/import/ (name, size, modified), newest first."""
+    d = import_dir()
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for f in os.listdir(d):
+        p = os.path.join(d, f)
+        if IMPORT_NAME_RE.match(f) and os.path.isfile(p) and not os.path.islink(p):
+            st = os.stat(p)
+            out.append({"name": f, "size_kb": max(1, int(round(st.st_size / 1024.0))), "mtime": st.st_mtime,
+                        "modified": dt.datetime.fromtimestamp(st.st_mtime, tc.IST).strftime("%Y-%m-%d %H:%M")})
+    return sorted(out, key=lambda x: -x["mtime"])
+
+
+def import_argv(path, apply):
+    """The whole command line the page can start for an import: import FILE --json [--yes]."""
+    return ["import", path, "--json"] + (["--yes"] if apply else [])
+
+
 def run_request(body):
     """What the page may start, strictly: {"skip_news": bool} (tayyib-daily) or
     {"backtest": {"years": 3 | 5, "mode": "all" | "swing" | "delivery", "compare": bool}} (tayyib-backtest).
-    or (v0.2.3) {"email_test": true} (tayyib-email test). -> (kind, options). Anything else is refused."""
+    or (v0.2.3) {"email_test": true} (tayyib-email test), or (v0.2.5) {"import": {"file": NAME, "apply": bool}}
+    (tayyib-broker import of a file in trader/import/). -> (kind, options). Anything else is refused."""
+    if isinstance(body, dict) and "import" in body:
+        b = body["import"]
+        if set(body) != {"import"} or not isinstance(b, dict) or set(b) - {"file", "apply"} or \
+                not isinstance(b.get("apply", False), bool):
+            raise Refused(400, "an import takes only file (a name in trader/import/) and apply (true or false)")
+        path = import_file(b.get("file"))
+        return "import", {"file": b["file"], "path": path, "apply": bool(b.get("apply"))}
     if isinstance(body, dict) and "email_test" in body:
         if body != {"email_test": True}:
             raise Refused(400, "a test email takes no options: {\"email_test\": true}")
@@ -332,8 +393,11 @@ class Runner(object):
     """One run at a time, tayyib-daily or a backtest. start() -> state; status() -> state with the last lines of
     output."""
 
-    def __init__(self, script=DAILY, python=None, backtest_script=BACKTEST, email_script=EMAIL):
+    def __init__(self, script=DAILY, python=None, backtest_script=BACKTEST, email_script=EMAIL, ticket_script=TICKET):
         self.script = script
+        self.ticket_script = ticket_script
+        self.previewed = {}                         # file name -> sha1 of the contents last previewed successfully
+        self.full = []
         self.backtest_script = backtest_script
         self.email_script = email_script
         self.python = python or sys.executable
@@ -349,9 +413,13 @@ class Runner(object):
         kind, opts = run_request(body)
         if kind == "email_test" and not password_set():
             raise Refused(400, PASSWORD_MISSING)
+        sha = file_sha1(opts["path"]) if kind == "import" else None
+        if kind == "import" and opts["apply"] and self.previewed.get(opts["file"]) != sha:
+            raise Refused(409, NEED_PREVIEW)
         with self.lock:
             if self.state["state"] == "running":
-                what = {"backtest": "a backtest", "email_test": "a test email"}.get(self.state.get("kind"), "today's list")
+                what = {"backtest": "a backtest", "email_test": "a test email",
+                        "import": "a holdings import"}.get(self.state.get("kind"), "today's list")
                 raise Refused(409, "a run is already going (%s, started %s): wait for it to finish"
                               % (what, self.state["started"]))
             skip = bool(opts.get("skip_news"))
@@ -359,14 +427,19 @@ class Runner(object):
                 cmd = [self.python, self.backtest_script] + backtest_argv(opts)
             elif kind == "email_test":
                 cmd = [self.python, self.email_script] + email_argv()
+            elif kind == "import":
+                cmd = [self.python, self.ticket_script] + import_argv(opts["path"], opts["apply"])
             else:
                 cmd = [self.python, self.script] + (["--no-news"] if skip else [])
             env = dict(os.environ, TAYYIB_DIR=tc.data_dir(), PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
             self.lines.clear()
+            self.full = []
             self.t0, self.t1 = time.time(), None
             self.state = {"state": "running", "started": tc.now_ist().isoformat(timespec="seconds"), "ended": None,
                           "returncode": None, "error": None, "kind": kind, "skip_news": skip, "list_date": None,
-                          "new_list": False, "backtest": opts if kind == "backtest" else None, "backtest_id": None}
+                          "new_list": False, "backtest": opts if kind == "backtest" else None, "backtest_id": None,
+                          "import": {"file": opts["file"], "apply": opts["apply"], "sha1": sha} if kind == "import"
+                          else None, "import_result": None}
             try:
                 self.proc = subprocess.Popen(cmd, cwd=os.path.dirname(tc.data_dir()), env=env,
                                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -382,7 +455,11 @@ class Runner(object):
     def _follow(self, proc, t0):
         for line in proc.stdout:
             self.lines.append(line.rstrip("\r\n"))
+            if len(self.full) < 20000:
+                self.full.append(line.rstrip("\r\n"))
         rc = proc.wait()
+        if self.state.get("kind") == "import":
+            return self._done_import(rc)
         if self.state.get("kind") == "backtest":
             return self._done_backtest(rc, t0)
         if self.state.get("kind") == "email_test":
@@ -413,6 +490,32 @@ class Runner(object):
                 self.state.update(state="failed", error="the test email was not sent: " +
                                   (err[len("error: "):] if err.startswith("error: ") else err))
 
+    def _done_import(self, rc):
+        text = "\n".join(self.full)
+        k = 0 if text.startswith("{") else text.find("\n{") + 1
+        res = None
+        if rc == 0 and k >= 0:
+            try:
+                res = json.loads(text[k:])
+            except ValueError:
+                res = None
+        with self.lock:
+            self.t1 = time.time()
+            imp = self.state.get("import") or {}
+            self.state.update(ended=tc.now_ist().isoformat(timespec="seconds"), returncode=rc)
+            if rc == 0 and res is not None:
+                self.state.update(state="ok", import_result=res)
+                if imp.get("apply"):
+                    self.previewed.pop(imp.get("file"), None)     # the next Import needs a new Preview
+                else:
+                    self.previewed[imp.get("file")] = imp.get("sha1")
+            else:
+                tail = [x for x in self.lines if x.strip()][-3:]
+                err = tail[-1] if tail else "no output"
+                self.state.update(state="failed", error="the import %s: %s" % (
+                    "was not written" if imp.get("apply") else "preview failed",
+                    err[len("error: "):] if err.startswith("error: ") else err))
+
     def _done_backtest(self, rc, t0):
         rid = newest_backtest(t0)
         with self.lock:
@@ -433,6 +536,12 @@ class Runner(object):
             out["lines"] = list(self.lines)
             if out.get("kind") == "email_test":
                 out["command"] = "tayyib-email " + " ".join(email_argv())
+            elif out.get("kind") == "import":
+                imp = out.get("import") or {}
+                out["command"] = "tayyib-broker import trader/import/%s%s" % (imp.get("file"),
+                                                                            " --yes" if imp.get("apply") else "")
+                out.pop("lines", None)
+                out["lines"] = [x for x in self.lines if not x.startswith(("{", " ", "}", "]"))][-20:]
             elif out.get("kind") == "backtest":
                 out["command"] = "tayyib-backtest " + " ".join(backtest_argv(out["backtest"]))
                 prog = [x.strip() for x in out["lines"] if x.startswith("  ")]   # its progress lines (stderr)

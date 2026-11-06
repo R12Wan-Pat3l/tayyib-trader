@@ -132,9 +132,9 @@ class ServerLabels(OfflineCase):
 
     def test_current_vs_list_settings(self):
         self.assertEqual(D.api_meta({})["settings_header"],
-                         "Current settings: default@2")
+                         "Current settings: " + ("default@%d" % tc.DEFAULTS_VERSION))
         t = D.api_today({})
-        self.assertEqual(t["made_with"], "This list was made with: default@2")
+        self.assertEqual(t["made_with"], "This list was made with: " + ("default@%d" % tc.DEFAULTS_VERSION))
         self.assertFalse(t["older_list"])
         self.assertIn("at least 8 past trades", t["rank_note"])
         self.assertEqual(t["checks"][0], "PASS") if "PASS" in t["checks"] else None

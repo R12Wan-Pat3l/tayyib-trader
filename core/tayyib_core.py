@@ -44,14 +44,16 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
 #   1  v0.1.5: every threshold moved into config, same values as v0.1.4
 #   2  v0.1.7: daily.min_past_trades_for_rank = 8 (rows with fewer past trades rank by setup score);
 #      0 gives the default@1 order exactly
-DEFAULTS_VERSION = 2
+#   3  v0.2.5: scanner.setups.pullback.enabled = False (it lost money in the 5-year backtests); with it switched
+#      back on every decision is the default@2 one (tests/baseline.py, baseline_default2.json.gz)
+DEFAULTS_VERSION = 3
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30), "IST")
 
 
@@ -133,7 +135,8 @@ DEFAULT_CONFIG = {
                          "volume_fast_days": 5, "volume_slow_days": 20, "volume_dry_ratio": 0.9,
                          "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 5, "valid_days": 3,
                          "min_score": 0},
-            "pullback": {"enabled": True, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
+            # pullback: off since v0.2.5 (default@3)
+            "pullback": {"enabled": False, "trend_fast_ma": 50, "trend_slow_ma": 200, "trend_slope_days": 10,
                          "ema_length": 20, "touch_band_pct": 1.0, "max_close_below_ema_pct": 1.5,
                          "rsi_length": 14, "rsi_min": 35, "rsi_max": 58,
                          "trigger_buffer_pct": 0.2, "invalidation_lookback_days": 3,
@@ -421,6 +424,9 @@ _SETUP_DOCS = {
 for _s, _rows in _SETUP_DOCS.items():
     _pre = "scanner.setups.%s." % _s
     DEFAULT_CONFIG_DOCS[_pre + "enabled"] = _doc("%s setup on (true) or off (false)" % _s, type="bool")
+    if _s == "pullback":
+        DEFAULT_CONFIG_DOCS[_pre + "enabled"]["note"] = ("Off by default since v0.2.5: lost money in 5-year "
+                                                         "backtests (\u22120.21R over 46 trades). You can switch it on.")
     for _r in _rows:
         _k, _desc, _mn, _mx, _u = _r[:5]
         _t = _r[5] if len(_r) > 5 else ("int" if _u == "days" else "number")
@@ -2802,3 +2808,328 @@ def die(msg, code=1):
 
 DISCLAIMER = ("Not financial advice. Not a fatwa. Software that reads public data and does "
               "arithmetic; check everything with your broker and your scholar.")
+
+
+# --- v0.2.5: pullback off by default (default@3), with a one-time notice for existing folders ------------------
+
+PULLBACK_NOTE = ("Off by default since v0.2.5: lost money in 5-year backtests (\u22120.21R over 46 trades). "
+                 "You can switch it on.")
+PULLBACK_BANNER = ("Pullback is now off by default (see CHANGELOG v0.2.5). Turn it on in Settings if you want it.")
+PULLBACK_NOTICE = "pullback_off_v025"
+NOTICES_FILE = "notices.json"
+SETUPS_V2_ENABLED = {"breakout": True, "pullback": True, "oversold": True, "squeeze": True, "trend": True}
+CONFIG_BACKUP_DIR = "config_backups"
+
+
+def setups_follow_old_default(raw):
+    """True when the user's own config.json leaves the setups exactly as the default@2 defaults had them: each
+    setup's `enabled` either not set or set to its old default (all on). Any other choice (a setup switched
+    off, or a value that is not true) means the user customised the setups -> False."""
+    setups = ((raw or {}).get("scanner") or {}).get("setups") or {}
+    if not isinstance(setups, dict):
+        return False
+    for name, rec in setups.items():
+        if isinstance(rec, dict) and "enabled" in rec and rec["enabled"] is not SETUPS_V2_ENABLED.get(name, True):
+            return False
+    return True
+
+
+def _earlier_lists(today):
+    d = path("daily")
+    if not os.path.isdir(d):
+        return []
+    return [f for f in os.listdir(d) if re.match(r"^\d{4}-\d{2}-\d{2}\.json$", f) and f[:10] < today]
+
+
+def backup_config_file():
+    """A timestamped copy of trader/config.json in trader/config_backups/ (the dashboard's naming) -> its path."""
+    src = path("config.json")
+    if not os.path.exists(src):
+        return None
+    d = path(CONFIG_BACKUP_DIR)
+    os.makedirs(d, exist_ok=True)
+    stamp = now_ist().strftime("%Y%m%d-%H%M%S")
+    dst, k = os.path.join(d, "config-%s.json" % stamp), 1
+    while os.path.exists(dst):
+        dst, k = os.path.join(d, "config-%s-%d.json" % (stamp, k)), k + 1
+    with open(src, "rb") as f, open(dst, "wb") as g:
+        g.write(f.read())
+    return dst
+
+
+def pullback_migration(write=True):
+    """v0.2.5, once per trader folder (recorded in trader/notices.json): -> (banner or None, record).
+
+    A folder used before (an earlier daily list exists) whose config.json leaves the setups as the old default
+    gets the banner once: on the next daily list that is written (pullback_banner_shown marks it). If that
+    config.json switched pullback on explicitly (the old default value), the key is removed so it follows the new
+    default (config.json backed up first). A config with customised setups is left alone, with no banner. A new
+    folder: nothing to say. Run it before loading the config."""
+    notices = read_json(NOTICES_FILE, {}) or {}
+    if not isinstance(notices, dict):
+        return None, None
+    if notices.get(PULLBACK_NOTICE):
+        rec = notices[PULLBACK_NOTICE]
+        return (PULLBACK_BANNER if rec.get("banner") and not rec.get("shown") else None), rec
+    today = today_ist().isoformat()
+    try:
+        raw = read_json("config.json", None)
+    except (OSError, ValueError):
+        return None, None                                # an unreadable config: try again next time
+    rec = {"date": today, "migrated": False, "banner": False, "backup": None, "shown": None}
+    if not _earlier_lists(today):
+        rec["result"] = "new folder: nothing to change"
+    elif raw is not None and not setups_follow_old_default(raw):
+        rec["result"] = "your own setups: left alone"
+    else:
+        rec.update(banner=True, result="follows the new default (pullback off)")
+        pb = (((raw or {}).get("scanner") or {}).get("setups") or {}).get("pullback")
+        if isinstance(pb, dict) and pb.get("enabled") is True:
+            if write:
+                rec["backup"] = backup_config_file()
+                del pb["enabled"]
+                if not pb:
+                    del raw["scanner"]["setups"]["pullback"]
+                write_json("config.json", raw)
+            rec["migrated"] = True
+    if write:
+        notices[PULLBACK_NOTICE] = rec
+        write_json(NOTICES_FILE, notices)
+    return (PULLBACK_BANNER if rec["banner"] else None), rec
+
+
+def pullback_banner_shown(date):
+    """The daily list with the pullback banner was written: never show it again."""
+    notices = read_json(NOTICES_FILE, {}) or {}
+    rec = notices.get(PULLBACK_NOTICE) if isinstance(notices, dict) else None
+    if rec and rec.get("banner") and not rec.get("shown"):
+        rec["shown"] = date
+        write_json(NOTICES_FILE, notices)
+
+
+# --- v0.2.5: imported holdings (not trades) -------------------------------------------------------------------
+
+HOLDING = "holding"
+IMPORTED_AT_BUY = "unknown (imported)"
+HELD_TITLE_UNKNOWN_BUY = "Not compliant now (status at purchase unknown)"
+HELD_WORDING_UNKNOWN_BUY = ("This stock does not pass the screen now; its status when you bought it is not known. "
+                            "Many Shariah boards advise selling it at the earliest reasonable opportunity and "
+                            "purifying any gain while it did not pass. The timing is your decision; ask your scholar "
+                            "if unsure. Not a fatwa.")
+
+
+def is_holding(p):
+    """A position imported from a broker holdings export (kind "holding"), not a trade from the journal."""
+    return (p or {}).get("kind") == HOLDING
+
+
+def trade_positions(positions):
+    """The journal's trades only: holdings never count in sizing, the risk check, stop/target alerts or any
+    trade statistic."""
+    return [p for p in positions or [] if not is_holding(p)]
+
+
+def buy_status_known(at_buy):
+    """The halal status at purchase is known (recorded when you placed it) and was compliant."""
+    a = at_buy or {}
+    return a.get("status") == "compliant" and not a.get("backfilled") and not a.get("imported")
+
+
+def held_title(level, at_buy):
+    """C1 (v0.2.5): "No longer compliant" only when the status at purchase was known and compliant."""
+    if level == "BLOCK" and not buy_status_known(at_buy):
+        return HELD_TITLE_UNKNOWN_BUY
+    return HELD_TITLES.get(level)
+
+
+def held_wording(at_buy):
+    return HELD_WORDING if buy_status_known(at_buy) else HELD_WORDING_UNKNOWN_BUY
+
+
+XLSX_MAX_BYTES = 50 * 1024 * 1024
+
+
+def _xlsx_col(ref):
+    letters = re.match(r"^([A-Z]+)", ref or "")
+    if not letters:
+        return None
+    n = 0
+    for ch in letters.group(1):
+        n = n * 26 + ord(ch) - 64
+    return n - 1
+
+
+def read_xlsx_rows(fn):
+    """The first sheet of an .xlsx file as a list of rows (lists of strings), standard library only
+    (zipfile + xml). Shared strings, inline strings, numbers and booleans; formulas give their cached value."""
+    import zipfile
+    with zipfile.ZipFile(fn) as z:
+        names = {i.filename: i for i in z.infolist()}
+        if sum(i.file_size for i in names.values()) > XLSX_MAX_BYTES:
+            raise ValueError("the file unpacks to more than 50 MB: not a holdings export")
+
+        def xml(n):
+            return ET.fromstring(z.read(n))
+
+        def ns(root):
+            return root.tag[1:].split("}")[0] if root.tag.startswith("{") else ""
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            root = xml("xl/sharedStrings.xml")
+            m = "{%s}" % ns(root)
+            for si in root.findall(m + "si"):
+                shared.append("".join(t.text or "" for t in si.iter(m + "t")))
+        wb = xml("xl/workbook.xml")
+        m = "{%s}" % ns(wb)
+        sheets = wb.find(m + "sheets")
+        if sheets is None or not len(sheets):
+            raise ValueError("the workbook has no sheet")
+        first = sheets[0]
+        rid = next((v for k, v in first.attrib.items() if k.endswith("}id")), None)
+        target = None
+        if rid and "xl/_rels/workbook.xml.rels" in names:
+            for r in xml("xl/_rels/workbook.xml.rels"):
+                if r.get("Id") == rid:
+                    t = r.get("Target") or ""
+                    target = t.lstrip("/") if t.startswith("/") else "xl/" + t
+        if target not in names:
+            target = "xl/worksheets/sheet1.xml"
+        if target not in names:
+            raise ValueError("the first sheet could not be found in the workbook")
+        ws = xml(target)
+        m = "{%s}" % ns(ws)
+        rows = []
+        for row in ws.iter(m + "row"):
+            cells, k = {}, 0
+            for c in row.findall(m + "c"):
+                idx = _xlsx_col(c.get("r"))
+                k = idx if idx is not None else k
+                t, v = c.get("t"), c.find(m + "v")
+                if t == "s":
+                    val = shared[int(v.text)] if v is not None and v.text else ""
+                elif t == "inlineStr":
+                    val = "".join(x.text or "" for x in c.iter(m + "t"))
+                elif t == "b":
+                    val = "TRUE" if v is not None and v.text == "1" else "FALSE"
+                else:
+                    val = v.text if v is not None and v.text is not None else ""
+                cells[k] = val
+                k += 1
+            rows.append([cells.get(i, "") for i in range(max(cells) + 1)] if cells else [])
+        return rows
+
+
+def read_csv_rows(fn):
+    """A CSV file as rows of strings (UTF-8 with or without a BOM, else Windows-1252; comma, semicolon or tab)."""
+    with open(fn, "rb") as f:
+        raw = f.read()
+    for enc in ("utf-8-sig", "cp1252"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    sample = text[:4096]
+    delim = max((",", ";", "\t"), key=lambda d: sample.count(d))
+    return [list(r) for r in csv.reader(io.StringIO(text), delimiter=delim)]
+
+
+def read_table(fn):
+    """A holdings export (.csv or .xlsx) -> rows of strings."""
+    ext = os.path.splitext(fn)[1].lower()
+    if ext == ".xlsx":
+        return read_xlsx_rows(fn)
+    if ext == ".csv":
+        return read_csv_rows(fn)
+    raise ValueError("only .csv and .xlsx files can be imported (got %s)" % (ext or "no extension"))
+
+
+def _hnorm(s):
+    return re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+
+
+# Header names (normalised: lower case, punctuation as spaces), in the order they are preferred.
+HOLDING_COLUMNS = {
+    "symbol": ("symbol", "trading symbol", "tradingsymbol", "instrument", "nse symbol", "stock symbol", "scrip symbol"),
+    "isin": ("isin", "isin code", "isin no"),
+    "name": ("stock name", "company name", "security name", "scrip name", "name", "company"),
+    "qty": ("quantity", "qty", "total quantity", "net quantity", "quantity held", "holding quantity",
+            "quantity available"),
+    "avg": ("average price", "avg price", "avg cost", "average cost", "average buy price", "avg buy price",
+            "average cost price", "buy average", "avg buy cost"),
+    "exchange": ("exchange",),
+}
+# Zerodha Console: "Quantity Available" excludes pledged shares, which are still yours: they are added.
+QTY_EXTRA = ("quantity pledged margin", "quantity pledged loan")
+
+
+def find_holding_columns(rows, scan=40):
+    """The header row of a holdings export -> (row index, {field: column}, headers), or (None, {}, headers seen).
+    Needs a quantity column and a symbol / instrument / trading symbol or ISIN column; never guesses."""
+    seen = []
+    for i, row in enumerate(rows[:scan]):
+        heads = [_hnorm(x) for x in row]
+        if any(heads):
+            seen.append([str(x).strip() for x in row if str(x).strip()])
+        cols = {}
+        for field, names in HOLDING_COLUMNS.items():
+            for n in names:
+                if n in heads:
+                    cols[field] = heads.index(n)
+                    break
+        if "qty" in cols and ("symbol" in cols or "isin" in cols):
+            cols["qty_extra"] = [heads.index(n) for n in QTY_EXTRA if n in heads]
+            return i, cols, [str(x).strip() for x in row]
+    return None, {}, seen
+
+
+def detect_broker(headers):
+    h = {_hnorm(x) for x in headers}
+    if "quantity available" in h or ("instrument" in h and "avg cost" in h):
+        return "zerodha"
+    if "stock name" in h and ("average buy price" in h or "isin" in h):
+        return "groww"
+    return None
+
+
+def parse_number(s):
+    """'1,234.50', '₹ 1,234.5', '1234' -> float; '' / '-' / text -> None (never 0)."""
+    t = re.sub(r"[,\s\u20b9]|Rs\.?", "", str(s or ""))
+    if t in ("", "-", "--"):
+        return None
+    try:
+        v = float(t)
+    except ValueError:
+        return None
+    return v if math.isfinite(v) else None
+
+
+ISIN_RE = re.compile(r"^IN[A-Z0-9]{9}[0-9]$")
+
+
+def holding_rows(rows, cols, start):
+    """The data rows under the header -> [{line, symbol, isin, name, qty, avg_price, exchange, problem}]."""
+    out = []
+    get = lambda r, k: (str(r[cols[k]]).strip() if k in cols and cols[k] < len(r) else "")
+    for k, r in enumerate(rows[start + 1:], start + 2):
+        if not any(str(x).strip() for x in r):
+            continue
+        sym, isin, name = get(r, "symbol"), get(r, "isin").upper(), get(r, "name")
+        if not sym and not isin:
+            continue
+        if _hnorm(sym or name) in ("total", "grand total", "net total"):
+            continue
+        q = parse_number(get(r, "qty"))
+        extra = [parse_number(r[c]) for c in cols.get("qty_extra") or [] if c < len(r)]
+        problem = None
+        if q is None:
+            problem = "quantity %r is not a number" % get(r, "qty")
+        else:
+            q += sum(x for x in extra if x)
+            if q != int(q) or q < 0:
+                problem = "quantity %s is not a whole number of shares" % q
+        out.append({"line": k, "symbol": sym, "isin": isin, "name": name,
+                    "qty": int(q) if q is not None and not problem else None,
+                    "avg_price": parse_number(get(r, "avg")), "exchange": get(r, "exchange").upper(),
+                    "problem": problem})
+    return out

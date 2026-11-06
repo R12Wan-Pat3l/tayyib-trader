@@ -1,13 +1,19 @@
 # User guide (no coding needed)
 
-This guide takes you from nothing to your first daily halal list, then shows the routine. It uses
-**Claude Code** on Windows. Mac and Linux are the same, with `python3` in place of `py`.
+This guide takes you from nothing to your first daily halal list, then shows the routine. There are two
+equal ways to use it on Windows: with **Claude Code** (you ask in plain words), or **without Claude Code**
+(double-click `start.bat` and use the dashboard). Mac and Linux are the same, with `python3` in place of `py`.
 
 Nothing in this tool can place an order. You always place it yourself, after you decide.
 
 ---
 
 ## Part 1: One-time setup (about 20 minutes)
+
+Choose one way: **Option A, with Claude Code** (steps 1 to 6 below) or **Option B, without Claude Code**
+(further down). You can switch later: both use the same data folder.
+
+### Option A: with Claude Code
 
 ### 1. Install Python
 1. Go to https://www.python.org/downloads/ and download Python 3 (any 3.8 or newer).
@@ -50,6 +56,31 @@ The important settings:
 ### 6. Build your halal list (first time only)
 Ask: **"Build my halal stock list"**. It checks about 500 companies and takes about 5 minutes.
 After this, the daily list refreshes it automatically every 30 days.
+
+### Option B: Start without Claude Code
+1. Install Python as in step 1 above (tick **"Add Python to PATH"**).
+2. Download the tool to `C:\tayyib-trader` (see below), then **double-click `start.bat`** there.
+3. The **Welcome** screen asks for your capital, broker and risk per trade.
+4. Every trading day after 3:30 PM, press **Run today's list**, then place any order yourself in Kite or Groww.
+
+You don't need Claude Code open to use the dashboard. In the folder where you cloned or unzipped
+tayyib-trader, **double-click `start.bat`**. It:
+- finds Python (`py`); if it can't, it says how to install it;
+- uses your data folder `%USERPROFILE%\tayyib-live\trader` (or the one in `TAYYIB_DIR`, if you set one), and
+  creates it the first time;
+- opens the dashboard in your browser. Keep the black window open while you use it; close it to stop.
+
+The very first time (no `config.json` yet) the dashboard opens a **Welcome** screen: your capital, your
+broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you want, your email address.
+It saves them the same safe way as the Settings tab. There is no password field on purpose (see below).
+**Not now** closes it; it comes back next time until you save.
+
+Get a fixed copy of the tool first (the plugin's own folder can move when it updates). In Command Prompt:
+```
+git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader
+```
+(No git? On the GitHub page click **Code, Download ZIP** and unzip it to `C:\tayyib-trader`.) Once a month
+run `git -C C:\tayyib-trader pull` to get updates.
 
 ---
 
@@ -158,6 +189,42 @@ Both are greyed in Results and the Excel file, kept for the record, and not coun
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.
 - **"Show my positions"**: your open and closed trades and how you're doing.
 
+Since v0.2.5 the **pullback** setup is off by default (it lost money in the 5-year backtest). Settings,
+Selection, "Setup: pullback (swing)" switches it back on:
+
+![Settings: the pullback setup, off by default](img/settings-pullback-off.png)
+
+### Import your holdings (Zerodha / Groww)
+The halal re-check works on the stocks you hold. Trades you record with "I bought X at ..." are already there;
+shares you bought before (or outside the tool) can be imported from your broker's holdings file. It only
+reads the file: nothing connects to your broker, and nothing is sold or bought.
+
+1. **Download your holdings** (menu names may change; look for Download or Export on your holdings page):
+   - Zerodha: Console (console.zerodha.com) -> Portfolio -> Holdings -> Download (XLSX or CSV), or Kite ->
+     Holdings -> Download (CSV).
+   - Groww: Stocks -> Holdings -> export / download (XLSX or CSV).
+2. **Save the file** into `%USERPROFILE%\tayyib-live\trader\import\` (make the folder if it isn't there).
+3. **Preview**: on the dashboard's Tickets tab, section **Import holdings**, press **Preview** next to the file
+   (or `py tayyib-broker/ticket.py import trader\import\FILE`). You see each holding: quantity, average price,
+   the NSE symbol it matched (by ISIN when the file has one), its halal status now and the alert it would get,
+   and whether it will be added, updated or left. Rows it cannot match (not on NSE, an SME stock, an ISIN outside
+   your halal list) are listed as **could not match**: never dropped, never shown as compliant. For an ISIN you
+   know, add `--map ISIN=SYMBOL`.
+4. **Import**: press **Import** (only after a Preview of the same file), or add `--yes`. `positions.json` is
+   backed up first (`positions.backup-<date-time>.json`).
+
+![The Tickets tab: Import holdings (example data)](img/tickets-import-holdings.png)
+*Example data: a made-up export file. The Import holdings section on the Tickets tab.*
+
+Holdings are **not trades**: no stop, no target, no tracker row, and they are left out of every result and
+backtest. They count for the halal re-check, for "skip stocks I already hold" in the daily list and for
+purification. Importing again updates quantities (no duplicates); a holding missing from a newer file is
+marked "not in latest import", not deleted; trades from your journal are never changed. If you also recorded a
+trade for the same stock, only the extra shares are imported.
+
+Their status when you bought them is not known, so a holding that does not pass now is shown as **"Not
+compliant now (status at purchase unknown)"**, not "No longer compliant".
+
 ### When a stock you hold stops being halal
 Every daily run re-checks the stocks you hold (your open positions) with the same halal screen. A held
 stock is screened again when its screen is more than a week old (`halal.held_recheck_days`, 7); the rest
@@ -185,6 +252,19 @@ You get **one alert per change** (not a repeat every day; it stays listed as *op
 The alert is at the top of the daily list, the email and the dashboard (a red banner on Today, a section on
 Tickets). When you record the sale ("I sold SYMBOL at 1064", `ticket.py close ... --reason halal`) it is
 resolved. To run the check by itself: `py tayyib-halal/halal.py held` (add `--write` to save it).
+
+"No longer compliant" is used only when the stock's status when you bought it is known and was compliant. For
+an imported holding, or a trade recorded before v0.2.4 (its status was filled in later from the list), it says
+**"Not compliant now (status at purchase unknown)"**.
+
+![The dashboard Today tab with held-stock alerts (example data)](img/today-regime-held.png)
+*Example data: made-up holdings, to show the alerts. The Today banner.*
+
+![The Tickets tab: the SELL steps and the purification estimate (example data)](img/tickets-held.png)
+*Example data: made-up holdings. The Tickets section with the SELL steps and the purification estimate.*
+
+![The email with a held-stock alert at the top (example data)](img/email-held-example.png)
+*Example data: made-up holdings. The top of the email.*
 
 ### How would this strategy have done? (the backtest)
 Ask **"backtest my strategy"** (or run `py tayyib-backtest\backtest.py run --write` from your
@@ -280,31 +360,7 @@ year, swing and pullback expectancy). Switch it on only if a variant helps on mo
 
 ---
 
-## Part 3 (optional): Start without Claude Code
-
-### Start without Claude Code
-You don't need Claude Code open to use the dashboard. In the folder where you cloned or unzipped
-tayyib-trader, **double-click `start.bat`**. It:
-- finds Python (`py`); if it can't, it says how to install it;
-- uses your data folder `%USERPROFILE%\tayyib-live\trader` (or the one in `TAYYIB_DIR`, if you set one), and
-  creates it the first time;
-- opens the dashboard in your browser. Keep the black window open while you use it; close it to stop.
-
-The very first time (no `config.json` yet) the dashboard opens a **Welcome** screen: your capital, your
-broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you want, your email address.
-It saves them the same safe way as the Settings tab. There is no password field on purpose (see below).
-**Not now** closes it; it comes back next time until you save.
-
-Get a fixed copy of the tool first (the plugin's own folder can move when it updates). In Command Prompt:
-```
-git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader
-```
-(No git? On the GitHub page click **Code, Download ZIP** and unzip it to `C:\tayyib-trader`.) Once a month
-run `git -C C:\tayyib-trader pull` to get updates.
-
----
-
-## Part 4 (optional): Get the list by email every day
+## Part 3 (optional): Get the list by email every day
 
 ### Get the list by email every day
 Your computer can make today's list after the close and email it to **your own inbox**, every trading day,

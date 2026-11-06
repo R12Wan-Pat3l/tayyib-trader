@@ -44,7 +44,8 @@ def main(argv=None):
     cfg = tc.load_config()
     tc.report_config(cfg)
     store = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
-    positions = (tc.read_json("positions.json", {}) or {}).get("positions", [])
+    # v0.2.5: imported holdings have no stop: they count in no trade limit (the daily list skips stocks you hold)
+    positions = tc.trade_positions((tc.read_json("positions.json", {}) or {}).get("positions", []))
     uni = tc.load_universe()
     news = tc.read_json("news.json", {}) or {}
     sim = tc.read_json("sim.json", {}) or {}

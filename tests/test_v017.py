@@ -45,7 +45,7 @@ class ListUrlRemoved(unittest.TestCase):
         cfg, notes = tc.validate_config({"halal": {"list_url": "https://example.org/shariah.csv"}})
         self.assertEqual(notes, ["CONFIG: halal.list_url removed: it was never used"])
         self.assertNotIn("list_url", cfg["halal"])
-        self.assertEqual(tc.settings_snapshot(cfg)["label"], "default@2")      # changes nothing
+        self.assertEqual(tc.settings_snapshot(cfg)["label"], ("default@%d" % tc.DEFAULTS_VERSION))      # changes nothing
 
 
 # --- A1: ranking ------------------------------------------------------------------------------------
@@ -121,14 +121,14 @@ class Ranking(OfflineCase):
 
     def test_defaults_version_bump_enforced(self):
         hist = baseline.load_defaults()
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 2)   # pinned exactly by the newest test file (v0.2.5: 3)
         self.assertNotIn("daily.min_past_trades_for_rank", hist["1"])
         self.assertEqual(hist["2"]["daily.min_past_trades_for_rank"], 8)
         # v2 = v1 + the new key, nothing else changed in value
         changed = sorted(k for k in hist["1"] if hist["2"].get(k) != hist["1"][k])
         self.assertEqual(changed, [])
         self.assertEqual(sorted(set(hist["2"]) - set(hist["1"])), ["daily.min_past_trades_for_rank"])
-        self.assertEqual(tc.settings_snapshot(tc.validate_config({})[0])["label"], "default@2")
+        self.assertEqual(tc.settings_snapshot(tc.validate_config({})[0])["label"], ("default@%d" % tc.DEFAULTS_VERSION))
         # recording a changed default under the same version is refused
         saved = tc.DEFAULT_CONFIG["daily"]["min_past_trades_for_rank"]
         tc.DEFAULT_CONFIG["daily"]["min_past_trades_for_rank"] = 5
@@ -340,7 +340,7 @@ class Server(OfflineCase):
         self.assertIn("text/html", r.getheader("Content-Type"))
         meta = self.get("/api/meta")
         self.assertEqual(meta["version"], tc.VERSION)
-        self.assertEqual(meta["settings_header"], "Current settings: default@2")
+        self.assertEqual(meta["settings_header"], "Current settings: " + ("default@%d" % tc.DEFAULTS_VERSION))
         self.assertEqual(meta["data_dir"], os.path.abspath(self.dir))
         for k in ("banners", "halal_banner", "settings_label", "disclaimer"):
             self.assertIn(k, meta)

@@ -339,7 +339,7 @@ class NiftyListFallbacks(OfflineCase):
 
 class NoDecisionChange(unittest.TestCase):
     def test_defaults_version_unchanged(self):
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 2)   # pinned exactly by the newest test file (v0.2.5: 3)
 
 
 if __name__ == "__main__":

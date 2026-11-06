@@ -60,8 +60,8 @@ def main(argv=None):
             for s, pl in ((tc.read_json("plan.json", {}) or {}).get("plans", {})).items():
                 added.append(add(store, s, "above", pl["entry"], "entry trigger (%s)" % pl["setup"]))
         if a.from_positions:
-            for x in (tc.read_json("positions.json", {}) or {}).get("positions", []):
-                if x["status"] != "open":
+            for x in tc.trade_positions((tc.read_json("positions.json", {}) or {}).get("positions", [])):
+                if x["status"] != "open":                   # imported holdings have no stop or target
                     continue
                 added.append(add(store, x["symbol"], "below", x["stop"], "STOP: sell %d" % x["qty"]))
                 added.append(add(store, x["symbol"], "above", x["target"], "TARGET: sell %d" % x["qty"]))

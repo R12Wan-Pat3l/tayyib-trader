@@ -318,6 +318,20 @@ touched on one day, charges included). The Summary sheet gives the win rate and 
 PASS / WARN / BLOCK, so you can also see whether the risk check helped. It is a paper record: nothing
 is bought. A few weeks are noise, so judge it after 30 or more closed trades.
 
+### Why is pullback off?
+Since v0.2.5 the "pullback to the 20-day average" setup is off by default: in the 5-year backtest its own trades
+lost money (46 trades, -0.21R each on average, after charges; 13 trades, +0.08R over 3 years). It is not removed:
+Settings, Setups, Pullback switches it back on, and with it on every decision is exactly what v0.2.4 made.
+
+To be fair, the whole strategy did **not** do better without it in the same backtests: other trades took the
+freed slots, and over 5 years the CAGR fell from 8.0% to 4.1% (3 years: 7.9% to 7.0%), with a smaller worst
+drawdown over 5 years (-18.0% against -21.1%). See the CHANGELOG for v0.2.5. Run your own backtest with
+pullback on and off before you decide.
+
+### Can I import the shares I already hold?
+Yes: download the holdings file from Zerodha Console / Kite or Groww, save it in `trader\import\`, then
+Preview and Import on the Tickets tab. It only reads the file. See the [User guide](USER_GUIDE.md#import-your-holdings-zerodha--groww).
+
 ### Why is the regime filter off by default?
 Because it has to earn its place. A "don't trade when the market is falling" rule sounds sensible, but it
 also skips the trades that start right at the bottom. We switch it on only if the backtest shows it helps,

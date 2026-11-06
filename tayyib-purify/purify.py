@@ -112,7 +112,7 @@ def estimate(a, store):
     if not held:
         tc.die("%s is not an open position in positions.json" % sym)
     qty = sum(int(x["qty"]) for x in held)
-    opened = min(x.get("opened") or "" for x in held)
+    opened = min(x.get("opened") or x.get("imported") or "" for x in held)   # a holding: held since its import
     r, src = ratio_for(sym, a.ratio)
     try:
         bars, _ = tc.get_daily_bars(sym)

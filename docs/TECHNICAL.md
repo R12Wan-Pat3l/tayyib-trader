@@ -82,7 +82,7 @@ All state lives in `./trader/` (override with `TAYYIB_DIR`):
 | time machine | `tayyib-timemachine/timemachine.py run [SYMS] --write` | plans, bars | `sim.json` |
 | size | `tayyib-budget/size.py [SYMS] --write` | plans, positions | `orders.json` |
 | risk | `tayyib-risk/check.py [SYMS]` | orders, positions, universe, news, sim | statuses in `orders.json`, `risk.json` |
-| ticket / journal | `tayyib-broker/ticket.py show \| placed \| stop \| close \| positions` | orders | `positions.json` |
+| ticket / journal | `tayyib-broker/ticket.py show \| placed \| stop \| close \| positions \| import` | orders; a holdings export in `trader/import/` | `positions.json` (+ `positions.backup-*.json` on import) |
 | alerts | `tayyib-alerts/alerts.py add \| check \| list` | plans, positions | `alerts.json` |
 | results | `tayyib-results/results.py SYM` | Yahoo quarterly + annual | `results/SYM.json` |
 | insider | `tayyib-insider/insider.py SYM` | NSE PIT, bulk/block deals | `insider.json` |
@@ -217,6 +217,59 @@ its CAGR is higher (reference only, not a halal option).
 
 MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
 
+## Pullback off by default (v0.2.5, default@3)
+
+`scanner.setups.pullback.enabled` is False; `DEFAULTS_VERSION` 3 (`tests/fixtures/defaults_versions.json`
+records version 3: only that key changed in value). The doc entry carries a `note` the Settings page shows
+under the switch (`setting_field` -> `note`). Proof: `tests/baseline.py --write-default N` writes the full
+daily pipeline on the TRUE defaults to `tests/fixtures/baseline_default{N}.json.gz` (refused if it exists or N
+is not the code's version); default@2 was written by the v0.2.4 code before any v0.2.5 change. `test_v025`
+checks `pipeline(config=PULLBACK_ON)` == default@2 and `pipeline(config=None)` == default@3. The v0.1.4
+fixture and its tests are unchanged.
+
+`tc.pullback_migration()` (run by `daily.py` before it loads the config, once per folder, recorded in
+`trader/notices.json`): a folder with an earlier daily list whose `config.json` leaves every setup's `enabled`
+unset or at its old default (`setups_follow_old_default`) gets `PULLBACK_BANNER` in the next written list's
+banners (`pullback_banner_shown`). An explicit `pullback.enabled: true` in such a config is removed (backup in
+`config_backups/`, the dashboard's naming). Customised setups: left alone, no banner. New folder: nothing.
+Tracker rows keep the label stored with their hash (`store["settings"][hash]["label"]`), so earlier rows stay
+default@2.
+
+## Holdings import (v0.2.5)
+
+`ticket.py import FILE [--broker zerodha|groww|auto] [--yes] [--map ISIN=SYMBOL]`:
+
+- `tc.read_table`: `.csv` (`read_csv_rows`: UTF-8 / BOM / cp1252; comma, semicolon or tab) or `.xlsx`
+  (`read_xlsx_rows`: zipfile + ElementTree, the first sheet via workbook.xml.rels, shared / inline strings,
+  numbers; refused over 50 MB unpacked).
+- `tc.find_holding_columns`: the first of the first 40 rows with a quantity column and a symbol / instrument /
+  trading symbol or ISIN column (`HOLDING_COLUMNS`, exact normalised header names, in order of preference;
+  `name`, `avg`, `exchange` optional). Zerodha Console's `Quantity Pledged (Margin|Loan)` are added to
+  `Quantity Available` (`QTY_EXTRA`). Not found: refused, with the headers seen. `tc.detect_broker`; a
+  mismatch with `--broker` is refused.
+- `match_row`: `--map` first, then the ISIN against the halal list (`stocks[*].isin`), then the symbol (a
+  `-EQ`/`-BE`/`-BL` suffix dropped; `-SM`/`-ST`/... SME series refused): in the list, or NSE price data found
+  (`get_daily_bars`). A symbol whose ISIN disagrees with the list is refused. Never by company name.
+- `plan_import` (pure): rows of the same symbol merged (weighted average); shares that are an open journal trade
+  are subtracted (`journal_qty`); action add / update / leave; open holdings not in this file -> "mark not in
+  latest import"; `alert_preview` gives the status now (overrides applied) and `tc.held_title` for an imported
+  holding. `apply_import`: backup `positions.backup-YYYYmmdd-HHMMSS.json`, then holdings `{id: "HOLD-SYM",
+  kind: "holding", symbol, qty, avg_price, isin, name, status: open | not_in_latest_import, source:
+  "import:<broker>:<date>", imported, last_import, matched_by, journal_qty, product: CNC, halal_at_buy: {status:
+  "unknown (imported)", imported: true}}`; `positions.json["unmatched_holdings"]` = the latest file's unmatched
+  rows. Kind "holding" entries are the only ones it touches.
+- `tc.is_holding` / `tc.trade_positions`: holdings are left out of `size.py` (cash), `check.py` (every limit),
+  `alerts.py add --from-positions`, `ticket.py stop` and the `positions` totals, and the dashboard's trade
+  tables / totals (`api_tickets` returns them as `holdings`). The tracker and the backtest never read
+  positions.json. Held-stock re-check, the daily "already held" skip, news, purify (`estimate`: held since
+  `imported`) and the email read every open position, holdings included. `ticket.py close HOLD-SYM` sells a
+  holding: P&L against the average price, no R.
+- Dashboard: `GET /api/import` (the steps, `trader/import/`, its .csv / .xlsx files, `previewed`).
+  `POST /api/run` with `{"import": {"file": NAME, "apply": bool}}` (`actions.import_file`: a plain name matching
+  `IMPORT_NAME_RE`, no "..", not a link, realpath inside `trader/import/`); runs `ticket.py import PATH --json
+  [--yes]`. `Runner.previewed[name]` = sha1 of the file after a successful Preview; Import is refused (409)
+  unless the sha1 matches now, and clears it. The result (`import_result`) is drawn in the run drawer.
+
 ## Held-stock halal re-check (v0.2.4)
 
 `halal.py held [--write]` (`held_view()`), run by `tayyib-daily` on every list (before planning; a failure is a
@@ -245,6 +298,10 @@ banner, never a stopped list):
   last_checked}, view}; the dashboard reads the view (`held_alerts_now()`), the email the day's `held_alerts[]`
   (or the view when there is no list).
 
+`tc.held_title(level, at_buy)` (v0.2.5): "No longer compliant" only when `tc.buy_status_known` (status
+compliant, not backfilled, not imported); otherwise a BLOCK is "Not compliant now (status at purchase
+unknown)" with `HELD_WORDING_UNKNOWN_BUY`.
+
 ## Market regime (v0.2.4, OFF by default)
 
 `regime` {enabled false, index `^NSEI` | `SHARIABEES.NS`, rule `close_below_200dma` | `sma50_below_sma200`,
@@ -262,7 +319,9 @@ keep default@2.
   On a risk-off day the action filters that day's picks or halves `max_risk_per_trade_pct` for sizing and
   the risk check. Columns (`regime_column`): trades, win rate, expectancy, CAGR, max drawdown, worst calendar
   year (part years marked), swing and pullback trades / expectancy, risk-off days, plans held back. Index
-  UNKNOWN: a banner, every variant behaves like off. `params` gets `regime` keys only when used, so earlier
+  UNKNOWN: a banner, every variant behaves like off. (v0.2.5) `risk_off_ranges()` -> `index.risk_off_ranges`
+  {rule: [{start, end, days}]} (trading days), in the `.md` (`ranges_md`) and the Backtest tab (`bt_ranges`,
+  collapsible), for a single `--regime` run too. `params` gets `regime` keys only when used, so earlier
   ids are unchanged.
 
 ## Why ordering, time-machine label, market closed (v0.2.4)
@@ -548,7 +607,8 @@ issues same-origin GETs to `/api/...`.
 | `/api/today?date=` | that day's list (default the newest): rows with `display` strings, `why_view` (groups with ✓ / ✗ / UNKNOWN), `stop_capped`, `near_limit`, `ranked_by`, `expectancy_use`; top picks; `staleness {stale, reasons[]}` (not today's list, or `asof` before 15:30 IST) |
 | `/api/tracker` | rows with a labelled `verdict` (TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending, BREAKEVEN), `summary` from `tracker.summary()` (the function the Excel Summary sheet uses, so the numbers match), `settings_split`, the equity curve (cumulative R by exit date), and `noise_banner` until 30 closed trades |
 | `/api/halal` | every stock with its current status (overrides applied), ratio bars against the limits in config, reported vs assumed-8% income, `near_limit[]`, override note and date, reasons; counts; the loosened-thresholds banner |
-| `/api/tickets` | unplaced orders with status, expiry and the Kite and Groww steps from `tc.broker_steps` (the text `ticket.py show` prints); open and closed positions with totals |
+| `/api/tickets` | unplaced orders with status, expiry and the Kite and Groww steps from `tc.broker_steps` (the text `ticket.py show` prints); open and closed trades with totals; (v0.2.5) imported `holdings` and `unmatched_holdings` apart |
+| `/api/import` | (v0.2.5) the Import holdings section: steps, `trader/import/`, its files and whether each was previewed |
 | `/api/settings` | every editable key from `DEFAULT_CONFIG_DOCS` grouped as Risk, Plan, Selection, Broker & charges, Halal, Data & calendar: value, default, range, unit, `changed`, the per-key `CONFIG:` errors; `always_on` (the hard rules, not options); the halal loosened banner; the risk preview; `version` (sha1 of config.json) and the backups |
 | `/api/risk-preview?change=` | `tc.risk_preview` for the config with the pending change (`{"set": {key: value}, "reset": [key]}`) applied, plus that change's `diff`, `errors` by key, the new settings label and the loosened banner. Writes nothing |
 | `/api/config/backups`, `/api/config/backup-diff?name=` | the backups (newest first), and what restoring one would change |

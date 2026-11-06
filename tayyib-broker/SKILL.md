@@ -36,6 +36,21 @@ The flow with the user:
 `placed` refuses an order that risk did not pass, and a fill at or under the stop. `close` refuses to
 sell more than is held (that would be a short sale). Closing a whole position cancels its alerts.
 
+## Import the user's holdings (v0.2.5)
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/ticket.py" import trader/import/holdings.xlsx            # preview: writes nothing
+python3 "${CLAUDE_SKILL_DIR}/ticket.py" import trader/import/holdings.xlsx --yes      # only after the user's yes
+```
+
+The Zerodha Console / Kite or Groww holdings file (CSV or XLSX) the user downloaded and saved. Show the preview
+table (symbol, qty, average price, matched NSE symbol, halal now, alert, add / update / leave, and every "could
+not match" row), then ask "Import these holdings?" and run `--yes` only on a yes. It backs up positions.json
+first. If the columns are not found it prints the headers it saw: never guess a column. For an ISIN outside
+the halal list, `--map ISIN=SYMBOL` only with a symbol the user gives. Imported holdings are not trades (no
+stop, target, R or tracker row); `halal.py held --write` then re-checks them. `close HOLD-SYMBOL --price P`
+records a sale of a holding (no R).
+
 ## Rules this skill never bends
 
 - Halal-compliant stocks only (see `tayyib-halal`). Anything else is skipped or blocked.

@@ -1,5 +1,72 @@
 # Changelog
 
+## v0.2.5 (2026-11-06)
+
+The pullback setup is off by default (an owner decision, from the backtests), your real holdings can be imported
+from a Zerodha or Groww file so the halal re-check covers them, and small fixes.
+
+### Changed (a default: default@3)
+
+- **Pullback is off by default.** In the 5-year backtest its own trades lost money: 46 trades, -0.21R each on
+  average after charges (3 years: 13 trades, +0.08R). Breakout, oversold, squeeze and delivery trend are
+  unchanged. It is still there: Settings, Setups, Pullback (a switch, off, with the note "Off by default since
+  v0.2.5: lost money in 5-year backtests (-0.21R over 46 trades). You can switch it on.").
+- This is the only decision change. With pullback switched back on, every decision on the test fixtures is
+  exactly the default@2 one (a new test, against a default@2 snapshot written with the v0.2.4 code); a default@3
+  snapshot was added too. `DEFAULTS_VERSION` is 3 and the settings label is **default@3**. Tracker rows from
+  earlier lists keep their default@2 label.
+- If your `config.json` left the setups as they were (the old default), you follow the new default, with a
+  one-time banner on the next daily list (and so on the dashboard): "Pullback is now off by default (see
+  CHANGELOG v0.2.5). Turn it on in Settings if you want it." If it set pullback on explicitly with every other
+  setup as default, that key is removed (your config is backed up first). Customised setups are left alone.
+- **What the whole strategy did without pullback** (your data, the same windows ending 2026-11-06, all modes):
+
+  | | 3 y default@2 | 3 y default@3 | 5 y default@2 | 5 y default@3 |
+  |---|---|---|---|---|
+  | trades | 66 | 69 | 144 | 115 |
+  | win rate | 48.5% | 43.5% | 41.0% | 33.0% |
+  | expectancy | +0.43R | +0.33R | +0.34R | +0.22R |
+  | CAGR | 7.90% | 6.96% | 8.01% | 4.05% |
+  | max drawdown | -12.41% | -14.80% | -21.11% | -18.02% |
+  | swing: trades / expectancy | 30 / +0.11R | 19 / +0.10R | 90 / -0.03R | 38 / -0.23R |
+
+  Leaving pullback out did not improve the strategy as a whole in these runs: other trades took the slots it
+  freed. The default follows the owner's decision; the numbers are here so you can judge for yourself.
+
+### Added
+
+- **Import your holdings** (`ticket.py import FILE [--broker zerodha|groww|auto] [--yes] [--map ISIN=SYMBOL]`):
+  the Zerodha Console / Kite holdings export and the Groww holdings export, CSV or XLSX (read with the standard
+  library: zipfile + xml, first sheet only). Columns are found by their header names (symbol / instrument /
+  trading symbol / ISIN, quantity / qty, average price / avg cost); if they are not there it refuses and prints
+  the headers it found. Zerodha Console's pledged quantities are added to "Quantity Available".
+- Without `--yes` only a preview: per holding the quantity, average price, the matched NSE symbol (by ISIN when
+  present), halal status now and the alert level, and add / update / leave. With `--yes`: `positions.json` is
+  backed up to `positions.backup-<timestamp>.json`, then holdings are written as kind "holding", source
+  "import:<broker>:<date>", status at purchase "unknown (imported)".
+- **Holdings are not trades**: no stop, target or tracker row; left out of sizing, the risk check, stop / target
+  alerts, `ticket.py positions` totals, the dashboard's trade totals, the tracker and the backtest. They count
+  for the held-stock halal re-check, "skip stocks I already hold", purification (and later zakat). Re-importing
+  updates quantities; a holding missing from a newer file is marked "not in latest import" (kept); journal
+  positions are never changed (shares that are a journal trade are not imported twice). Unmatched rows (not on
+  NSE, an unknown ISIN, SME / BSE-only) are listed as "could not match" and kept in `positions.json`, never
+  dropped silently and never shown as compliant.
+- Dashboard, Tickets: an **Import holdings** section: the steps (menu names may change), the folder
+  `trader/import/` and its files, **Preview** and **Import** through the existing run mechanism and token. Only
+  a plain file name inside `trader/import/` (no folders, no "..", no links), and Import needs a Preview of the
+  same file (same contents). No file upload over HTTP. A Holdings table lists them apart from your trades.
+- Backtest: the **risk-off date ranges** (start, end, trading days) per rule in the JSON, the `.md` and the
+  Backtest tab (collapsible), to check against a chart.
+
+### Fixed
+
+- A held stock whose status at purchase is not known (backfilled, or imported) that does not pass now says
+  **"Not compliant now (status at purchase unknown)"**, not "No longer compliant" (kept only when the status at
+  purchase was recorded and compliant).
+- The example screenshots with made-up holdings carry a visible "EXAMPLE DATA" label, and their captions say so.
+- README: a 6-step "Quick start without Claude Code" next to the Claude Code one; in the User guide "Start
+  without Claude Code" is now an equal option in Part 1.
+
 ## v0.2.4 (2026-11-06)
 
 A warning when a stock you hold stops being halal, an optional market-regime filter (OFF by default, tested in

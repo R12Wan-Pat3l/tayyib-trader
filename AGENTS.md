@@ -39,7 +39,13 @@ analyses, plans and checks. It never places an order.
    say it first, with its ratios and source. Offer the SELL ticket and the purification estimate; never sell,
    never say it must be sold now (the timing is the user's, with their scholar), and never call a "Could not
    verify" stock compliant or non-compliant. The regime filter stays OFF unless the user switches it on;
-   suggest `backtest.py run --regime-compare` first.
+   suggest `backtest.py run --regime-compare` first. (v0.2.5) Say "Not compliant now (status at purchase
+   unknown)" for a backfilled or imported holding, as the tool does.
+12. Holdings import (v0.2.5): `ticket.py import FILE` reads a Zerodha / Groww holdings file the user saved. Run
+   the preview first, show the table, and add `--yes` only after the user says yes to that import. Holdings are
+   not trades: never give them a stop, target or tracker row, never count them in results, and never present a
+   "could not match" row as compliant. Pullback is off by default since v0.2.5 (default@3); switch it on only
+   when the user asks.
 
 ## Today's list in one command
 
@@ -67,11 +73,13 @@ python3 tayyib-broker/ticket.py show                # the ticket the user places
 Dashboard (127.0.0.1 only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
 Everything is GET / HEAD except exactly two write endpoints: `POST /api/config` (saves `trader/config.json`
 through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib-daily`, analysis only, or
-`tayyib-backtest run --years 3|5 --mode M [--compare] --write`, or (v0.2.3) `tayyib-email test`, nothing else).
+`tayyib-backtest run --years 3|5 --mode M [--compare] --write`, or (v0.2.3) `tayyib-email test`, or (v0.2.5)
+`tayyib-broker import trader/import/FILE [--yes]` for a file already in `trader/import/` (Import only after a
+Preview of the same file), nothing else).
 Both need the Host, Origin, per-start token, JSON type and 64 KB checks. Never add another write endpoint,
 and never a button, endpoint or request that places, modifies or cancels an order or talks to a broker.
 
-While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions`,
+While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions|import`,
 `tayyib-halal/halal.py held` (re-check the stocks you hold), `tayyib-purify/purify.py estimate SYMBOL --since D`.
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.
 Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] --write` (writes only `trader/backtest/`),

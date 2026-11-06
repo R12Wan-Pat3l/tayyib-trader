@@ -39,6 +39,7 @@ class HalalUniverse(OfflineCase):
 class Scanner(OfflineCase):
     def test_only_halal_and_liquid(self):
         self.build_universe()
+        self.write("config.json", {"scanner": {"setups": {"pullback": {"enabled": True}}}})   # off by default (v0.2.5)
         out = self.run_script(SC)
         syms = {c["symbol"] for c in out["candidates"]}
         self.assertEqual(syms, {"ALFA", "CHRL"})

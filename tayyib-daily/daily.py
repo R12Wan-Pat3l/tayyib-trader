@@ -93,6 +93,12 @@ def main(argv=None):
         return run_and_email(a, sys.argv[1:] if argv is None else list(argv))
     if a.dir:
         tc.die("--dir is only for --email (otherwise set TAYYIB_DIR)")
+    pullback_note = None
+    if not a.risk_preview:
+        try:                                      # v0.2.5: pullback off by default; once per folder, before the config
+            pullback_note, _ = tc.pullback_migration()
+        except OSError as e:
+            sys.stderr.write("could not record the v0.2.5 settings notice: %s\n" % e)
     cfg = tc.load_config()
     if a.risk_preview:
         rp = tc.risk_preview(cfg, a.stop_pct or (2, 3, 5, 8, 10, 15), a.entry)
@@ -104,7 +110,7 @@ def main(argv=None):
     a.picks = cfg["daily"]["picks"] if a.picks is None else a.picks
     cfg["daily"]["top"], cfg["daily"]["picks"] = a.top, a.picks      # the snapshot records what was used
     notes = tc.config_notes(cfg)
-    banners = []                                  # list-level warnings (a data source failed today)
+    banners = [pullback_note] if pullback_note else []    # list-level warnings (a data source failed today)
     K = cfg["daily"]["min_past_trades_for_rank"]
 
     # 1. halal universe: built on first run, rebuilt automatically once it is a month old
@@ -289,6 +295,8 @@ def main(argv=None):
                                                                        if effect["active"] else None),
                          filtered=sorted(market_off) if picks else [])
     tc.write_json(os.path.join("daily", today + ".json"), out)
+    if pullback_note:
+        tc.pullback_banner_shown(today)
     # Paper tracker: record today's list, follow every earlier one on the latest prices, write Excel.
     out["tracker"] = None
     if not a.no_track and os.path.exists(os.path.join(ROOT, "tayyib-tracker", "tracker.py")):

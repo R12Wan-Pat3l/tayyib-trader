@@ -89,7 +89,8 @@ python3 "${CLAUDE_SKILL_DIR}/halal.py" held --write    # what the daily list run
 
 Each held stock is screened again when its screen is older than `halal.held_recheck_days` (7); overrides win.
 Per stock: the status at buy, now, the ratios then and now, the data date and source, and an alert level:
-**No longer compliant** (excluded or review: say it first; offer the SELL ticket and the purification
+**No longer compliant** (excluded or review, and recorded compliant when bought; for a backfilled
+position or an imported holding: **Not compliant now (status at purchase unknown)**. Say it first; offer the SELL ticket and the purification
 estimate it gives, never sell or say "sell now", the timing is the user's with their scholar), **Near a
 limit**, or **Could not verify** (UNKNOWN: never call it compliant or non-compliant). One alert per status
 change; it is resolved when the sale is recorded with `ticket.py close`.

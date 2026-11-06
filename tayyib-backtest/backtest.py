@@ -350,6 +350,21 @@ def regime_states(index_bars, days, rule, index):
     return out
 
 
+def risk_off_ranges(states):
+    """C3 (v0.2.5): the risk-off stretches of a {date: state} map, in backtest days -> [{start, end, days}]
+    (days = trading days in the window), so they can be checked against a chart of the index."""
+    out, cur = [], None
+    for d in sorted(states):
+        if (states[d] or {}).get("state") == "risk-off":
+            if cur is None:
+                cur = {"start": d, "end": d, "days": 0}
+                out.append(cur)
+            cur["end"], cur["days"] = d, cur["days"] + 1
+        else:
+            cur = None
+    return out
+
+
 def worst_year(curve):
     """The calendar year with the lowest return on the account's equity (a part year is marked partial)."""
     if not curve:
@@ -868,6 +883,7 @@ def load_regime(params, cfg, range_, days, index_fn):
     if bars:
         st = by_rule[sorted(by_rule)[0]]
         info["risk_off_days"] = {rule: sum(1 for x in sts.values() if x["state"] == "risk-off") for rule, sts in by_rule.items()}
+        info["risk_off_ranges"] = {rule: risk_off_ranges(sts) for rule, sts in by_rule.items()}
         info["unknown_days"] = sum(1 for x in st.values() if x["state"] == "UNKNOWN")
     return info, out
 
@@ -1090,7 +1106,20 @@ def regime_md(rc):
          "| | " + " | ".join(c["variant"] for c in cols) + " |", "|---" * (len(cols) + 1) + "|"]
     for name, f in rows:
         L.append("| %s | %s |" % (name, " | ".join(f(c) for c in cols)))
-    return L + [""]
+    return L + [""] + ranges_md(ix)
+
+
+def ranges_md(ix):
+    """The risk-off date ranges per rule (v0.2.5), to check against a chart of the index."""
+    L = []
+    for rule, rs in sorted(((ix or {}).get("risk_off_ranges") or {}).items()):
+        L += ["### Risk-off date ranges: %s (%s)" % (rule, ix.get("name")), "",
+              "%d range%s, %d trading days." % (len(rs), "" if len(rs) == 1 else "s", sum(r["days"] for r in rs)), ""]
+        if rs:
+            L += ["| start | end | days |", "|---|---|---|"] + ["| %s | %s | %d |" % (r["start"], r["end"], r["days"])
+                                                              for r in rs]
+        L.append("")
+    return L
 
 
 def render_md(r):
@@ -1133,6 +1162,8 @@ def render_md(r):
         L += regime_md(r["regime_compare"])
     if (r.get("regime") or {}).get("variant", "off") != "off":
         L += ["Regime filter in this run: %s (index %s)." % (r["regime"]["variant"], (r["regime"].get("index") or {}).get("name")), ""]
+        if not r.get("regime_compare"):
+            L += ranges_md(r["regime"].get("index"))
     if w.get("end_rule"):
         L += ["Window end: %s." % w["end_rule"], ""]
     L += ["## What happened to the plans", ""] + counts_md(r["counts"]) + [""]

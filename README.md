@@ -51,6 +51,19 @@ market closes. You decide, and you place the order yourself.
 
 The first run builds the halal list (about 5 minutes). After that it refreshes itself every month.
 
+## Quick start without Claude Code
+
+1. Install [Python](https://www.python.org/downloads/) (3.8 or newer). On the installer's first screen tick
+   **"Add Python to PATH"**.
+2. On the [GitHub page](https://github.com/R12Wan-Pat3l/tayyib-trader) click **Code, Download ZIP** and unzip it
+   to `C:\tayyib-trader`.
+3. Double-click **`start.bat`** in that folder. Keep the black window open while you use the dashboard.
+4. The **Welcome** screen asks for your capital, broker and risk per trade. Save it.
+5. Every trading day after 3:30 PM, press **Run today's list**.
+6. Pick a stock, open its ticket on the Tickets tab, and **place the order yourself** in Kite or Groww.
+
+The [User guide](docs/USER_GUIDE.md) has both ways step by step.
+
 ## The 18 skills
 
 | skill | in one line |

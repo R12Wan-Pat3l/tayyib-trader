@@ -102,7 +102,7 @@ class States(unittest.TestCase):
         body = src[src.index("def risk_check_order("):]
         self.assertIn('warn.append("HALAL-WATCH news: %s', body)
         self.assertIn('warn.append("results news in the window: gaps are likely', body)
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 2)   # pinned exactly by the newest test file (v0.2.5: 3)
 
 
 class Display(unittest.TestCase):

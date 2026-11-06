@@ -454,9 +454,9 @@ class ResetToDefaults(ServerCase):
         self.assertEqual(tc.read_json(os.path.join(self.dir, "config_backups", out["backup"])), self.MINE)
         cfg = tc.load_config()
         snap = tc.settings_snapshot(cfg)
-        self.assertEqual(snap["label"], "default@2")
+        self.assertEqual(snap["label"], ("default@%d" % tc.DEFAULTS_VERSION))
         self.assertNotEqual(snap["hash"], tc.settings_snapshot(tc.validate_config({})[0])["hash"])  # still recorded
-        self.assertEqual(self.get("/api/meta")["settings_header"], "Current settings: default@2")
+        self.assertEqual(self.get("/api/meta")["settings_header"], "Current settings: " + ("default@%d" % tc.DEFAULTS_VERSION))
         # undo from Backups, through the same save
         r, out = self.save({"restore": out["backup"]})
         self.assertEqual(r.status, 200, out)

@@ -12,7 +12,9 @@ that is not 'compliant'. Two ways to build it:
 
 held (v0.2.4): re-checks the stocks you HOLD (open positions in positions.json) with the same screen when
 their screen is older than halal.held_recheck_days (default 7), and alerts you once per status change:
-"No longer compliant" (now excluded or review), "Near a limit" or "Could not verify" (the screen failed).
+"No longer compliant" (now excluded or review, and compliant when you bought it), "Not compliant now (status
+at purchase unknown)" (v0.2.5: a backfilled position or an imported holding), "Near a limit" or "Could not
+verify" (the screen failed). Imported holdings (ticket.py import, v0.2.5) are re-checked like trades.
 It offers a SELL ticket to place yourself and a purification estimate. It never sells anything.
 --write saves trader/held_halal.json, the alerts in alerts.json and the status at buy time on each position.
 """
@@ -420,7 +422,8 @@ def held_view(cfg, write=False):
     for sym in syms:
         mine = [x for x in open_pos if x["symbol"] == sym]
         qty = sum(int(x["qty"]) for x in mine)
-        first = min(mine, key=lambda x: x.get("opened") or "")
+        first = min(mine, key=lambda x: x.get("opened") or x.get("imported") or "")
+        since_held = first.get("opened") or first.get("imported")     # an imported holding: held since at least then
         at_buy = first.get("halal_at_buy") or {}
         rec = tc.halal_status(sym, uni)                 # the list record, overrides applied
         mem = store["symbols"].get(sym) or {}
@@ -465,7 +468,7 @@ def held_view(cfg, write=False):
                 for z in opened:
                     z.update(status="resolved", resolved=today, resolution="superseded: now %s" % key)
                 z = {"n": n_next, "symbol": sym, "kind": "halal", "level": level, "key": key,
-                     "note": "%s: %s" % (tc.HELD_TITLES[level], sym), "status": "open",
+                     "note": "%s: %s" % (tc.held_title(level, at_buy), sym), "status": "open",
                      "fired": tc.now_ist().isoformat(timespec="minutes"), "created": today, "since": today,
                      "since_price": last, "from_status": last_status or at_buy.get("status"), "to_status": status_now}
                 n_next += 1
@@ -477,8 +480,9 @@ def held_view(cfg, write=False):
         alert = (same or [z for z in opened if z.get("status") == "open"] or [None])[0]
         if level == "UNKNOWN":
             errors.append("%s: %s" % (sym, screen.get("error") or "no data"))
-        item = {"symbol": sym, "name": rec.get("name", ""), "qty": qty, "opened": first.get("opened"),
-                "position_id": first.get("id"), "level": level, "title": tc.HELD_TITLES.get(level),
+        item = {"symbol": sym, "name": rec.get("name", ""), "qty": qty, "opened": since_held,
+                "position_id": first.get("id"), "level": level, "title": tc.held_title(level, at_buy),
+                "holding": any(tc.is_holding(x) for x in mine), "status_at_buy_known": tc.buy_status_known(at_buy),
                 "status_at_buy": at_buy.get("status") or "UNKNOWN", "backfilled": bool(at_buy.get("backfilled")),
                 "last_status": last_status, "status_now": status_now, "rechecked": rechecked,
                 "ratios": tc.ratio_changes(at_buy.get("ratios") or (mem.get("screen") or {}).get("ratios"),
@@ -494,13 +498,13 @@ def held_view(cfg, write=False):
                                                      "open": alert.get("status") == "open"}}
         if level == "BLOCK":
             since = (alert or {}).get("since") or today
-            item["wording"] = tc.HELD_WORDING
+            item["wording"] = tc.held_wording(at_buy)
             item["sell_by"] = tc.grace_text(since, h.get("exit_grace_days") or 0)
             item["sell_ticket"] = tc.sell_ticket(sym, qty, first.get("id"), cfg.get("broker", "zerodha"), last, today,
                                                  cfg.get("exchange", "NSE"))
             ratio = (screen.get("ratios") or {}).get("noncompliant_income_pct")
             divs = (tc.read_json("purification.json", {"dividends": []}) or {}).get("dividends", [])
-            item["purify"] = tc.purify_estimate(sym, qty, first.get("opened"), since, (alert or {}).get("since_price"),
+            item["purify"] = tc.purify_estimate(sym, qty, since_held, since, (alert or {}).get("since_price"),
                                                 last, ratio, divs)
         items.append(item)
         mem = dict(mem, screen=screen if rechecked or ov or not mem.get("screen") else mem.get("screen"),
@@ -516,7 +520,7 @@ def held_view(cfg, write=False):
     alerts.sort(key=lambda x: (order[x["level"]], x["symbol"]))
     out = {"checked": today, "held": items, "alerts": alerts, "errors": errors, "backfilled": backfilled,
            "recheck_days": h["held_recheck_days"], "written": bool(write),
-           "note": None if syms else "no open positions in positions.json: nothing to re-check"}
+           "note": None if syms else "no open positions or imported holdings in positions.json: nothing to re-check"}
     store.update(updated=today, view=out)
     return out, {"positions.json": pos if backfilled else None, "alerts.json": al, HELD_FILE: store}
 

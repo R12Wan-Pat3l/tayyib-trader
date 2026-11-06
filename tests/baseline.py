@@ -153,6 +153,36 @@ def capture():
     return {"sweep": sweep(), "pipeline": pipeline()}
 
 
+# Snapshots of the full daily pipeline on the TRUE defaults (no config.json), one per DEFAULTS_VERSION
+# (v0.2.5). default@2 was written by `py tests/baseline.py --write-default 2` with the v0.2.4 code, before
+# any v0.2.5 change; default@3 by `--write-default 3` after it. v0.2.5's only decision change is pullback
+# off: with PULLBACK_ON the v0.2.5 code must reproduce default@2 exactly. Never rewrite a snapshot to make
+# a failing test pass (the writer refuses an existing file).
+PULLBACK_ON = {"scanner": {"setups": {"pullback": {"enabled": True}}}}
+
+
+def snapshot_path(version):
+    return os.path.join(FIX, "baseline_default%d.json.gz" % int(version))
+
+
+def write_default_snapshot(version):
+    version = int(version)
+    if version != tc.DEFAULTS_VERSION:
+        sys.exit("refused: the code's DEFAULTS_VERSION is %d, not %d" % (tc.DEFAULTS_VERSION, version))
+    path = snapshot_path(version)
+    if os.path.exists(path):
+        sys.exit("refused: %s exists (never rewrite a snapshot)" % path)
+    data = {"defaults_version": version, "written_by": tc.VERSION, "pipeline": pipeline(config=None)}
+    with open(path, "wb") as f:
+        f.write(gzip.compress((canonical(data) + "\n").encode("utf-8"), mtime=0))
+    print("wrote %s (pipeline sha256 %s)" % (path, digest(data["pipeline"])))
+
+
+def load_default_snapshot(version):
+    with open(snapshot_path(version), "rb") as f:
+        return json.loads(gzip.decompress(f.read()).decode("utf-8"))
+
+
 # keys added to v0.1.4 records since (display only); nothing else may appear, and nothing may change or
 # go missing. v0.1.5: why, override. v0.1.7: near_limit, over_limit (halal list: ratios near / over a limit).
 NEW_KEYS = frozenset(("why", "override", "near_limit", "over_limit"))
@@ -222,6 +252,9 @@ def record_defaults():
 if __name__ == "__main__":
     if "--defaults" in sys.argv:
         record_defaults()
+        sys.exit(0)
+    if "--write-default" in sys.argv:
+        write_default_snapshot(sys.argv[sys.argv.index("--write-default") + 1])
         sys.exit(0)
     data = capture()
     n_sig = sum(len(v["signals"]) for v in data["sweep"].values())

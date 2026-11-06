@@ -222,7 +222,7 @@ class Excel(OfflineCase):
 
 class Version(unittest.TestCase):
     def test_version_and_defaults(self):
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 2)   # pinned exactly by the newest test file (v0.2.5: 3)
 
 
 if __name__ == "__main__":

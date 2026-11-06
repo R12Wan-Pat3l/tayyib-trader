@@ -26,7 +26,8 @@ def clean(cfg):
 
 
 class BaselineIdentical(unittest.TestCase):
-    """Default config: the same decisions as v0.1.4, field for field (tests/baseline.py)."""
+    """Default config: the same decisions as v0.1.4, field for field (tests/baseline.py). Since v0.2.5 pullback is
+    off by default, so the comparison switches it on: every other default is still the v0.1.4 one."""
 
     @classmethod
     def setUpClass(cls):
@@ -38,7 +39,8 @@ class BaselineIdentical(unittest.TestCase):
         self.assertEqual(baseline.diff(self.base["sweep"], cur), [])
 
     def test_pipeline_identical(self):
-        self.assertEqual(baseline.diff(self.base["pipeline"], baseline.pipeline()), [])
+        self.assertEqual(baseline.diff(self.base["pipeline"], baseline.pipeline(
+            {"daily": {"min_past_trades_for_rank": 0}, "scanner": {"setups": {"pullback": {"enabled": True}}}})), [])
 
     def test_diff_catches_changes(self):
         b = {"a": [{"x": 1.0, "y": "s"}]}
@@ -91,9 +93,10 @@ class Setups(OfflineCase):
         bars, _ = tc.get_daily_bars("ALFA")
         for setup, i in (("pullback", 200), ("squeeze", 236), ("breakout", 221), ("trend", 251),
                          ("oversold", 287)):
-            on = [s["setup"] for s in tc.detect_all(bars[:i + 1], "all", cfg=V({})[0])]
+            on_all = {"pullback": {"enabled": True}}                     # pullback is off by default (v0.2.5)
+            on = [s["setup"] for s in tc.detect_all(bars[:i + 1], "all", cfg=V({"scanner": {"setups": on_all}})[0])]
             self.assertIn(setup, on)
-            cfg, notes = V({"scanner": {"setups": {setup: {"enabled": False}}}})
+            cfg, notes = V({"scanner": {"setups": dict(on_all, **{setup: {"enabled": False}})}})
             self.assertEqual(notes, [])
             off = [s["setup"] for s in tc.detect_all(bars[:i + 1], "all", cfg=cfg)]
             self.assertNotIn(setup, off, setup)
@@ -102,13 +105,14 @@ class Setups(OfflineCase):
     def test_disabled_setup_in_the_scanner(self):
         self.build_universe()
         self.assertIn("breakout", {c["setup"] for c in self.run_script(SC)["candidates"]})
-        self.write("config.json", {"scanner": {"setups": {"breakout": {"enabled": False}}}})
+        self.write("config.json", {"scanner": {"setups": {"breakout": {"enabled": False},
+                                                          "pullback": {"enabled": True}}}})
         out = self.run_script(SC)
         self.assertNotIn("breakout", {c["setup"] for c in out["candidates"]})
         self.assertEqual(out["setups_disabled"], ["breakout"])
 
     def test_thresholds_change_results_as_expected(self):
-        d = V({})[0]
+        d = V({"scanner": {"setups": {"pullback": {"enabled": True}}}})[0]       # off by default since v0.2.5
         # (setup, a stricter value, a looser value): stricter arms a strict subset, looser a strict superset
         cases = (("breakout", {"max_distance_to_high_pct": 1.0}, {"max_distance_to_high_pct": 6.0}),
                  ("pullback", {"rsi_max": 48}, {"rsi_max": 70}),
@@ -117,8 +121,8 @@ class Setups(OfflineCase):
                  ("trend", {"min_pct_of_high": 95.0}, {"min_return_pct": -20.0}))
         for setup, strict, loose in cases:
             base = self.sigs(d, "ALFA", setup) | self.sigs(d, "CHRL", setup)
-            s_cfg = V({"scanner": {"setups": {setup: strict}}})[0]
-            l_cfg = V({"scanner": {"setups": {setup: loose}}})[0]
+            s_cfg = V({"scanner": {"setups": {setup: dict(strict, enabled=True)}}})[0]
+            l_cfg = V({"scanner": {"setups": {setup: dict(loose, enabled=True)}}})[0]
             st = self.sigs(s_cfg, "ALFA", setup) | self.sigs(s_cfg, "CHRL", setup)
             lo = self.sigs(l_cfg, "ALFA", setup) | self.sigs(l_cfg, "CHRL", setup)
             self.assertTrue(st < base, "%s %s should arm fewer" % (setup, strict))
@@ -534,12 +538,12 @@ class Settings(OfflineCase):
 
     def test_default_label(self):
         d = tc.settings_snapshot(V({})[0])
-        self.assertEqual(tc.DEFAULTS_VERSION, 2)
-        self.assertEqual(d["label"], "default@2")
-        self.assertEqual((d["differs_from_default"], d["defaults_version"]), ([], 2))
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 2)   # pinned exactly by the newest test file (v0.2.5: 3)
+        self.assertEqual(d["label"], ("default@%d" % tc.DEFAULTS_VERSION))
+        self.assertEqual((d["differs_from_default"], d["defaults_version"]), ([], tc.DEFAULTS_VERSION))
         # setting a value to its default is still the defaults
         self.assertEqual(tc.settings_snapshot(V({"max_risk_per_trade_pct": 1.0, "broker": "zerodha"})[0])["label"],
-                         "default@2")
+                         ("default@%d" % tc.DEFAULTS_VERSION))
 
     def test_hash_is_the_differences_and_the_defaults_version(self):
         import hashlib
@@ -548,7 +552,7 @@ class Settings(OfflineCase):
         self.assertNotEqual(c["hash"], d["hash"])
         self.assertEqual(c["label"], c["hash"])
         self.assertEqual(c["differs_from_default"], [{"key": "max_risk_per_trade_pct", "value": 0.5, "default": 1.0}])
-        canon = json.dumps({"defaults_version": 2, "differs": [["max_risk_per_trade_pct", 0.5]]},
+        canon = json.dumps({"defaults_version": tc.DEFAULTS_VERSION, "differs": [["max_risk_per_trade_pct", 0.5]]},
                            sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         self.assertEqual(c["hash"], hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8])
         s = tc.settings_snapshot(V({"scanner": {"setups": {"trend": {"enabled": False}}}})[0])
@@ -584,7 +588,7 @@ class Settings(OfflineCase):
         try:
             after = (tc.settings_snapshot(V({})[0])["hash"], tc.settings_snapshot(V({"max_open_positions": 4})[0])["hash"])
             self.assertEqual(after, before)
-            self.assertEqual(tc.settings_snapshot(V({})[0])["label"], "default@2")
+            self.assertEqual(tc.settings_snapshot(V({})[0])["label"], ("default@%d" % tc.DEFAULTS_VERSION))
         finally:
             tc.DEFAULT_CONFIG.clear()
             tc.DEFAULT_CONFIG.update(saved)
@@ -625,13 +629,13 @@ class Settings(OfflineCase):
             r.setdefault("settings_hash", tracker.PRE)
         summ = tracker.summary(store["rows"], store)
         self.assertEqual(summ["settings: default@1"]["listed"], 2)
-        self.assertEqual(summ["settings: default@2"]["listed"], 1)      # v0.1.7 defaults: a separate group
+        self.assertEqual(summ["settings: " + snap["label"]]["listed"], 1)   # the current defaults: a separate group
         self.assertEqual(summ["settings: pre-0.1.5"]["listed"], 1)
         split = tracker.settings_split(store)
         self.assertEqual(split["default@1"]["hashes"], sorted(["cf8b2136", v1]))
-        self.assertEqual(split["default@2"]["hashes"], [snap["hash"]])
+        self.assertEqual(split[snap["label"]]["hashes"], [snap["hash"]])
         self.assertIn("all defaults (defaults version 1)", split["default@1"]["differs"])
-        self.assertIn("all defaults (defaults version 2)", split["default@2"]["differs"])
+        self.assertIn("all defaults (defaults version %d)" % tc.DEFAULTS_VERSION, split[snap["label"]]["differs"])
         self.assertEqual(split["default@1"]["first_seen"], "2026-11-05")
         self.assertEqual(store["rows"][0]["settings_hash"], "cf8b2136")          # the row keeps its hash
 
@@ -643,20 +647,20 @@ class Settings(OfflineCase):
         self.write("tracker.json", {"rows": old})
         out = self.run_script(DAILY, "--no-news", "--no-rebuild")
         h = out["settings"]["hash"]
-        self.assertEqual(out["settings"]["label"], "default@2")
+        self.assertEqual(out["settings"]["label"], ("default@%d" % tc.DEFAULTS_VERSION))
         t = self.read("tracker.json")
         hashes = {r["symbol"]: r["settings_hash"] for r in t["rows"]}
         self.assertEqual(hashes.pop("OLDX"), "pre-0.1.5")
         self.assertEqual(set(hashes.values()), {h})
-        self.assertIn("settings: default@2", t["summary"])
+        self.assertIn("settings: " + ("default@%d" % tc.DEFAULTS_VERSION), t["summary"])
         self.assertIn("settings: pre-0.1.5", t["summary"])
         self.assertEqual(t["summary"]["settings: pre-0.1.5"]["target"], 1)
-        self.assertIn("all defaults", t["settings_split"]["default@2"]["differs"])
+        self.assertIn("all defaults", t["settings_split"][("default@%d" % tc.DEFAULTS_VERSION)]["differs"])
         self.assertIn("before v0.1.5", t["settings_split"]["pre-0.1.5"]["differs"])
         with zipfile.ZipFile(os.path.join(self.dir, "tracker.xlsx")) as z:
             summ = z.read("xl/worksheets/sheet2.xml").decode()
         self.assertIn("settings: pre-0.1.5", summ)
-        self.assertIn("settings: default@2", summ)
+        self.assertIn("settings: " + ("default@%d" % tc.DEFAULTS_VERSION), summ)
         self.assertIn("all defaults", summ)
         self.assertIn("Settings vs defaults", summ)
         # a second settings set, the same day: the unfilled default@2 rows are SUPERSEDED (v0.1.8)

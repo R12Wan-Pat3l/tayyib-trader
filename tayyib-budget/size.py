@@ -57,7 +57,8 @@ def main(argv=None):
     syms = tc.parse_symbols(a.symbols) if a.symbols else list(plans)
     if not syms:
         tc.die("no plans: run tayyib-exit plan SYMBOL --write first")
-    positions = (tc.read_json("positions.json", {}) or {}).get("positions", [])
+    # v0.2.5: imported holdings are not trades: they use none of the trading capital
+    positions = tc.trade_positions((tc.read_json("positions.json", {}) or {}).get("positions", []))
     cash = cfg["cash_available"] if cfg.get("cash_available") is not None else cfg["capital"] - open_value(positions)
     store = tc.read_json("orders.json", {"orders": []}) or {"orders": []}
     keep = [o for o in store["orders"] if o["symbol"] not in syms or o.get("status") == "PLACED"]

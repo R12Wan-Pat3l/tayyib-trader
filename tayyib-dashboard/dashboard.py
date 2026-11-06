@@ -792,7 +792,9 @@ def api_tickets(q):
     tickets = [tickets[k] for k in order]
     live = [t for t in tickets if t.get("is_ticket")]
     blocked = [t for t in tickets if not t.get("is_ticket")]
-    plist = (pos or {}).get("positions") or []
+    allp = (pos or {}).get("positions") or []
+    plist = tc.trade_positions(allp)                   # v0.2.5: imported holdings are listed apart, never in the totals
+    holdings = [p for p in allp if tc.is_holding(p)]
     opened = [p for p in plist if p.get("status") == "open"]
     closed = [p for p in plist if p.get("status") == "closed"]
     tot = sum(p.get("pnl_rs") or 0 for p in closed) if closed else None
@@ -804,7 +806,14 @@ def api_tickets(q):
                                 "pnl_rs": inr(p.get("pnl_rs")), "r": signed_r(p.get("r")),
                                 "qty": text(p.get("qty")), "opened": text(p.get("opened")),
                                 "closed": text(p.get("closed")), "time_stop_date": text(p.get("time_stop_date"))})
+    def hview(p):
+        return {"symbol": p.get("symbol"), "qty": text(p.get("qty")), "avg_price": inr(p.get("avg_price")),
+                "state": {"open": "held", "closed": "sold"}.get(p.get("status"), str(p.get("status") or "").replace("_", " ")),
+                "source": text(p.get("source")), "matched_by": text(p.get("matched_by")),
+                "halal_at_buy": text((p.get("halal_at_buy") or {}).get("status"))}
+    unmatched = ((pos or {}).get("unmatched_holdings") or {}).get("rows") or []
     return {"tickets": tickets, "ready": live, "blocked": blocked, "held_alerts": held_alerts_now(),
+            "holdings": [hview(p) for p in holdings], "unmatched_holdings": unmatched,
             "blocked_title": "Blocked (not tickets)",
             "open": [pview(p) for p in opened], "closed": [pview(p) for p in closed],
             "totals": {"closed": len(closed), "winners": sum(1 for p in closed if (p.get("pnl_rs") or 0) > 0),
@@ -1150,7 +1159,11 @@ def bt_regime(r):
     """v0.2.4: the --regime-compare table (None when the run has none)."""
     rc = r.get("regime_compare")
     if not rc:
-        return None
+        ix = (r.get("regime") or {}).get("index") or {}
+        if (r.get("regime") or {}).get("variant", "off") == "off" or not ix.get("risk_off_ranges"):
+            return None
+        return {"columns": [], "rows": [], "note": "Regime filter in this run: %s." % r["regime"]["variant"],
+                "index": "%s (%s)" % (ix.get("name"), ix.get("index")), "ranges": bt_ranges(ix)}
     yr = lambda w: UNKNOWN if not w else "%d: %s%s" % (w["year"], pct(w["return_pct"]), " (part)" if w["partial"] else "")
     rows = (("Trades", lambda c: "%d%s" % (c["trades"], " " + TOO_FEW_TEXT if c["too_few"] else "")),
             ("Win rate", lambda c: pct(c["win_rate_pct"], 1)), ("Expectancy", lambda c: signed_r(c["expectancy_r"])),
@@ -1163,7 +1176,17 @@ def bt_regime(r):
     return {"columns": [c["variant"] for c in rc["columns"]],
             "rows": [{"label": name, "cells": [f(c) for c in rc["columns"]]} for name, f in rows],
             "note": rc.get("note"), "index": "%s (%s)%s" % (ix.get("name"), ix.get("index"),
-                                                            "" if ix.get("status") == "OK" else ": UNKNOWN, %s" % ix.get("reason"))}
+                                                            "" if ix.get("status") == "OK" else ": UNKNOWN, %s" % ix.get("reason")),
+            "ranges": bt_ranges(ix)}
+
+
+def bt_ranges(ix):
+    """C3 (v0.2.5): the risk-off date ranges per rule, for a collapsible list (check them against a chart)."""
+    out = []
+    for rule, rs in sorted(((ix or {}).get("risk_off_ranges") or {}).items()):
+        out.append({"rule": rule, "count": len(rs), "days": sum(x["days"] for x in rs),
+                    "rows": [{"start": x["start"], "end": x["end"], "days": x["days"]} for x in rs]})
+    return out
 
 
 def api_backtest(q):
@@ -1444,6 +1467,8 @@ def setting_field(key, cur, saved, raw_has):
         f["multiline"] = True
     if key.startswith("scanner.setups.") and short == "enabled":
         f["toggle_section"] = True
+    if doc.get("note"):
+        f["note"] = doc["note"]
     return f
 
 
@@ -1607,6 +1632,34 @@ def api_backup_diff(q):
             "banner": plan["banner"]}
 
 
+IMPORT_STEPS = {
+    "zerodha": ["Zerodha Console (console.zerodha.com) -> Portfolio -> Holdings -> Download (XLSX or CSV).",
+                "Or Kite -> Holdings -> Download (CSV)."],
+    "groww": ["Groww -> Stocks -> Holdings -> export / download (XLSX or CSV)."],
+}
+IMPORT_NOTE = ("Menu names may change: if you can't find the button, look for Download or Export on your holdings "
+               "page. Save the file into the folder below, then press Preview. Nothing is uploaded: the file stays on "
+               "your computer, and nothing here can place an order.")
+
+
+def api_import(runner):
+    """v0.2.5: the Tickets tab's "Import holdings" section: the steps, trader/import/ and the files in it (a file
+    shows Import only after a Preview of the same contents)."""
+    files = A.import_files()
+    for f in files:
+        try:
+            sha = A.file_sha1(os.path.join(A.import_dir(), f["name"]))
+        except OSError:
+            sha = None
+        f["previewed"] = bool(sha) and runner.previewed.get(f["name"]) == sha
+        f.pop("mtime", None)
+    return {"dir": A.import_dir(), "exists": os.path.isdir(A.import_dir()), "files": files, "steps": IMPORT_STEPS,
+            "note": IMPORT_NOTE,
+            "explain": "Holdings are not trades: no stop, no target, no tracker row and never in the trade results. "
+                       "They count for the halal re-check of the stocks you hold, \"skip stocks I already hold\" in "
+                       "the daily list and purification."}
+
+
 def run_status(runner):
     st = runner.status()
     e = st.get("elapsed_s")
@@ -1671,6 +1724,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._refuse()
         if p == "/api/run/status":
             return self._json(200, run_status(self.server.runner), head)
+        if p == "/api/import":
+            return self._json(200, api_import(self.server.runner), head)
         fn = ROUTES.get(p)
         if fn is None:
             return self._json(404, {"error": "not found"}, head)

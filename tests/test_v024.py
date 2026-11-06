@@ -222,7 +222,12 @@ class Regime(unittest.TestCase):
         self.assertEqual(c["regime"], {"enabled": False, "index": "^NSEI", "rule": "close_below_200dma",
                                        "action": "no_new_swing"})
         snap = tc.settings_snapshot(c)
-        self.assertEqual((snap["label"], snap["hash"]), ("default@2", "a28d32c9"))
+        import hashlib                       # all defaults: the regime keys change neither label nor hash
+        canon = json.dumps({"defaults_version": tc.DEFAULTS_VERSION, "differs": []}, sort_keys=True, separators=(",", ":"))
+        self.assertEqual((snap["label"], snap["hash"]),
+                         ("default@%d" % tc.DEFAULTS_VERSION, hashlib.sha1(canon.encode("utf-8")).hexdigest()[:8]))
+        if tc.DEFAULTS_VERSION == 2:
+            self.assertEqual(snap["hash"], "a28d32c9")
         off = tc.regime_state(bars_from([300 - i * 0.5 for i in range(260)]), bars_from([0] * 260)[-1]["date"])
         self.assertEqual(off["state"], "risk-off")
         self.assertFalse(tc.regime_effect(off, c["regime"])["active"])               # off: never acts
@@ -446,14 +451,14 @@ class Fixes(OfflineCase):
 
 class Docs(unittest.TestCase):
     def test_version_and_docs(self):
-        self.assertEqual(tc.VERSION, "0.2.4")
+        self.assertTrue(tc.VERSION >= "0.2.4")              # pinned exactly by the newest test file
         guide = open(os.path.join(ROOT, "docs", "USER_GUIDE.md"), encoding="utf-8").read()
         faq = open(os.path.join(ROOT, "docs", "FAQ.md"), encoding="utf-8").read()
         self.assertIn("When a stock you hold stops being halal", guide)
         self.assertIn("Market regime filter (optional)", guide)
         self.assertIn("Why is the regime filter off by default?", faq)
         for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-            self.assertIn('"0.2.4"', open(os.path.join(ROOT, f), encoding="utf-8").read())
+            self.assertIn('"%s"' % tc.VERSION, open(os.path.join(ROOT, f), encoding="utf-8").read())
         self.assertIn("## v0.2.4", open(os.path.join(ROOT, "CHANGELOG.md"), encoding="utf-8").read())
 
 

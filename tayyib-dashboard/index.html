@@ -498,6 +498,53 @@ tr.sup > td b { font-weight:600; }
   .savebar .acts { width:100%; flex-wrap:nowrap; } .savebar .acts button { flex:1; justify-content:center; padding:0 12px; }
   .field .fh { flex-direction:column; gap:6px; }
 }
+
+/* --- Backtest (v0.2.2) --- */
+.bt-top { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between; margin:0 0 14px; }
+.bt-pick { display:grid; grid-template-columns:minmax(0, 1fr); gap:6px; min-width:0; flex:1 1 300px; }
+.bt-pick label { font:600 12px var(--sans); color:var(--muted); }
+.bt-pick select { font:600 14px var(--sans); color:var(--fg); background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-sm);
+  min-height:44px; padding:0 12px; width:100%; min-width:0; max-width:100%; cursor:pointer; text-overflow:ellipsis; }
+.bt-runrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.bt-runrow .runstate { font:600 13px var(--sans); color:var(--info); }
+.bt-head { margin:0 0 16px; }
+.bt-head h1 { font-size:26px; margin:0 0 10px; }
+.bt-head dl { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px 18px; margin:0; padding:14px 16px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow-1); }
+.bt-head dt { font:600 11.5px/1.3 var(--sans); color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+.bt-head dd { margin:3px 0 0; font-weight:600; overflow-wrap:anywhere; }
+.bt-head .small { margin-top:8px; }
+.bt-banners { margin:0 0 6px; }
+.bt-banners .banner { font-weight:600; }
+.bt-cards { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap:16px; }
+.bt-card h3 { margin:0 0 4px; }
+.bt-card .lab { display:inline-flex; gap:6px; align-items:center; font-size:12.5px; color:var(--muted); margin-bottom:12px; }
+.bt-card.ref { border-style:dashed; }
+.bt-card.ref .lab { color:var(--fg); font-weight:600; }
+.bt-card .kv { display:grid; grid-template-columns:repeat(auto-fit, minmax(104px, 1fr)); gap:12px; }
+.bt-card .kv .l { font:600 12px/1.3 var(--sans); color:var(--muted); }
+.bt-card .kv .v { font:600 24px/1.15 var(--serif); margin-top:4px; font-variant-numeric:tabular-nums lining-nums; overflow-wrap:anywhere; }
+svg.chart .s-strategy { fill:none; stroke:var(--primary); stroke-width:2.4; stroke-linejoin:round; }
+svg.chart .s-etf { fill:none; stroke:var(--info); stroke-width:1.8; stroke-dasharray:7 4; stroke-linejoin:round; }
+svg.chart .s-nifty { fill:none; stroke:var(--unknown); stroke-width:1.6; stroke-dasharray:2 3; stroke-linejoin:round; }
+svg.chart .cap { stroke:var(--line-strong); stroke-dasharray:3 3; }
+svg.chart .dd { fill:var(--block-bg); stroke:var(--block); stroke-width:1.2; }
+svg.chart .ddm { stroke:var(--fg); stroke-width:1.2; stroke-dasharray:4 3; }
+svg.chart text.end { font-weight:600; fill:var(--fg); }
+svg.chart text.ddl { fill:var(--fg); font-weight:600; }
+.bt-lg { display:flex; flex-wrap:wrap; gap:8px 18px; font-size:13px; margin:10px 0 0; padding:0; list-style:none; }
+.bt-lg li { display:inline-flex; align-items:center; gap:8px; }
+.bt-lg svg.chart { width:34px; height:10px; flex:none; display:inline-block; }
+.bt-dd-title { font:600 12px var(--sans); color:var(--muted); margin:14px 0 4px; }
+tr.few > td { color:var(--muted); background:var(--surface-2); }
+tr.few .few-note { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:600; color:var(--unknown); }
+.bt-sec { font:700 12px/1.3 var(--sans); text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:16px 0 8px; }
+.bt-cols { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:16px; margin-top:16px; }
+.bt-foot { margin-top:28px; padding:14px 16px; border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--line); font-weight:600; }
+.r-up { color:var(--pass); } .r-down { color:var(--block); }
+.seg-row { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; margin:12px 0; }
+.seg-row .lbl { font:600 12px var(--sans); color:var(--muted); min-width:56px; }
+@media (max-width: 900px) { .bt-cards, .bt-cols { grid-template-columns:minmax(0, 1fr); } .bt-head h1 { font-size:22px; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition:none !important; animation:none !important; }
   .card.lift:hover { transform:none; }
@@ -525,6 +572,8 @@ tr.sup > td b { font-weight:600; }
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6"/></svg>Halal</button>
       <button role="tab" id="tab-tickets" aria-controls="p-tickets" aria-selected="false" tabindex="-1">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A1.5 1.5 0 015.5 6h13A1.5 1.5 0 0120 7.5V10a2 2 0 000 4v2.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 16.5V14a2 2 0 000-4z"/><path d="M14 6v12" stroke-dasharray="2 2.2"/></svg>Tickets</button>
+      <button role="tab" id="tab-backtest" aria-controls="p-backtest" aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 107.5-7.5A7.7 7.7 0 006.3 7"/><path d="M5.5 3.5V7.3h3.8"/><path d="M12 8v4.2l2.8 1.8"/></svg>Backtest</button>
       <button role="tab" id="tab-settings" aria-controls="p-settings" aria-selected="false" tabindex="-1">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg>Settings</button>
     </nav>
@@ -538,11 +587,12 @@ tr.sup > td b { font-weight:600; }
     <section role="tabpanel" id="p-results" aria-labelledby="tab-results" hidden></section>
     <section role="tabpanel" id="p-halal" aria-labelledby="tab-halal" hidden></section>
     <section role="tabpanel" id="p-tickets" aria-labelledby="tab-tickets" hidden></section>
+    <section role="tabpanel" id="p-backtest" aria-labelledby="tab-backtest" hidden></section>
     <section role="tabpanel" id="p-settings" aria-labelledby="tab-settings" hidden></section>
   </main>
 </div>
 <footer class="foot">
-  <span><b id="disclaimer">Not financial advice, not a fatwa.</b> This page reads your files, saves only your settings (with a backup) and runs today's list when you ask. It cannot place, change or cancel an order.</span>
+  <span><b id="disclaimer">Not financial advice, not a fatwa.</b> This page reads your files, saves only your settings (with a backup) and runs today's list or a backtest when you ask. It cannot place, change or cancel an order.</span>
   <span>Data: <span class="mono" id="datadir">UNKNOWN</span></span>
 </footer>
 <dialog class="drawer" id="drawer" aria-labelledby="drawerTitle">
@@ -556,7 +606,7 @@ tr.sup > td b { font-weight:600; }
 "use strict";
 // The server does every calculation (formatting, statuses, chart coordinates, validation); this script only
 // draws. GET requests, same origin, except two POSTs (postJSON): /api/config (save your settings) and /api/run
-// (make today's list). Text always goes in with textContent.
+// (make today's list, or run a backtest). Text always goes in with textContent.
 var SVGNS = "http://www.w3.org/2000/svg";
 var KIND = { PASS:"pass", WARN:"warn", BLOCK:"block", FILTERED:"unknown", "NOT SIZED":"unknown",
   TARGET:"pass", STOP:"block", BREAKEVEN:"warn", "TIME EXIT":"warn", OPEN:"info", WAITING:"info",
@@ -935,9 +985,9 @@ function loadToday(date) {
 // --- Results ----------------------------------------------------------------------------------------
 var VERDICT_CHIP = { right:"pass", wrong:"block", "no trade":"unknown", pending:"info", breakeven:"warn", unknown:"unknown",
   superseded:"unknown", replaced:"unknown", "already held":"unknown" };
-function priceChart(box, row) {
+function priceChart(box, row, url) {
   box.appendChild(el("div", { cls:"sk", style:"height:220px", "aria-hidden":"true" }));
-  getJSON("/api/chart?symbol=" + encodeURIComponent(row.symbol) + "&from=" + encodeURIComponent(row.date)).then(function (c) {
+  getJSON(url || "/api/chart?symbol=" + encodeURIComponent(row.symbol) + "&from=" + encodeURIComponent(row.date)).then(function (c) {
     box.textContent = "";
     if (c.status !== "ok") { box.appendChild(el("div", { cls:"empty-chart" }, icon("unknown", 22), c.message || c.error || "price data unavailable")); return; }
     var s = c.svg, g = svg("svg", { "class":"chart", viewBox:"0 0 " + s.width + " " + s.height, role:"img", "aria-label":c.summary });
@@ -1510,28 +1560,36 @@ function openRun() {
     });
   });
 }
-function openRunProgress(s) {
-  openDrawer("Today's list", s.command || "tayyib-daily", function (b) { drawRun(b, s); });
+function openRunProgress(s, note) {
+  openDrawer(s.kind === "backtest" ? "Backtest" : "Today's list", s.command || "tayyib-daily", function (b) { drawRun(b, s, note); });
   RUN.view = true; RUN.last = s; runPill(s);
   if (s.state === "running") pollRun();
 }
-function drawRun(b, s) {
+function drawRun(b, s, note) {
   b.textContent = "";
+  var bt = s.kind === "backtest";
+  if (note) add(b, banner(note, "warn"));
   var kind = s.state === "running" ? "info" : s.state === "ok" ? "pass" : "block";
   var word = s.state === "running" ? "Running" : s.state === "ok" ? "Done" : "Failed";
   add(b, el("div", { cls:"runhead" }, badge(word, kind), el("span", { cls:"el", text:s.elapsed_text || "" }), el("span", { cls:"small muted", text:s.started_text ? "started " + s.started_text : "" })));
-  if (s.state === "ok") add(b, el("div", { style:"margin-top:14px" }, banner("Today's list (" + s.list_date + ") is ready. The Today tab shows it now.", "pass")),
+  if (bt && s.state === "running") add(b, el("p", { cls:"small", style:"margin-top:12px", text:(s.progress ? "Now: " + s.progress + ". " : "") + "A backtest takes about 4 minutes (compare runs it three times). You can close this panel: it keeps running." }));
+  if (s.state === "ok" && bt) add(b, el("div", { style:"margin-top:14px" }, banner("Backtest saved (" + s.backtest_id + "). The Backtest tab shows it now.", "pass")),
+    el("div", { cls:"dacts" }, el("button", { cls:"act", type:"button", text:"Show the backtest", onclick:function () { closeDrawer(); BT.id = s.backtest_id; show("backtest"); loadBacktest(s.backtest_id); } })));
+  else if (s.state === "ok") add(b, el("div", { style:"margin-top:14px" }, banner("Today's list (" + s.list_date + ") is ready. The Today tab shows it now.", "pass")),
     el("div", { cls:"dacts" }, el("button", { cls:"act", type:"button", text:"Show today's list", onclick:function () { closeDrawer(); show("today"); } })));
-  if (s.state === "failed") add(b, el("div", { style:"margin-top:14px" }, banner(["The list was not changed. ", s.error || "UNKNOWN error"], "block")));
-  var pre = el("pre", { cls:"log", "aria-label":"Output of tayyib-daily", tabindex:"0", text:(s.lines || []).join("\n") || "Starting…" });
+  if (s.state === "failed") add(b, el("div", { style:"margin-top:14px" }, banner([bt ? "Nothing was saved. " : "The list was not changed. ", s.error || "UNKNOWN error"], "block")));
+  var pre = el("pre", { cls:"log", "aria-label":"Output of " + (s.command || "tayyib-daily"), tabindex:"0", text:(s.lines || []).join("\n") || "Starting…" });
   add(b, el("p", { cls:"small muted", style:"margin-top:14px", text:"Output (last " + ((s.lines || []).length) + " lines)" }), pre);
   pre.scrollTop = pre.scrollHeight;
 }
 function runPill(s) {
-  var p = document.getElementById("runState"); if (!p) return;
-  p.hidden = !s || s.state === "idle";
-  if (!s) return;
-  p.textContent = s.state === "running" ? "Running · " + s.elapsed_text : s.state === "ok" ? "Last run: done" : "Last run: failed";
+  ["runState", "btRunState"].forEach(function (id) {
+    var p = document.getElementById(id); if (!p) return;
+    p.hidden = !s || s.state === "idle";
+    if (!s) return;
+    var what = s.kind === "backtest" ? "backtest" : "today's list";
+    p.textContent = s.state === "running" ? "Running " + what + " · " + s.elapsed_text : s.state === "ok" ? "Last run (" + what + "): done" : "Last run (" + what + "): failed";
+  });
 }
 function pollRun() {
   clearTimeout(RUN.timer);
@@ -1540,11 +1598,213 @@ function pollRun() {
       RUN.last = s; runPill(s);
       if (RUN.view && drawer.open) drawRun(document.getElementById("drawerBody"), s);
       if (s.state === "running") return pollRun();
-      if (s.state === "ok") {                         // the Today tab reloads to the new list; other tabs refetch
+      if (s.state === "ok" && s.kind === "backtest") {   // the run list refreshes, showing the new run
+        BT.id = s.backtest_id; if (loaded.backtest) loadBacktest(s.backtest_id); announce("Backtest saved");
+      } else if (s.state === "ok") {                  // the Today tab reloads to the new list; other tabs refetch
         loaded = { today:true }; LOADERS.today(); announce("Today's list is ready");
       } else announce("The run failed: " + (s.error || ""));
     }, function () { pollRun(); });
   }, 1500);
+}
+
+// --- Backtest (v0.2.2): saved tayyib-backtest runs (read only); "Run backtest" starts one via POST /api/run --
+// The server shapes every number, label and coordinate and says in which order the sections come (d.order:
+// the banners always before any number); this only draws them.
+var BT = { id:null };
+function btRunButton(cls) {
+  var b = el("button", { cls:cls || "act", type:"button", text:"Run backtest" });
+  b.addEventListener("click", openBtRun);
+  return b;
+}
+function openBtRun() {
+  getJSON("/api/run/status").then(function (s) {
+    if (s.state === "running") return openRunProgress(s, "A run is already going (" + (s.kind === "backtest" ? "a backtest" : "today's list") + "): only one at a time. Wait for it to finish.");
+    openDrawer("Run backtest", "tayyib-backtest on this computer · writes only trader/backtest/ and the price cache", function (b) {
+      var opt = { years:3, mode:"all" };
+      function seg(name, values, label) {
+        var box = el("div", { cls:"seg", role:"group", "aria-label":label });
+        values.forEach(function (v) {
+          var x = el("button", { type:"button", "aria-pressed":v === opt[name] ? "true" : "false", text:name === "years" ? v + " years" : v });
+          x.addEventListener("click", function () { opt[name] = v; Array.prototype.forEach.call(box.children, function (y) { y.setAttribute("aria-pressed", y === x ? "true" : "false"); }); });
+          box.appendChild(x);
+        });
+        return box;
+      }
+      var cb = el("input", { type:"checkbox", id:"btCompare" }), msg = el("div");
+      add(b, el("p", { text:"It replays the daily list on every trading day of the last 3 or 5 years with your capital and settings, and saves the result here. About 4 minutes (compare runs it three times). It never places an order and changes nothing else." }),
+        el("div", { cls:"seg-row" }, el("span", { cls:"lbl", text:"Years" }), seg("years", [3, 5], "Years")),
+        el("div", { cls:"seg-row" }, el("span", { cls:"lbl", text:"Mode" }), seg("mode", ["all", "swing", "delivery"], "Mode")),
+        el("label", { cls:"check", "for":"btCompare" }, cb, el("span", null, el("b", { text:"Compare" }), el("span", { cls:"small muted", style:"display:block", text:"Also (b) ranked by setup score only and (c) without stocks listed during the window. Same prices, about 3 times longer." }))));
+      var go = el("button", { cls:"act", type:"button", text:"Run backtest" });
+      go.addEventListener("click", function () {
+        go.disabled = true;
+        postJSON("/api/run", { backtest:{ years:opt.years, mode:opt.mode, compare:cb.checked } }).then(function (r) {
+          if (r.failed) { go.disabled = false; msg.textContent = ""; add(msg, banner(errText(r), "block")); return; }
+          openRunProgress(r);
+        }, function (e) { go.disabled = false; add(msg, banner("Could not start: " + e, "block")); });
+      });
+      add(b, msg, el("div", { cls:"dacts" }, go, el("button", { cls:"close", type:"button", text:"Not now", onclick:closeDrawer })));
+    });
+  });
+}
+function btEmpty(panel, title, text) {
+  panel.textContent = "";
+  add(panel, emptyState(title, text, null));
+  panel.querySelector(".empty-state").appendChild(el("div", { cls:"bt-runrow", style:"margin-top:16px;justify-content:center" }, btRunButton("act"), el("span", { cls:"runstate", id:"btRunState", hidden:"hidden" })));
+  runPill(RUN.last);
+}
+function loadBacktest(id) {
+  var panel = document.getElementById("p-backtest");
+  getJSON("/api/backtests").then(function (list) {
+    if (list.missing) return btEmpty(panel, "No backtests yet", "Folder not found: trader/" + list.missing + ". To start, " + list.hint + ": it replays the daily list over past years and saves the result here.");
+    var ok = list.runs.filter(function (x) { return !x.error; });
+    if (!ok.length) return btEmpty(panel, "No backtests yet", "trader/backtest/ has no saved run. To start, run a backtest.");
+    var has = function (x) { return x && ok.some(function (r) { return r.id === x; }); };
+    BT.id = has(id) ? id : has(BT.id) ? BT.id : ok[0].id;
+    return getJSON("/api/backtest?id=" + encodeURIComponent(BT.id)).then(function (d) { renderBacktest(panel, d, list.runs); });
+  }).catch(function (e) { panel.textContent = ""; add(panel, banner("Could not load the backtests: " + e, "block")); });
+}
+function btEquity(q) {
+  if (q.status !== "ok") return el("div", { cls:"empty-chart" }, icon("unknown", 22), q.message || "UNKNOWN");
+  var g = svg("svg", { "class":"chart", viewBox:"0 0 " + q.width + " " + q.height, role:"img", "aria-label":"Equity: " + q.summary });
+  q.y_labels.forEach(function (y) { g.appendChild(svg("text", { x:2, y:y.y + 4, text:y.label })); });
+  q.x_labels.forEach(function (x, i) { g.appendChild(svg("text", { x:x.x, y:q.height - 8, "text-anchor":i === 0 ? "start" : i === q.x_labels.length - 1 ? "end" : "middle", text:x.label })); });
+  g.appendChild(svg("line", { "class":"cap", x1:q.pad, x2:q.plot_right, y1:q.capital_y, y2:q.capital_y }));
+  q.series.slice().reverse().forEach(function (s) {            // the strategy is drawn last, on top
+    var line = svg("polyline", { "class":"s-" + s.kind, points:s.points }); line.appendChild(svg("title", { text:s.summary })); g.appendChild(line);
+  });
+  q.series.forEach(function (s) { g.appendChild(svg("text", { "class":"end", x:q.plot_right + 6, y:s.end_y + 4, text:s.end_label })); });
+  var dd = q.dd, h = q.dd_height, gd = svg("svg", { "class":"chart", viewBox:"0 0 " + q.width + " " + h, role:"img",
+    "aria-label":"Drawdown of the strategy: worst " + dd.floor_label + (dd.marks.length ? ", " + dd.marks.map(function (m) { return m.label; }).join(", ") : "") });
+  gd.appendChild(svg("text", { x:2, y:dd.zero_y + 4, text:"0%" }));
+  gd.appendChild(svg("text", { x:2, y:dd.floor_y + 4, text:dd.floor_label }));
+  gd.appendChild(svg("line", { "class":"cap", x1:q.pad, x2:q.plot_right, y1:dd.zero_y, y2:dd.zero_y }));
+  gd.appendChild(svg("polygon", { "class":"dd", points:dd.area }));
+  dd.marks.forEach(function (m) {
+    gd.appendChild(svg("line", { "class":"ddm", x1:m.x, x2:m.x, y1:4, y2:h - 18 }));   // peak label on top, trough below
+    gd.appendChild(svg("text", { "class":"ddl", x:m.x + 4, y:m.kind === "peak" ? 14 : h - 4, text:m.label }));
+  });
+  var lg = el("ul", { cls:"bt-lg", "aria-label":"Lines" }, q.legend.map(function (l) {
+    return el("li", null, svg("svg", { width:34, height:10, viewBox:"0 0 34 10", "aria-hidden":"true", "class":"chart" }, svg("line", { "class":"s-" + l.kind, x1:1, x2:33, y1:5, y2:5 })), l.label);
+  }));
+  return el("div", null, g, lg, el("p", { cls:"bt-dd-title", text:"Drawdown (how far below its last high the strategy was), worst drawdown marked" }), gd,
+    q.missing_lines.length ? el("ul", { cls:"small muted", style:"margin-top:8px" }, q.missing_lines.map(function (x) { return el("li", { text:x }); })) : null,
+    el("p", { cls:"small", style:"margin-top:8px", text:q.summary }));
+}
+function btGroupTable(sec, columns) {
+  var cols = [{ title:"Group", w:"24%", td:"wide", cell:function (r) {
+    return [el("b", { text:r.name }), r.too_few ? el("span", { cls:"few-note", style:"display:block" }, icon("unknown", 12), r.note) : null]; } }];
+  columns.forEach(function (c, i) { cols.push({ title:c, num:true, cell:function (r) { return r.cells[i]; } }); });
+  return table(cols, sec.rows, { rowClass:function (r) { return r.too_few ? "few" : null; } });
+}
+function btCompareTable(cp) {
+  var cols = [{ title:"", w:"26%", td:"wide", cell:function (r) { return el("b", { text:r.name }); } }];
+  cp.columns.forEach(function (c, i) { cols.push({ title:c, num:true, cell:function (r) {
+    return r.too_few[i] ? el("span", { cls:"few-note" }, icon("unknown", 12), r.cells[i]) : r.cells[i]; } }); });
+  return table(cols, cp.rows, { rowClass:function (r) { return r.too_few.every(function (x) { return x; }) ? "few" : null; } });
+}
+function btTrades(d) {
+  var box = el("div"), fc = { setup:"", mode:"", exit_reason:"" }, holder = el("div");
+  function seg(name, values, label) {
+    var sb = el("div", { cls:"seg", role:"group", "aria-label":label });
+    [""].concat(values).forEach(function (v) {
+      var b = el("button", { type:"button", "aria-pressed":v === "" ? "true" : "false", text:v || "All" });
+      b.addEventListener("click", function () { fc[name] = v; Array.prototype.forEach.call(sb.children, function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); }); draw(); });
+      sb.appendChild(b);
+    });
+    return sb;
+  }
+  var count = el("p", { cls:"small muted" });
+  add(box, el("div", { cls:"controls" }, seg("setup", d.filters.setup, "Filter by setup"), seg("mode", d.filters.mode, "Filter by mode"), seg("exit_reason", d.filters.exit_reason, "Filter by exit reason")), count, holder);
+  function draw() {
+    var rows = d.trades.filter(function (t) { return (!fc.setup || t.setup === fc.setup) && (!fc.mode || t.mode === fc.mode) && (!fc.exit_reason || t.exit_reason === fc.exit_reason); });
+    count.textContent = rows.length + " of " + d.trades.length + " trades";
+    holder.textContent = "";
+    add(holder, table([
+      { key:"signal", title:"Signal", w:"108px", sort:function (t) { return t.signal_date; }, cell:function (t) { return t.signal_date; } },
+      { key:"symbol", title:"Stock", w:"16%", sort:function (t) { return t.symbol; }, cell:function (t) { return [el("b", { text:t.symbol }), el("span", { cls:"sub", text:t.mode + " " + t.setup })]; } },
+      { key:"entry", title:"Entry", w:"14%", sort:function (t) { return t.entry_date; }, cell:function (t) { return [t.display.entry, el("span", { cls:"sub", text:t.entry_date })]; } },
+      { key:"exit", title:"Exit", w:"14%", sort:function (t) { return t.exit_date; }, cell:function (t) { return [t.display.exit, el("span", { cls:"sub", text:t.exit_date })]; } },
+      { key:"reason", title:"Exit reason", w:"15%", sort:function (t) { return t.exit_reason; }, cell:function (t) { return badge(t.exit_reason, t.exit_kind); } },
+      { key:"qty", title:"Qty", num:true, w:"64px", sort:function (t) { return t.qty; }, cell:function (t) { return t.display.qty; } },
+      { key:"pnl", title:"P&L", num:true, sort:function (t) { return t.pnl_rs; }, cell:function (t) { return t.display.pnl_rs; } },
+      { key:"r", title:"R", num:true, w:"92px", sort:function (t) { return t.r; }, cell:function (t) {
+        return el("span", { cls:t.r > 0 ? "r-up" : t.r < 0 ? "r-down" : null }, t.display.up ? t.display.up + " " : "", t.display.r); } },
+      { title:"Chart", label:" ", w:"92px", td:"nolabel wide", cell:function (t) {
+        var b = el("button", { cls:"link slim", type:"button", text:"Chart", "aria-label":"Chart of " + t.symbol + " for this trade" });
+        b.addEventListener("click", function () { openDrawer(t.symbol + " chart", "backtest · " + t.mode + " " + t.setup + " · " + t.exit_reason + " " + t.display.r, function (bx) {
+          priceChart(bx, t, "/api/chart?bt=" + encodeURIComponent(d.id) + "&n=" + t.n); }); });
+        return b; } }
+    ], rows, { sortKey:"signal", empty:"No trades match these filters." }));
+  }
+  draw();
+  return box;
+}
+function renderBacktest(panel, d, runs) {
+  panel.textContent = "";
+  if (d.missing) return btEmpty(panel, "No backtests yet", d.hint);
+  if (d.error) { add(panel, banner("Could not show this backtest: " + d.error, "block")); return; }
+  var parts = {
+    header:function () {
+      var sel = el("select", { id:"btSel", onchange:function () { loadBacktest(this.value); } });
+      runs.forEach(function (r) { var o = el("option", { value:r.id, text:r.label, disabled:r.error ? "disabled" : null }); if (r.id === d.id) o.selected = true; sel.appendChild(o); });
+      var h = d.header;
+      return el("div", { cls:"bt-head" },
+        el("div", { cls:"bt-top" }, el("div", { cls:"bt-pick" }, el("label", { "for":"btSel", text:"Saved backtest (newest first)" }), sel),
+          el("div", { cls:"bt-runrow" }, btRunButton("act"), el("span", { cls:"runstate", id:"btRunState", hidden:"hidden" }))),
+        el("h1", { text:h.title }),
+        el("dl", null, h.items.map(function (x) { return el("div", null, el("dt", { text:x.label }), el("dd", { text:x.value })); })),
+        el("p", { cls:"small muted", text:"Window end: " + h.end_rule + ". Run " + h.run_at + " with tayyib " + h.made_with + ". Id " + d.id + "." }));
+    },
+    banners:function () {
+      return el("div", { cls:"bt-banners", role:"region", "aria-label":"Read these first" }, d.banners.map(function (b) { return banner(b, "warn"); }));
+    },
+    cards:function () {
+      return el("div", { cls:"bt-cards" }, d.cards.map(function (c) {
+        return el("div", { cls:"panel bt-card" + (c.reference_only ? " ref" : ""), "data-card":c.key },
+          el("h3", { text:c.title }),
+          el("div", { cls:"lab" }, c.reference_only ? icon("na", 14) : c.kind === "etf" ? icon("pass", 14) : null, c.label),
+          el("div", { cls:"kv" }, c.items.map(function (i) { return el("div", null, el("div", { cls:"l", text:i.label }), el("div", { cls:"v", text:i.value })); })),
+          c.note ? el("p", { cls:"small muted", style:"margin-top:10px", text:"UNKNOWN: " + c.note }) : null);
+      }));
+    },
+    equity:function () {
+      return el("div", null, el("h2", { cls:"section" }, "Equity", el("small", { text:"strategy and both benchmarks, each starting at your capital" })),
+        el("div", { cls:"panel" }, btEquity(d.equity)));
+    },
+    breakdown:function () {
+      var b = d.breakdown, box = el("div", { cls:"panel" });
+      b.sections.forEach(function (sec) { add(box, el("h3", { cls:"bt-sec", text:sec.title }), btGroupTable(sec, b.columns)); });
+      return el("div", null, el("h2", { cls:"section" }, "Breakdown", el("small", { text:b.note })), box);
+    },
+    compare:function () {
+      if (!d.compare) return null;
+      return el("div", null, el("h2", { cls:"section" }, "Compare", el("small", { text:"the same window and prices, side by side" })),
+        el("p", { cls:"small muted", style:"margin:-6px 0 10px", text:d.compare.note }),
+        d.compare.note_c ? el("p", { cls:"small muted", style:"margin:-4px 0 10px", text:d.compare.note_c }) : null,
+        btCompareTable(d.compare));
+    },
+    trades:function () {
+      return el("div", null, el("h2", { cls:"section" }, "Trades", el("small", { text:"R after charges, signed; the chart shows each one on its prices" })), btTrades(d));
+    },
+    universe:function () {
+      var u = d.universe;
+      return el("div", null, el("h2", { cls:"section" }, "Universe", el("small", { text:"today's halal list (built " + u.list_updated + ") applied to the past" })),
+        el("div", { cls:"tiles", style:"grid-template-columns:repeat(auto-fit, minmax(150px, 1fr))" },
+          tile("Compliant", String(u.compliant), "on today's list"), tile("Tested", String(u.tested), "had enough prices"),
+          tile("Joined late", String(u.joined_late.length), "listed during the window"), tile("Skipped", String(u.skipped.length), "never had 250 days of prices")),
+        el("div", { style:"margin-top:12px" }, banner(u.late_line, "info")),
+        el("div", { cls:"bt-cols" },
+          el("div", { cls:"panel" }, el("h3", { text:"Joined late" }),
+            table([{ title:"Stock", cell:function (x) { return el("b", { text:x.symbol }); } }, { title:"Joined", cell:function (x) { return x.join_date; } },
+                   { title:"Prices from", cell:function (x) { return x.data_starts || "UNKNOWN"; } }], u.joined_late, { empty:"None: every stock had a year of prices at the start." })),
+          el("div", { cls:"panel" }, el("h3", { text:"Skipped" }),
+            table([{ title:"Stock", w:"28%", cell:function (x) { return el("b", { text:x.symbol }); } }, { title:"Why", td:"wide", cell:function (x) { return x.reason; } }], u.skipped, { empty:"None." }))));
+    },
+    footer:function () { return el("p", { cls:"bt-foot", text:d.footer }); }
+  };
+  d.order.forEach(function (k) { if (parts[k]) add(panel, parts[k]()); });
+  runPill(RUN.last);
 }
 
 // --- tabs, header -----------------------------------------------------------------------------------
@@ -1557,6 +1817,7 @@ var LOADERS = {
   results:function () { load("/api/tracker", "p-results", renderResults); },
   halal:function () { load("/api/halal", "p-halal", renderHalal); },
   tickets:function () { load("/api/tickets", "p-tickets", renderTickets); },
+  backtest:function () { loadBacktest(null); },
   settings:function () { load("/api/settings", "p-settings", renderSettings); }
 };
 var loaded = {}, current = null;

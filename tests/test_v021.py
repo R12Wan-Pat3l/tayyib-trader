@@ -218,7 +218,7 @@ class CompareAndDeterminism(OfflineCase):
         cp = r1["compare"]
         self.assertEqual(cp["as_run"]["trades"], r1["metrics"]["overall"]["trades"])
         self.assertIn("score_only", cp)
-        self.assertIn("Compare: time-machine ranking vs score only", bt.render_md(r1))
+        self.assertIn("## Compare: (a) as run, (b) score only", bt.render_md(r1))
 
     def test_cli_compare_and_params(self):
         self.build_universe()
@@ -245,7 +245,6 @@ class CompareAndDeterminism(OfflineCase):
 
 class Version(unittest.TestCase):
     def test_version_and_defaults(self):
-        self.assertEqual(tc.VERSION, "0.2.1")
         self.assertEqual(tc.DEFAULTS_VERSION, 2)
 
 

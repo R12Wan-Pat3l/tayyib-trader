@@ -292,6 +292,14 @@ But three things make it look better (or simply different) than real life, and e
    day, so the backtest cannot apply those checks: some trades it took, you would have been warned about.
    Every other check of the live risk step (heat, 2 per industry, reward:risk, cash and so on) is replayed.
 
+**Recent listings (late joiners).** Some companies on today's halal list were listed on the exchange
+during the years tested (HYUNDAI, SWIGGY, WAAREEENER...). The backtest lets each one in once it has a year
+of prices, which is fair, but it only knows about the new listings that are still on today's list. The
+ones that disappointed and dropped off are not there to lose money in the replay. That is survivorship
+bias again, and it can be strong with new listings. So every result says how much of its profit came
+from them ("Late joiners: N stocks, contributing X% of total P&L"). If that share is large, be careful:
+`--compare` shows the same years without them in column (c), and `--no-late` runs without them.
+
 **Small groups are noise.** The result is also split by setup (breakout, pullback, trend...) and by swing /
 delivery. A group with only 10 or 15 trades can look great or terrible by luck alone: two lucky trades can
 turn it from a loss into a win. Any group with fewer than 30 trades is marked "(too few to judge)": don't

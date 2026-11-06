@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.1).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.2).
 
 ## What it is
 
@@ -12,8 +12,8 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.1** (tags v0.1.0 to v0.1.11, v0.2.0, v0.2.1; v0.1.3 is folded into v0.1.4)
-- Tests: 319 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.2.2** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.2; v0.1.3 is folded into v0.1.4)
+- Tests: 351 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -37,14 +37,14 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | skill | job |
 |---|---|
 | tayyib-daily | one command: today's list, top 3 PASS picks, `trader/daily/DATE.md` + `.json` |
-| tayyib-dashboard | local web page over the `trader/` files (127.0.0.1): Today, Results, Halal, Tickets, Settings; GET only except `POST /api/config` and `POST /api/run` |
+| tayyib-dashboard | local web page over the `trader/` files (127.0.0.1): Today, Results, Halal, Tickets, Backtest, Settings; GET only except `POST /api/config` and `POST /api/run` (today's list or a backtest) |
 | tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json` |
 | tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), plus user overrides; `compare` against a trusted fund list |
 | tayyib-scanner | swing setups (breakout, pullback, oversold, squeeze) and delivery (trend) |
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
 | tayyib-entry / tayyib-exit | trigger status; stop (swing max 10%, delivery max 15%), target (2R / 3R), time stop |
 | tayyib-timemachine | 10,000 simulated futures plus historical replay, in R after charges |
-| tayyib-backtest | the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars; metrics, in/out-of-sample, `--compare` (score-only ranking), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/` (v0.2.0, v0.2.1) |
+| tayyib-backtest | the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars (`--no-late`, their P&L share always shown); ends on the last completed session; metrics, in/out-of-sample, `--compare` (b: score-only ranking, c: no late joiners), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/`; dashboard tab (v0.2.0 to v0.2.2) |
 | tayyib-budget / tayyib-risk | sizing (1% risk, 20% max position) and PASS / WARN / BLOCK |
 | tayyib-broker | order ticket (manual placement) and journal (placed, stop, close, positions) |
 | tayyib-alerts, tayyib-results, tayyib-insider, tayyib-purify | alerts, quarterly results, NSE insider and bulk deals, dividend purification |
@@ -122,7 +122,8 @@ over MCP (stdio), none of which place orders.
 - **Dashboard redesign (v0.1.7 review):** design system version 2 in `design-system/tayyib/MASTER.md` (petrol teal +
   warm off-white, serif display, bento tiles, drawer / bottom sheet, phone tab bar, no sideways scroll from 375px).
 - **Two write endpoints (v0.1.8):** `POST /api/config` (settings) and `POST /api/run` (tayyib-daily,
-  analysis only), and no others. Each needs Host + Origin + a per-start token (`X-Tayyib-Token`) + JSON +
+  analysis only; v0.2.2 also a backtest: years 3 | 5, mode, compare, always `--write`, one run at a time
+  shared with the daily run), and no others. Each needs Host + Origin + a per-start token (`X-Tayyib-Token`) + JSON +
   ≤ 64 KB. The server calls `tc.validate_config` and never re-implements it; all-or-nothing saves, atomic
   write, backups in `trader/config_backups/` (last 20), 409 on a stale version. Nothing places, modifies or
   cancels an order.
@@ -149,6 +150,8 @@ over MCP (stdio), none of which place orders.
   (overrides win); a stock joins on its 250th bar (`joined_late[]`). Sale proceeds pay for fills from the
   next day. Groups under 30 trades are `too_few`. Banners: today's halal list, survivorship bias, "past
   results" and "news can't be replayed" always; Nifty 50 did better (reference only, not halal).
+  v0.2.2: the window ends on the last completed session (`end_rule`); the late joiners' share of P&L is
+  always reported. The Backtest tab draws `d.order` from the server, so banners come before numbers.
 - **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
@@ -181,9 +184,10 @@ over MCP (stdio), none of which place orders.
 - **v0.1.11:** tracker accounting: REPLACED and ALREADY_HELD rows (repeat listings of a
   waiting or held stock), not counted; Excel Settings column shows the label; empty results blank.
 - **v0.2.0:** `tayyib-backtest` (engine, CLI, MCP tools, tests). No pick, plan or verdict changes.
-- **v0.2.1** (this release): the backtest replays the risk check, lets recent listings join, settles sales
-  next day, flags groups under 30 trades, Nifty banner, `--compare`. No daily-list changes (still default@2).
-- **Next:** a Backtest tab in the dashboard.
+- **v0.2.1:** the backtest replays the risk check, lets recent listings join, settles sales next day,
+  flags groups under 30 trades, Nifty banner, `--compare`.
+- **v0.2.2** (this release): the Backtest tab and its Run button; the window ends on the last completed
+  session; `--no-late`, compare column (c), the late joiners' P&L share. No daily-list changes (default@2).
 
 Later:
 - Scheduled daily run (Windows Task Scheduler steps are already in the User guide)

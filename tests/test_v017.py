@@ -557,6 +557,8 @@ class NoOrderCodeInDashboard(unittest.TestCase):
         for t in labels:                                                      # Why?, Chart, Ratios, Copy ...
             if t in ("Run today's list", "Run anyway"):                       # v0.1.8: runs tayyib-daily, no order
                 continue
+            if t == "Run backtest":                     # v0.2.2: runs tayyib-backtest --write (whitelisted), no order
+                continue
             self.assertNotRegex(t.lower(), r"\b(buy|sell|place|cancel|modify|order|submit|run)\b", t)
 
 

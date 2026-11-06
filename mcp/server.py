@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 PROTOCOL = "2025-06-18"
 
 
@@ -113,12 +113,14 @@ TOOLS = {
                         "to": {"type": "string", "description": "YYYY-MM-DD"}, "capital": {"type": "number"},
                         "max_positions": {"type": "integer"}, "split": {"type": "string", "description": "YYYY-MM-DD"},
                         "take_warn": {"type": "boolean", "description": "place WARN plans too (default true)"},
-                        "compare": {"type": "boolean", "description": "also run it ranked by setup score only"}}),
+                        "compare": {"type": "boolean", "description": "also run (b) ranked by setup score only and (c) without late joiners"},
+                        "late": {"type": "boolean", "description": "include stocks listed during the window (default true)"}}),
                      "tayyib-backtest/backtest.py",
                      lambda a: ["run"] + sum([["--" + k.replace("_", "-"), str(a[k])] for k in
                                               ("mode", "setups", "years", "from", "to", "capital", "max_positions",
                                                "split") if a.get(k) not in (None, "")], [])
                      + (["--no-take-warn"] if a.get("take_warn") is False else [])
+                     + (["--no-late"] if a.get("late") is False else [])
                      + (["--compare"] if a.get("compare") else [])),
     "backtest_list": ("Saved backtests (trader/backtest/): id, window, trades, return, CAGR, drawdown. With id: "
                       "that backtest in full.", S({"id": {"type": "string"}}), "tayyib-backtest/backtest.py",

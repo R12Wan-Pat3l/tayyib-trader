@@ -142,10 +142,23 @@ link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank"
   and writes the Excel file. Use `--no-track` to skip this. The `.xlsx` file is written with the standard
   library (zipfile plus SpreadsheetML), with 3 sheets: Tracker, Summary and Read me.
 
-## Backtest (`tayyib-backtest`, v0.2.0, closer to live in v0.2.1)
+## Backtest (`tayyib-backtest`, v0.2.0, closer to live in v0.2.1, dashboard tab v0.2.2)
 
 `backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions 5] [--split]
-[--no-take-warn] [--compare] [--write] [--json]`, `list`, `show ID`. Writes `trader/backtest/<id>.json` and `.md` with `--write`, and
+[--no-take-warn] [--no-late] [--compare] [--write] [--json]`, `list`, `show ID`.
+
+**Window end (v0.2.2):** without `--to`, `default_end(now, cfg)` picks the last completed session: today
+once it is 15:30 IST on a trading day (`tc.is_trading_day`: weekends and `holidays`), otherwise the
+previous trading day. A stock with no bar on that day ends on its session before. The rule is recorded
+as `params.end_rule` / `window.end_rule`; with `--to` it is "--to DATE".
+
+**Late joiners (v0.2.2):** `--no-late` simulates without the stocks in `joined_late[]` (same bars).
+`late_joiners {stocks, trades, pnl_rs, total_pnl_rs, pct_of_total, excluded, text}` is always in the
+result and the .md: "Late joiners: N stocks, contributing X% of total P&L" from the as-run trades;
+`pct_of_total` is null (UNKNOWN in the text) when the total P&L is not positive. `--compare` adds
+`compare.no_late` (c): the as-run simulation without them, from the same bars (with `--no-late` it is (a)).
+Saved runs also carry `run_at` and, for an OK benchmark, `curve: [[date, value]]` (buy and hold from the
+capital, sell charge on the last day) for the dashboard chart. Writes `trader/backtest/<id>.json` and `.md` with `--write`, and
 nothing else (prices go to `trader/cache/`, range `5y` for 3 years, `10y` / `max` for longer). The id is
 `<to>_<mode>_<from>_<hash6>` of the parameters, the settings hash and the universe, so the same inputs
 give the same file, byte for byte.
@@ -173,7 +186,8 @@ halal list's age and the news). With the defaults it is the live check, byte for
 | charges | `tc.order_charges` on every buy and sell; still open on the last day: valued at the last close after the sell charge (`OPEN AT END`) |
 
 `--compare` (v0.2.1) runs `simulate` a second time on the same bars with `rank="score"` (setup score, ties by
-symbol; no time machine) and adds `compare{as_run, score_only, note}` (overall metrics, by-mode trades and
+symbol; no time machine) and (v0.2.2) a third time without late joiners, and adds
+`compare{as_run, score_only, no_late, note}` (overall metrics, by-mode trades and
 expectancy, out-of-sample expectancy). The result's `rules[]` lists what is and is not replayed.
 
 Result JSON: `id, version, params, settings{label, hash, differs_from_default, capital, ...}, window{from, to,
@@ -369,7 +383,7 @@ the rupee loss per trade, the drawdown after 3, 5 and 10 losses in a row (each l
 is left), and for sample stop distances whether the risk % or the max position % sets the quantity
 (they cross at `risk % / max position %`, 5% by default). Before charges. It runs nothing else.
 
-## Dashboard (`tayyib-dashboard`, v0.1.7, settings and run v0.1.8)
+## Dashboard (`tayyib-dashboard`, v0.1.7, settings and run v0.1.8, backtest v0.2.2)
 
 `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]` serves one page and a JSON API over
 the files in `TAYYIB_DIR` (or `./trader`), and opens the browser unless `--no-browser`.
@@ -415,6 +429,9 @@ issues same-origin GETs to `/api/...`.
 | `/api/risk-preview?change=` | `tc.risk_preview` for the config with the pending change (`{"set": {key: value}, "reset": [key]}`) applied, plus that change's `diff`, `errors` by key, the new settings label and the loosened banner. Writes nothing |
 | `/api/config/backups`, `/api/config/backup-diff?name=` | the backups (newest first), and what restoring one would change |
 | `/api/run/status` | `state` (idle / running / ok / failed), start time, elapsed, the last ~200 output lines, the exit code or error, and the before-15:30 `advice` |
+| `/api/backtests` | the saved runs in `trader/backtest/` whose file names a backtest writes (`DATE_MODE_DATE_hex6`), newest first by `run_at` (file time for older runs): id, run time, window, mode, settings label, trades, CAGR, max DD and a `label` for the picker. No folder: `{"missing": "backtest", "hint": "run a backtest"}` |
+| `/api/backtest?id=` | one run shaped for display, `order` = header, banners, cards, equity, breakdown, compare, trades, universe, footer (the page draws in this order, so the banners always come before any number): `header.items`, `banners[]` (verbatim), `cards` (strategy; Shariah BeES; Nifty 50 with `reference_only` and the label "not halal-screened, reference only"; UNKNOWN with the reason when a benchmark failed), `equity` (SVG coordinates of the three lines on one date axis from the capital, end labels, a drawdown strip with the worst drawdown's peak and trough marks), `breakdown` (overall, by mode, by setup, in- / out-of-sample; `too_few` rows carry "(too few to judge)"), `compare` (columns a, b, c), `trades` (display strings, R signed, `exit_kind`) with `filters`, `universe` (joined late, skipped, the late-joiner line), `footer`. An id must match the pattern and be one of the saved files |
+| `/api/chart?bt=ID&n=K` | trade K of a saved backtest on the same chart view as a tracker row (signal, plan levels, fill, exit), from the cached bars the backtest used (else a read-only fetch; else "price data unavailable") |
 | `/api/chart?symbol=&from=` | for one tracker row: daily bars around it, as SVG coordinates for the close line, the entry / stop / target lines and the fill / exit markers. Live fetch, else the last cached bars (labelled); else `{"status": "unknown", "message": "price data unavailable"}`. Never a guessed line |
 
 **Labels (v0.1.7 review):** today's response has `made_with` ("This list was made with: default@1") next to
@@ -453,8 +470,13 @@ the setting's name) to each error, `needs_note` for a halal loosening, and `prob
 the validator's own `message` / `errors` are unchanged (the CLI and daily notes keep them). The key name
 stays only in the small code line under each field.
 
-**Run (`POST /api/run`, `actions.Runner`):** the only option is `{"skip_news": bool}` (→ `--no-news`); any
-other key is 400. It starts `tayyib-daily/daily.py` with `sys.executable`, the same `TAYYIB_DIR`, UTF-8 and
+**Run (`POST /api/run`, `actions.Runner`):** the body is `{"skip_news": bool}` (→ tayyib-daily `--no-news`)
+or (v0.2.2) `{"backtest": {"years": 3 | 5, "mode": "all" | "swing" | "delivery", "compare": bool}}` (→
+`tayyib-backtest/backtest.py run --years N --mode M [--compare] --write`, built by `actions.backtest_argv`,
+nothing else; `--write` writes only `trader/backtest/` and the price cache). Anything else is 400
+(`actions.run_request`). Daily and backtest share the one run slot: a POST while either runs is 409 with
+the reason. A backtest is `ok` only for exit code 0 and a new `backtest/*.json` (`backtest_id`); its
+`status` adds `kind`, `command`, and `progress` (its last stderr progress line). It starts `tayyib-daily/daily.py` with `sys.executable`, the same `TAYYIB_DIR`, UTF-8 and
 unbuffered output, no window on Windows. One run at a time: a second POST while running is 409. A reader
 thread keeps the last 200 lines. The state is `ok` only for exit code 0 and a fresh `daily/<today>.json`;
 otherwise `failed` with the error text (daily.py writes the list at the end, so a failed run leaves the

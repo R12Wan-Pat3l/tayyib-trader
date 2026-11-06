@@ -3,8 +3,10 @@
 1. trader/config.json, from the Settings tab: validated by tc.validate_config (the single source of truth,
    never re-implemented here), written atomically (temp file + replace), with a timestamped copy of the old
    file in trader/config_backups/ (the last 20 are kept). A refused change writes nothing.
-2. A run of tayyib-daily (analysis only: it makes the daily list), one at a time, as a subprocess with the
-   same Python and the same TAYYIB_DIR. The only option the page can set is "skip news".
+2. A run of tayyib-daily (analysis only: it makes the daily list) or (v0.2.2) of tayyib-backtest with --write
+   (it writes only trader/backtest/ and the price cache), one at a time, as a subprocess with the same Python
+   and the same TAYYIB_DIR. The page can set only "skip news" for the daily list, and only years (3 or 5),
+   mode (all, swing, delivery) and compare (on / off) for a backtest.
 
 Nothing here places, changes or cancels an order, and nothing here talks to a broker.
 """
@@ -25,6 +27,9 @@ import tayyib_core as tc  # noqa: E402
 
 ROOT = os.path.dirname(HERE)
 DAILY = os.path.join(ROOT, "tayyib-daily", "daily.py")
+BACKTEST = os.path.join(ROOT, "tayyib-backtest", "backtest.py")
+BT_YEARS = (3, 5)
+BT_MODES = ("all", "swing", "delivery")
 BACKUP_DIR = "config_backups"
 KEEP_BACKUPS = 20
 BACKUP_RE = re.compile(r"^config-\d{8}-\d{6}(-\d+)?\.json$")
@@ -263,32 +268,81 @@ def run_advice(now=None, cfg=None):
     return {"confirm": True, "message": "Prices aren't final yet, levels may change. " + why}
 
 
-class Runner(object):
-    """One tayyib-daily run at a time. start() -> state; status() -> state with the last lines of output."""
+def run_request(body):
+    """What the page may start, strictly: {"skip_news": bool} (tayyib-daily) or
+    {"backtest": {"years": 3 | 5, "mode": "all" | "swing" | "delivery", "compare": bool}} (tayyib-backtest).
+    -> (kind, options). Anything else is refused."""
+    if isinstance(body, dict) and "backtest" in body:
+        b = body["backtest"]
+        if set(body) != {"backtest"} or not isinstance(b, dict) or set(b) - {"years", "mode", "compare"}:
+            raise Refused(400, "a backtest takes only years (3 or 5), mode (all, swing, delivery) and compare")
+        years, mode, compare = b.get("years", 3), b.get("mode", "all"), b.get("compare", False)
+        if isinstance(years, bool) or years not in BT_YEARS:
+            raise Refused(400, "years must be 3 or 5")
+        if mode not in BT_MODES:
+            raise Refused(400, "mode must be all, swing or delivery")
+        if not isinstance(compare, bool):
+            raise Refused(400, "compare must be true or false")
+        return "backtest", {"years": years, "mode": mode, "compare": compare}
+    if not isinstance(body, dict) or set(body) - {"skip_news"} or not isinstance(body.get("skip_news", False), bool):
+        raise Refused(400, "the only option is skip_news (true or false)")
+    return "daily", {"skip_news": bool(body.get("skip_news"))}
 
-    def __init__(self, script=DAILY, python=None):
+
+def backtest_argv(opts):
+    """The whole command line a backtest from the page can have: run, --years, --mode, --compare, --write."""
+    return (["run", "--years", str(opts["years"]), "--mode", opts["mode"]] + (["--compare"] if opts["compare"] else [])
+            + ["--write"])
+
+
+def newest_backtest(since):
+    """The id of the newest trader/backtest/*.json written at or after `since` (epoch seconds), or None."""
+    d = os.path.join(tc.data_dir(), "backtest")
+    if not os.path.isdir(d):
+        return None
+    best = None
+    for f in os.listdir(d):
+        if f.endswith(".json"):
+            m = os.path.getmtime(os.path.join(d, f))
+            if m >= since - 1 and (best is None or m > best[0]):
+                best = (m, f[:-5])
+    return best[1] if best else None
+
+
+class Runner(object):
+    """One run at a time, tayyib-daily or a backtest. start() -> state; status() -> state with the last lines of
+    output."""
+
+    def __init__(self, script=DAILY, python=None, backtest_script=BACKTEST):
         self.script = script
+        self.backtest_script = backtest_script
         self.python = python or sys.executable
         self.lock = threading.Lock()
         self.proc = None
         self.state = {"state": "idle", "started": None, "ended": None, "returncode": None, "error": None,
-                      "skip_news": False, "list_date": None, "new_list": False}
+                      "kind": "daily", "skip_news": False, "list_date": None, "new_list": False,
+                      "backtest": None, "backtest_id": None}
         self.lines = collections.deque(maxlen=LOG_LINES)
         self.t0 = self.t1 = None
 
     def start(self, body):
-        if not isinstance(body, dict) or set(body) - {"skip_news"} or not isinstance(body.get("skip_news", False), bool):
-            raise Refused(400, "the only option is skip_news (true or false)")
+        kind, opts = run_request(body)
         with self.lock:
             if self.state["state"] == "running":
-                raise Refused(409, "a run is already going (started %s)" % self.state["started"])
-            skip = bool(body.get("skip_news"))
-            cmd = [self.python, self.script] + (["--no-news"] if skip else [])
+                what = "a backtest" if self.state.get("kind") == "backtest" else "today's list"
+                raise Refused(409, "a run is already going (%s, started %s): wait for it to finish"
+                              % (what, self.state["started"]))
+            skip = bool(opts.get("skip_news"))
+            if kind == "backtest":
+                cmd = [self.python, self.backtest_script] + backtest_argv(opts)
+            else:
+                cmd = [self.python, self.script] + (["--no-news"] if skip else [])
             env = dict(os.environ, TAYYIB_DIR=tc.data_dir(), PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
             self.lines.clear()
             self.t0, self.t1 = time.time(), None
             self.state = {"state": "running", "started": tc.now_ist().isoformat(timespec="seconds"), "ended": None,
-                          "returncode": None, "error": None, "skip_news": skip, "list_date": None, "new_list": False}
+                          "returncode": None, "error": None, "kind": kind, "skip_news": skip, "list_date": None,
+                          "new_list": False, "backtest": opts if kind == "backtest" else None, "backtest_id": None}
             try:
                 self.proc = subprocess.Popen(cmd, cwd=os.path.dirname(tc.data_dir()), env=env,
                                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -305,6 +359,8 @@ class Runner(object):
         for line in proc.stdout:
             self.lines.append(line.rstrip("\r\n"))
         rc = proc.wait()
+        if self.state.get("kind") == "backtest":
+            return self._done_backtest(rc, t0)
         today = tc.today_ist().isoformat()
         p = os.path.join(tc.data_dir(), "daily", today + ".json")
         fresh = os.path.exists(p) and os.path.getmtime(p) >= t0 - 1
@@ -319,10 +375,28 @@ class Runner(object):
                     "tayyib-daily stopped with exit code %d: %s" % (rc, " / ".join(tail) or "no output") if rc != 0 else
                     "tayyib-daily finished but wrote no list for %s" % today))
 
+    def _done_backtest(self, rc, t0):
+        rid = newest_backtest(t0)
+        with self.lock:
+            self.t1 = time.time()
+            self.state.update(ended=tc.now_ist().isoformat(timespec="seconds"), returncode=rc)
+            if rc == 0 and rid:
+                self.state.update(state="ok", backtest_id=rid)
+            else:
+                tail = [x for x in self.lines if x.strip()][-3:]
+                self.state.update(state="failed", error=(
+                    "tayyib-backtest stopped with exit code %d: %s" % (rc, " / ".join(tail) or "no output") if rc != 0
+                    else "tayyib-backtest finished but saved no backtest"))
+
     def status(self):
         with self.lock:
             out = dict(self.state)
             out["elapsed_s"] = None if self.t0 is None else int((self.t1 or time.time()) - self.t0)
             out["lines"] = list(self.lines)
-            out["command"] = "tayyib-daily%s" % (" --no-news" if out["skip_news"] else "")
+            if out.get("kind") == "backtest":
+                out["command"] = "tayyib-backtest " + " ".join(backtest_argv(out["backtest"]))
+                prog = [x.strip() for x in out["lines"] if x.startswith("  ")]   # its progress lines (stderr)
+                out["progress"] = prog[-1] if prog else None
+            else:
+                out["command"] = "tayyib-daily%s" % (" --no-news" if out["skip_news"] else "")
             return out

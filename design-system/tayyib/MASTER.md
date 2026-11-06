@@ -33,7 +33,7 @@
 | Indian numbers | Formatted by the server: `₹1,00,000.00`; large money as `₹523.7 cr`, `₹12.5 lakh` |
 | Missing data | **UNKNOWN** for a data failure; "not checked (business excluded)" when the screen never needed the number; "not yet" / "not closed" for a paper trade still pending; "no closed trades" instead of a 0 or ₹0.00 that looks real; "price data unavailable" instead of a guessed line |
 | No sideways scroll | At every width from 375px. Tables use `table-layout: fixed` on a desktop and become cards below 900px |
-| Two writes only | Buttons switch tabs, sort, filter, open a drawer or **copy** text. The only writes are **Save settings** (after a review drawer) and **Run today's list** (confirm drawer before 3:30 PM IST). Nothing places an order |
+| Two write routes only | Buttons switch tabs, sort, filter, open a drawer or **copy** text. The only writes are **Save settings** (after a review drawer), **Run today's list** (confirm drawer before 3:30 PM IST) and **Run backtest** (v0.2.2: years, mode, compare in a drawer; the same `/api/run` route, one run at a time). Nothing places an order |
 | Motion | ≤ 200ms, transform / opacity / colour only; all off under `prefers-reduced-motion: reduce` |
 | Tap targets | ≥ 44px for every button on a phone (tabs 56px) |
 
@@ -119,6 +119,18 @@ Icons are `aria-hidden`; the label beside them is the accessible text.
 - **Collapsed sections**: `<details>` for "Blocked (not tickets)", the other broker's steps and run notes.
 - **Skeletons** for loading (shimmer, off under reduced motion) and **empty states** that say what to run
   ("Run: give me today's halal list").
+
+## 5b. Backtest tab (v0.2.2)
+
+Order fixed by the server (`order`): run picker + Run backtest + header list → **banners (warn style, all,
+never collapsed)** → cards (strategy wide; Shariah BeES; Nifty 50 with a dashed border and the label "not
+halal-screened, reference only" beside the neutral icon) → equity chart (strategy solid 2.4px primary,
+ETF dashed info, Nifty dotted unknown: told apart by dash pattern, end labels and a legend, not by hue) with
+a drawdown strip (block tint, dashed markers at the worst drawdown's peak and trough, dates in text) →
+breakdown tables (rows under 30 trades: surface-2, muted text, dashed-circle icon and "(too few to judge)")
+→ compare table → trades (filters as segmented controls, R with ▲ / ▼ and a sign, a Chart button per row)
+→ universe (tiles, the late-joiner line as an info banner, two tables) → footer line "Past results do not
+predict future results. Not financial advice, not a fatwa."
 
 ## 6. Page pattern: bento data views
 

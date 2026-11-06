@@ -18,7 +18,10 @@ A replay of the past with today's halal list: read the banners. Places no order.
 
   backtest.py run [--mode swing|delivery|all] [--setups breakout,pullback] [--years 3]
                   [--from YYYY-MM-DD --to YYYY-MM-DD] [--capital N] [--max-positions 5]
-                  [--split YYYY-MM-DD] [--no-take-warn] [--compare] [--write] [--json]
+                  [--split YYYY-MM-DD] [--no-take-warn] [--no-late] [--compare] [--write] [--json]
+
+Without --to the window ends on the last completed session: today after 15:30 IST on a trading day,
+otherwise the previous trading day (so a run in market hours never uses a half-made bar).
   backtest.py list
   backtest.py show ID
 """
@@ -633,6 +636,7 @@ def benchmark(sym, name, range_, start, end, capital, cfg, fetch=None):
     st.pop("exposure_pct", None)
     out.update(status="OK", start=bars[0]["date"], end=bars[-1]["date"], buy_price=round(p0, 2),
                sell_price=round(p1, 2), charges_rs=round(buy + sell, 2), **st)
+    out["curve"] = [[d, round(v, 2)] for d, v, _ in pts]          # v0.2.2: for the dashboard's equity chart
     if bars[0]["date"] > start and (tc.parse_date(bars[0]["date"]) - tc.parse_date(start)).days > 7:
         out["note"] = "its data starts %s, after the window start %s" % (bars[0]["date"], start)
     return out
@@ -677,8 +681,26 @@ def overfit(ise, ose):
 # The run
 # ---------------------------------------------------------------------------
 
-def window(a, today):
-    end = a.to or today.isoformat()
+def default_end(now, cfg):
+    """The last completed NSE session at `now` (IST) -> (YYYY-MM-DD, end_rule). Today once it is 15:30 IST on a
+    trading day (a stock with no bar today then simply ends on the session before); otherwise the previous
+    trading day (weekends and the holidays in config skipped). A bar made during market hours is never used."""
+    d = now.date()
+    if tc.is_trading_day(d, cfg) and now.hour * 60 + now.minute >= 15 * 60 + 30:
+        return d.isoformat(), "last completed session: today (%s, after 15:30 IST)" % d.isoformat()
+    p = d - dt.timedelta(days=1)
+    while not tc.is_trading_day(p, cfg):
+        p -= dt.timedelta(days=1)
+    why = ("before 15:30 IST" if tc.is_trading_day(d, cfg) else "today is not a trading day")
+    return p.isoformat(), "last completed session: the previous trading day (%s; %s)" % (p.isoformat(), why)
+
+
+def window(a, now, cfg):
+    """-> (start, end, split, end_rule)."""
+    if a.to:
+        end, rule = a.to, "--to %s" % a.to
+    else:
+        end, rule = default_end(now, cfg)
     if a.from_:
         start = a.from_
     else:
@@ -693,7 +715,7 @@ def window(a, today):
     split = a.split or (s + dt.timedelta(days=round((e - s).days * 2 / 3))).isoformat()
     if not start < split <= end:
         tc.die("--split must be inside the window (%s to %s)" % (start, end))
-    return start, end, split
+    return start, end, split, rule
 
 
 def run_id(params, label, syms):
@@ -714,6 +736,28 @@ def compare_view(metrics, split):
     return v
 
 
+def late_share(trades, late, excluded=False):
+    """How much of the P&L came from stocks that joined late (listed during the window): always reported, because
+    today's list holds only the listings that survived and did well enough to be on it."""
+    syms = {x["symbol"] for x in late}
+    lt = [t for t in trades if t["symbol"] in syms]
+    tot = round(sum(t["pnl_rs"] for t in trades), 2)
+    lp = round(sum(t["pnl_rs"] for t in lt), 2)
+    pct = round(lp / tot * 100, 1) if tot > 0 else None
+    if excluded:
+        text = ("Late joiners: %s, contributing 0.0%% of total P&L (left out with --no-late)."
+                % tc.plural(len(syms), "stock"))
+    elif pct is None:
+        text = ("Late joiners: %s, contributing UNKNOWN%% of total P&L (a share of a total that is not "
+                "positive means nothing: theirs %s, total %s; %s)." % (tc.plural(len(syms), "stock"), tc.fmt_rs(lp, 0), tc.fmt_rs(tot, 0),
+                                                                       tc.plural(len(lt), "trade")))
+    else:
+        text = ("Late joiners: %s, contributing %.1f%% of total P&L (%s of %s; %s)."
+                % (tc.plural(len(syms), "stock"), pct, tc.fmt_rs(lp, 0), tc.fmt_rs(tot, 0), tc.plural(len(lt), "trade")))
+    return {"stocks": len(syms), "trades": 0 if excluded else len(lt), "pnl_rs": 0.0 if excluded else lp,
+            "total_pnl_rs": tot, "pct_of_total": 0.0 if excluded else pct, "excluded": excluded, "text": text}
+
+
 def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
     """The whole backtest -> result dict (no file is written here)."""
     syms, status_counts = halal_universe(uni)
@@ -721,21 +765,36 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
     first = tc.parse_date(start) - dt.timedelta(days=365 * TM_YEARS + 10)
     range_ = yahoo_range(first, tc.today_ist())
     data, skipped, late = data_fn(syms, range_, start, end, progress=progress)
+    no_late = not params.get("late", True)
+    late_syms = {x["symbol"] for x in late}
+    early = {s: b for s, b in data.items() if s not in late_syms}       # the same bars, late joiners left out
     capital = float(cfg["capital"])
-    sim = simulate(data, cfg, start, end, params["mode"], params["setups"], params["max_positions"], progress,
-                   uni=uni, take_warn=params["take_warn"], rank="tm")
+    sim = simulate(early if no_late else data, cfg, start, end, params["mode"], params["setups"],
+                   params["max_positions"], progress, uni=uni, take_warn=params["take_warn"], rank="tm")
     metrics, spl = all_metrics(sim, capital, split)
     compare = None
     if params.get("compare"):
         if progress:
-            progress("compare: the same window ranked by setup score only")
-        sim_b = simulate(data, cfg, start, end, params["mode"], params["setups"], params["max_positions"], progress,
-                         uni=uni, take_warn=params["take_warn"], rank="score")
+            progress("compare (b): the same window ranked by setup score only")
+        sim_b = simulate(early if no_late else data, cfg, start, end, params["mode"], params["setups"],
+                         params["max_positions"], progress, uni=uni, take_warn=params["take_warn"], rank="score")
         mb, sb = all_metrics(sim_b, capital, split)
-        compare = {"as_run": compare_view(metrics, spl), "score_only": compare_view(mb, sb),
+        compare = {"as_run": compare_view(metrics, spl), "score_only": compare_view(mb, sb), "no_late": None,
                    "note": "(a) as run: tayyib-daily's ranking with the time machine; (b) the same days, data, "
-                           "sizing and risk check, picks ranked by setup score only. The difference is what the "
-                           "time-machine ranking added (or cost)."}
+                           "sizing and risk check, picks ranked by setup score only: the difference is what the "
+                           "time-machine ranking added (or cost); (c) as run without the stocks that joined late "
+                           "(listed during the window): the difference is how much the result leans on recent "
+                           "listings that survived to be on today's list."}
+        if no_late:
+            compare["no_late_note"] = "(c) is (a): this run already leaves late joiners out (--no-late)."
+            compare["no_late"] = compare["as_run"]
+        else:
+            if progress:
+                progress("compare (c): the same window without late joiners")
+            sim_c = simulate(early, cfg, start, end, params["mode"], params["setups"], params["max_positions"],
+                             progress, uni=uni, take_warn=params["take_warn"], rank="tm")
+            mc, sc = all_metrics(sim_c, capital, split)
+            compare["no_late"] = compare_view(mc, sc)
     benches = {}
     for sym, name in BENCHMARKS:
         benches[sym] = benchmark(sym, name, range_, start, end, capital, cfg, fetch=bench_fn)
@@ -743,17 +802,20 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
     res = {
         "id": run_id(params, snap["hash"], syms),
         "version": tc.VERSION,
+        "run_at": tc.now_ist().isoformat(timespec="seconds"),
         "params": params,
         "settings": {"label": snap["label"], "hash": snap["hash"], "differs_from_default": snap["differs_from_default"],
                      "capital": capital, "risk_per_trade_pct": cfg["max_risk_per_trade_pct"],
                      "max_position_pct": cfg["max_position_pct"], "broker": cfg["broker"]},
         "window": {"from": start, "to": end, "split": split, "first_day": sim["days"][0] if sim["days"] else None,
                    "last_day": sim["days"][-1] if sim["days"] else None, "trading_days": len(sim["days"]),
-                   "price_range": range_},
+                   "price_range": range_, "end_rule": params.get("end_rule")},
         "universe": {"list_updated": uni.get("updated"), "statuses": status_counts, "compliant": len(syms),
-                     "tested": len(data), "joined_late": len(late), "skipped": len(skipped)},
+                     "tested": len(early) if no_late else len(data), "joined_late": len(late),
+                     "late_excluded": no_late, "skipped": len(skipped)},
         "skipped": skipped,
         "joined_late": late,
+        "late_joiners": late_share(sim["trades"], late, excluded=no_late),
         "banners": [],
         "metrics": metrics,
         "split": spl,
@@ -763,7 +825,8 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
             "Signals, liquidity, plans, ranking and the risk check on each day use that day's bars and earlier "
             "only; fills from the next session.",
             "A stock joins on the first day it has %d bars of history; stocks listed later join when they get "
-            "there (joined_late[])." % WARMUP_BARS,
+            "there (joined_late[])%s." % (WARMUP_BARS, "; with --no-late they are left out" if no_late else ""),
+            "The window ends on %s." % (params.get("end_rule") or "--to"),
             "Each day's stocks are picked and ranked like tayyib-daily (scanner top max(2 x daily.top, 25), one "
             "setup per stock, rank_key with the time machine on the stock's last 2 years; ties by symbol).",
             "Sized with tayyib-budget's rule on the configured capital, in rank order (each sized plan uses up "
@@ -848,21 +911,26 @@ def counts_md(c):
 
 
 def compare_md(cp):
-    a, b = cp["as_run"], cp["score_only"]
+    a, b, c = cp["as_run"], cp["score_only"], cp.get("no_late")
+    cols = [a, b] + ([c] if c else [])
     rows = (("trades", "trades", ""), ("win rate", "win_rate_pct", "%"), ("expectancy", "expectancy_r", "R"),
             ("profit factor", "profit_factor", ""), ("P&L", "pnl_rs", "Rs"), ("total return", "total_return_pct", "%"),
             ("CAGR", "cagr_pct", "%"), ("max drawdown", "max_drawdown_pct", "%"), ("exposure", "exposure_pct", "%"),
             ("out-of-sample expectancy", "out_of_sample_expectancy_r", "R"))
-    L = ["## Compare: time-machine ranking vs score only", "", cp["note"], "",
-         "| | (a) as run | (b) score only |", "|---|---|---|"]
+    heads = ["(a) as run", "(b) score only"] + (["(c) as run without late joiners"] if c else [])
+    L = ["## Compare: (a) as run, (b) score only, (c) without late joiners", "", cp["note"], ""]
+    if cp.get("no_late_note"):
+        L += [cp["no_late_note"], ""]
+    L += ["| | " + " | ".join(heads) + " |", "|---" * (len(heads) + 1) + "|"]
     for name, k, u in rows:
-        L.append("| %s | %s | %s |" % (name, str(a[k]) if k == "trades" else fmt(a[k], u),
-                                       str(b[k]) if k == "trades" else fmt(b[k], u)))
-    for m in sorted(set(a["by_mode"]) | set(b["by_mode"])):
-        x, y = a["by_mode"].get(m) or {}, b["by_mode"].get(m) or {}
-        L.append("| %s: trades / expectancy | %s / %s%s | %s / %s%s |" % (
-            m, x.get("trades", 0), fmt(x.get("expectancy_r"), "R"), " " + TOO_FEW if x.get("too_few") else "",
-            y.get("trades", 0), fmt(y.get("expectancy_r"), "R"), " " + TOO_FEW if y.get("too_few") else ""))
+        L.append("| %s | %s |" % (name, " | ".join(str(x[k]) if k == "trades" else fmt(x[k], u) for x in cols)))
+    for m in sorted(set().union(*[x["by_mode"] for x in cols])):
+        cells = []
+        for x in cols:
+            g = x["by_mode"].get(m) or {}
+            cells.append("%s / %s%s" % (g.get("trades", 0), fmt(g.get("expectancy_r"), "R"),
+                                        " " + TOO_FEW if g.get("too_few") else ""))
+        L.append("| %s: trades / expectancy | %s |" % (m, " | ".join(cells)))
     return L + [""]
 
 
@@ -902,7 +970,11 @@ def render_md(r):
     L += ["", "The Nifty 50 is not halal-screened: it is there for reference only, not as a halal option.", ""]
     if r.get("compare"):
         L += compare_md(r["compare"])
+    if w.get("end_rule"):
+        L += ["Window end: %s." % w["end_rule"], ""]
     L += ["## What happened to the plans", ""] + counts_md(r["counts"]) + [""]
+    if r.get("late_joiners"):
+        L += ["## Late joiners", "", r["late_joiners"]["text"], ""]
     if r.get("joined_late"):
         L += ["## Joined late (listed recently)", ""] + \
              ["- %s: joined %s (data starts %s)" % (x["symbol"], x["join_date"], x["data_starts"])
@@ -959,8 +1031,10 @@ def main(argv=None):
     r.add_argument("--take-warn", dest="take_warn", action="store_true", default=True,
                    help="place plans the risk check WARNs about, as you can live (default)")
     r.add_argument("--no-take-warn", dest="take_warn", action="store_false", help="place PASS plans only")
+    r.add_argument("--no-late", dest="late", action="store_false", default=True,
+                   help="leave out stocks that joined late (listed during the window)")
     r.add_argument("--compare", action="store_true",
-                   help="also run the same window ranked by setup score only, and show both side by side")
+                   help="also run (b) ranked by setup score only and (c) without late joiners, side by side")
     r.add_argument("--write", action="store_true", help="save trader/backtest/<id>.json and .md")
     r.add_argument("--json", action="store_true")
     ls = sub.add_parser("list", help="saved backtests")
@@ -1016,13 +1090,14 @@ def main(argv=None):
         bad = [x for x in setups if x not in tc.SWING_SETUPS + tc.DELIVERY_SETUPS]
         if bad:
             tc.die("unknown setup %s (choose from %s)" % (", ".join(bad), ", ".join(tc.SWING_SETUPS + tc.DELIVERY_SETUPS)))
-    start, end, split = window(a, tc.today_ist())
+    start, end, split, end_rule = window(a, tc.now_ist(), cfg)
     uni = tc.load_universe()
     if not uni.get("stocks"):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first")
     params = {"mode": a.mode, "setups": setups, "from": start, "to": end, "split": split,
               "max_positions": a.max_positions, "top": cfg["daily"]["top"], "warmup_bars": WARMUP_BARS,
-              "tm_runs": TM_RUNS, "tm_seed": TM_SEED, "take_warn": a.take_warn, "compare": a.compare}
+              "tm_runs": TM_RUNS, "tm_seed": TM_SEED, "take_warn": a.take_warn, "compare": a.compare,
+              "late": a.late, "end_rule": end_rule}
     t0 = time.time()
     progress = None if a.json else (lambda m: sys.stderr.write("  %s\n" % m))
     res = run(params, cfg, uni, progress=progress)

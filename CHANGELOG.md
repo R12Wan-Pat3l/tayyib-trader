@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.2.2 (2026-11-06)
+
+A Backtest tab in the dashboard, and two engine fixes. No pick, plan or verdict changes in the daily list
+(still default@2; the baseline is unchanged).
+
+### Added
+
+- **Backtest tab.** A picker of your saved runs (newest first) and a header (window, capital, risk, max
+  positions, settings, WARN taken or not); every banner first, before any number; cards for the strategy
+  (CAGR, max drawdown, expectancy, trades, win rate) next to the Shariah BeES and the Nifty 50 ("not
+  halal-screened, reference only"); the equity of all three from your capital with a drawdown strip that
+  marks the worst drawdown's dates; the breakdown by mode, setup and in- / out-of-sample (groups under 30
+  trades greyed and marked "(too few to judge)"); the compare columns; every trade, sortable and filtered
+  by setup, mode and exit reason, each with its price chart; the universe (joined late, skipped, the
+  late-joiner P&L share). Read-only `GET /api/backtests` and `/api/backtest?id=`.
+- **Run backtest** button: years (3 or 5), mode, compare. It goes through the existing `POST /api/run`
+  (same token, Origin, Host and one-run-at-a-time rule as "Run today's list") and can only start
+  `tayyib-backtest/backtest.py run --years N --mode M [--compare] --write`, which writes only
+  `trader/backtest/` and the price cache. Progress shows while it runs; the run list refreshes when it ends.
+- `--no-late`: leave out the stocks that joined late (listed during the window).
+- `--compare` adds a third column, (c) as run without late joiners (same prices, no new download).
+- Every run says "Late joiners: N stocks, contributing X% of total P&L" (JSON `late_joiners`, and the .md).
+- Saved runs carry `run_at` and the benchmarks' equity (`benchmarks.*.curve`) for the chart.
+- MCP `backtest_run` takes `late`.
+
+### Changed
+
+- **Repeatable by default:** without `--to`, the window ends on the last completed session: today after
+  15:30 IST on a trading day, otherwise the previous trading day. A run in market hours no longer uses a
+  half-made bar. `params.end_rule` and `window.end_rule` say which.
+
 ## v0.2.1 (2026-11-06)
 
 The backtest is closer to what the live pipeline would really have done. Engine only (no dashboard tab yet).

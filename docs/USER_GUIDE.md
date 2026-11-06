@@ -79,8 +79,9 @@ Or ask Claude: **"How did yesterday's picks do?"**. This is paper only: nothing 
 
 ### Your dashboard (in the browser)
 Everything above, on one page in your browser. It cannot buy or sell anything, and it runs on your own
-computer only (nobody else can open it). The only two things it can change are your settings (the
-Settings tab) and today's list (the **Run today's list** button), both explained below.
+computer only (nobody else can open it). The only things it can change are your settings (the
+Settings tab), today's list (the **Run today's list** button) and your saved backtests (the **Run
+backtest** button on the Backtest tab), all explained below.
 
 **Open it on Windows:**
 - In Claude Code (in your `tayyib-live` folder), ask: **"Show my dashboard"**. Your browser opens
@@ -186,7 +187,43 @@ How to read it:
   you can see how much the time-machine ranking helped.
 
 Options: `--mode swing` or `delivery`, `--years 5`, `--capital 200000`, `--max-positions 4`, or
-`--from 2023-01-01 --to 2025-12-31`. `py tayyib-backtest\backtest.py list` shows your saved runs.
+`--from 2023-01-01 --to 2025-12-31`, and `--no-late` to leave out stocks listed during those years.
+`py tayyib-backtest\backtest.py list` shows your saved runs.
+
+It always ends on the last finished trading day: run it during market hours and it stops at yesterday,
+so the numbers don't change while today's prices move. Every result also says how much of the profit came
+from stocks listed during those years ("Late joiners: ... % of total P&L"): see the FAQ on why that matters.
+
+### The Backtest tab
+In the dashboard, open **Backtest**. What you see, from the top (screenshots:
+[light](img/backtest-light.png), [dark](img/backtest-dark.png)):
+
+- **A picker of your saved runs**, newest first (date run, years, mode, trades, CAGR, max drawdown), the
+  **Run backtest** button, and a line with the window, your capital, risk per trade, max positions,
+  settings label and whether WARN plans were taken.
+- **The warnings, before any number**, with an orange triangle: today's halal list used for the past,
+  survivorship bias, past results are no promise, news can't be replayed, and any others for this run
+  (too few trades, the Nifty did better...). They can't be hidden.
+- **Three cards**: the strategy (CAGR, max drawdown, expectancy, trades, win rate), then the Shariah BeES
+  and the Nifty 50 (CAGR and max drawdown). The Nifty card has a dashed border and says "not
+  halal-screened, reference only".
+- **The equity chart**: your capital growing (solid line), the Shariah BeES (dashed) and the Nifty 50
+  (dotted), all starting at your capital, with the final value at the end of each line. Under it the
+  drawdown strip: how far below its last high the strategy was, with the worst fall's start and bottom
+  dates marked.
+- **Breakdown**: overall, by swing / delivery, by setup and first two thirds vs last third. Grey rows
+  marked "(too few to judge)" have under 30 trades. If the run used compare, a table puts (a) as run,
+  (b) ranked by setup score only and (c) without late joiners side by side.
+- **Trades**: every trade, sortable, with filters for setup, mode and exit reason. R has its sign (▲ +1.92R,
+  ▼ −1.00R). **Chart** opens the trade on its prices: buy level, stop, target, the buy and the exit.
+- **Universe**: how many stocks were tested, which joined late (with the date) and which were skipped (and
+  why), and the late joiners' share of the profit.
+
+**Run backtest** asks for 3 or 5 years, the mode and compare on or off, then shows its progress (about 4
+minutes; compare takes about 3 times longer). You can close the panel: it keeps going, and the new run
+appears in the picker when it's done. Only one run at a time (a backtest or today's list): a second press
+says so. It writes only your saved backtests and price cache, never your settings, tracker, tickets,
+positions or daily lists. Not financial advice, not a fatwa.
 
 ### Once a month
 - The halal list refreshes itself (when it's 30 days old).

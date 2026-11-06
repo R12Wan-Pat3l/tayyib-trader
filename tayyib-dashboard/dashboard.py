@@ -4,14 +4,16 @@
   py tayyib-dashboard/dashboard.py              opens http://127.0.0.1:8765/ in your browser
   py tayyib-dashboard/dashboard.py --port 8800 --no-browser
 
-Five tabs: Today (the daily list, top picks, each row's Why, a "Run today's list" button), Results (the
+Six tabs: Today (the daily list, top picks, each row's Why, a "Run today's list" button), Results (the
 paper tracker, price charts, equity curve), Halal (the screened universe, ratios against the limits, your
-overrides), Tickets (unplaced tickets with the Kite / Groww steps to copy, your positions journal) and
-Settings (config.json, validated, with a risk preview and backups).
+overrides), Tickets (unplaced tickets with the Kite / Groww steps to copy, your positions journal),
+Backtest (saved tayyib-backtest runs, a "Run backtest" button) and Settings (config.json, validated, with a
+risk preview and backups).
 
 It listens on 127.0.0.1 only, refuses requests whose Host header is not 127.0.0.1 or localhost on its own
 port and sends no CORS headers. Everything is GET / HEAD and reads only, except exactly two POST endpoints,
-both in actions.py: /api/config (save or restore config.json) and /api/run (start tayyib-daily). A POST
+both in actions.py: /api/config (save or restore config.json) and /api/run (start tayyib-daily, or
+tayyib-backtest with --write: years 3 or 5, a mode, compare on or off, nothing else). A POST
 also needs an Origin of this server, the per-start token embedded in the page (X-Tayyib-Token),
 Content-Type application/json and a body of at most 64 KB. Any other method or path gets 405. This module
 itself writes nothing. Nothing here can place, change or cancel an order, and neither can anything else in
@@ -780,6 +782,8 @@ def chart_view(bars, row, width=640, height=220, pad=30):
 
 
 def api_chart(q):
+    if "bt" in q:                                            # a backtest trade (v0.2.2)
+        return bt_chart(q)
     sym = tc.normalize_symbol((q.get("symbol") or [""])[0])
     frm = (q.get("from") or [""])[0]
     if not SYM_RE.match(sym or "") or not DATE_RE.match(frm or ""):
@@ -811,6 +815,333 @@ def api_chart(q):
             "summary": "%s from %s to %s: buy above %s, stop %s, target %s; %s"
                        % (sym, win[0]["date"], win[-1]["date"], inr(row.get("entry")), inr(row.get("stop")),
                           inr(row.get("target")), verdict(row)["label"])}
+
+
+# --- Backtest (v0.2.2): saved runs in trader/backtest/, read only. Runs start through POST /api/run ------------
+
+BT_DIR = "backtest"
+BT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(swing|delivery|all)_\d{4}-\d{2}-\d{2}_[0-9a-f]{6}$")
+BT_MISSING = {"missing": "backtest", "hint": "run a backtest"}
+BT_FOOTER = "Past results do not predict future results. Not financial advice, not a fatwa."
+BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "trades", "universe", "footer"]
+TOO_FEW_TEXT = "(too few to judge)"
+NIFTY_LABEL = "not halal-screened, reference only"
+EXIT_KIND = {"TARGET": "pass", "STOP": "block", "BREAKEVEN": "warn", "TIME EXIT": "info", "OPEN AT END": "info"}
+BENCH_TITLES = {"SHARIABEES.NS": ("Shariah BeES", "halal benchmark: buy and hold Nippon India ETF Shariah BeES"),
+                "^NSEI": ("Nifty 50", NIFTY_LABEL)}
+
+
+def pct(x, dec=2):
+    """-12.4 -> '−12.40%'; None -> UNKNOWN."""
+    if x is None:
+        return UNKNOWN
+    return ("−%.*f%%" % (dec, -x)) if x < 0 else ("%.*f%%" % (dec, x))
+
+
+def bt_dir():
+    return data_file(BT_DIR)
+
+
+def bt_files():
+    """{id: path} of the saved runs whose names a backtest would write (anything else is ignored)."""
+    d = bt_dir()
+    if not os.path.isdir(d):
+        return None
+    return {f[:-5]: os.path.join(d, f) for f in os.listdir(d) if f.endswith(".json") and BT_ID_RE.match(f[:-5])}
+
+
+def bt_load(run_id):
+    files = bt_files()
+    if files is None:
+        return None, dict(BT_MISSING)
+    if not isinstance(run_id, str) or not BT_ID_RE.match(run_id) or run_id not in files:
+        return None, {"error": "no saved backtest with that id"}
+    try:
+        return tc.read_json(files[run_id]), None
+    except ValueError as e:
+        return None, {"error": "could not read %s: %s" % (run_id, e)}
+
+
+def bt_run_at(r, path):
+    if r.get("run_at"):
+        return r["run_at"]
+    return dt.datetime.fromtimestamp(os.path.getmtime(path), tc.IST).isoformat(timespec="seconds")
+
+
+def api_backtests(q):
+    files = bt_files()
+    if files is None:
+        return dict(BT_MISSING)
+    runs = []
+    for rid, path in files.items():
+        try:
+            r = tc.read_json(path)
+            m, w = r["metrics"]["overall"], r["window"]
+            at = bt_run_at(r, path)
+            runs.append({"id": rid, "run_at": at, "run_at_text": at[:16].replace("T", " "),
+                         "from": w.get("first_day"), "to": w.get("last_day"),
+                         "window_text": "%s to %s" % (text(w.get("first_day")), text(w.get("last_day"))),
+                         "mode": r["params"]["mode"], "settings": r["settings"]["label"], "trades": m["trades"],
+                         "cagr": pct(m.get("cagr_pct")), "max_dd": pct(m.get("max_drawdown_pct")),
+                         "compare": bool(r.get("compare")), "version": r.get("version")})
+        except (ValueError, KeyError, TypeError):
+            runs.append({"id": rid, "run_at": "", "error": "could not be read"})
+    runs.sort(key=lambda x: (x["run_at"], x["id"]), reverse=True)
+    for x in runs:
+        if "error" not in x:
+            x["label"] = "%s · %s · %s · %d trades · CAGR %s · max DD %s" % (
+                x["run_at_text"], x["window_text"], x["mode"], x["trades"], x["cagr"], x["max_dd"])
+        else:
+            x["label"] = "%s (could not be read)" % x["id"]
+    return {"runs": runs, "count": len(runs)}
+
+
+def _metric_cells(m):
+    pf = "no losing trades" if m.get("profit_factor_note") else num(m.get("profit_factor"))
+    return [str(m.get("trades", 0)), num(m.get("win_rate_pct"), 1, "%"), signed_r(m.get("expectancy_r")), pf,
+            inr(m.get("pnl_rs"), 0), pct(m.get("cagr_pct")), pct(m.get("max_drawdown_pct"))]
+
+
+BT_COLUMNS = ["Trades", "Win rate", "Expectancy", "Profit factor", "P&L", "CAGR", "Max drawdown"]
+
+
+def _group_row(name, m):
+    few = bool(m.get("too_few", m.get("trades", 0) < 30))
+    return {"name": name, "too_few": few, "note": TOO_FEW_TEXT if few else "", "cells": _metric_cells(m)}
+
+
+def bt_breakdown(r):
+    me = r["metrics"]
+    sections = [{"title": "Overall", "rows": [dict(_group_row("strategy", me["overall"]), too_few=False, note="")]},
+                {"title": "By mode", "rows": [_group_row(k, v) for k, v in sorted(me["by_mode"].items())]},
+                {"title": "By setup", "rows": [_group_row(k, v) for k, v in sorted(me["by_setup"].items())]},
+                {"title": "In-sample vs out-of-sample (split %s)" % r["window"]["split"],
+                 "rows": [_group_row("in-sample", r["split"]["in_sample"]),
+                          _group_row("out-of-sample", r["split"]["out_of_sample"])]}]
+    return {"columns": BT_COLUMNS, "sections": sections,
+            "note": "A group under 30 trades is greyed and marked %s: its numbers are noise. Setup and mode CAGR and "
+                    "drawdown are on the capital plus those trades' realised P&L." % TOO_FEW_TEXT}
+
+
+def bt_compare(r):
+    cp = r.get("compare")
+    if not cp:
+        return None
+    cols = [("(a) as run", cp["as_run"]), ("(b) score only", cp["score_only"])]
+    if cp.get("no_late"):
+        cols.append(("(c) as run without late joiners", cp["no_late"]))
+    rows = [("Trades", lambda v: str(v["trades"])), ("Win rate", lambda v: num(v["win_rate_pct"], 1, "%")),
+            ("Expectancy", lambda v: signed_r(v["expectancy_r"])), ("Profit factor", lambda v: num(v["profit_factor"])),
+            ("P&L", lambda v: inr(v["pnl_rs"], 0)), ("Total return", lambda v: pct(v["total_return_pct"])),
+            ("CAGR", lambda v: pct(v["cagr_pct"])), ("Max drawdown", lambda v: pct(v["max_drawdown_pct"])),
+            ("Out-of-sample expectancy", lambda v: signed_r(v["out_of_sample_expectancy_r"]))]
+    out = [{"name": n, "cells": [f(v) for _, v in cols], "too_few": [False] * len(cols)} for n, f in rows]
+    for m in sorted(set().union(*[v["by_mode"] for _, v in cols])):
+        cells, few = [], []
+        for _, v in cols:
+            g = v["by_mode"].get(m) or {}
+            f = bool(g.get("too_few", True))
+            cells.append("%s trades, %s%s" % (g.get("trades", 0), signed_r(g.get("expectancy_r")),
+                                              " " + TOO_FEW_TEXT if f else ""))
+            few.append(f)
+        out.append({"name": m + ": trades, expectancy", "cells": cells, "too_few": few})
+    return {"columns": [c for c, _ in cols], "rows": out, "note": cp.get("note"), "note_c": cp.get("no_late_note")}
+
+
+def bt_cards(r):
+    o = r["metrics"]["overall"]
+    cards = [{"key": "strategy", "kind": "strategy", "title": "Strategy", "label": "the daily list, replayed",
+              "items": [{"label": "CAGR", "value": pct(o.get("cagr_pct"))},
+                        {"label": "Max drawdown", "value": pct(o.get("max_drawdown_pct"))},
+                        {"label": "Expectancy", "value": signed_r(o.get("expectancy_r"))},
+                        {"label": "Trades", "value": str(o["trades"])},
+                        {"label": "Win rate", "value": num(o.get("win_rate_pct"), 1, "%")}]}]
+    for sym in ("SHARIABEES.NS", "^NSEI"):
+        b = (r.get("benchmarks") or {}).get(sym) or {"status": "UNKNOWN", "reason": "not in this run"}
+        title, label = BENCH_TITLES[sym]
+        ok = b.get("status") == "OK"
+        cards.append({"key": sym, "kind": "nifty" if sym == "^NSEI" else "etf", "title": title, "label": label,
+                      "reference_only": sym == "^NSEI", "status": "OK" if ok else UNKNOWN,
+                      "note": None if ok else b.get("reason"),
+                      "items": [{"label": "CAGR", "value": pct(b.get("cagr_pct")) if ok else UNKNOWN},
+                                {"label": "Max drawdown", "value": pct(b.get("max_drawdown_pct")) if ok else UNKNOWN}]})
+    return cards
+
+
+def _ord(d):
+    return tc.parse_date(d).toordinal()
+
+
+def bt_equity(r, width=760, height=300, dd_height=124, pad=48, right=132):
+    """The strategy's equity and both benchmarks (each starting at the capital) on one date axis, and a
+    drawdown strip under it with the worst drawdown's peak and trough marked. Coordinates only."""
+    cap = float(r["settings"]["capital"])
+    curve = r.get("equity_curve") or []
+    if len(curve) < 2:
+        return {"status": "unknown", "message": "no equity curve in this run"}
+    series = [{"key": "strategy", "kind": "strategy", "label": "Strategy",
+               "pts": [(c["date"], c["equity"]) for c in curve]}]
+    missing_lines = []
+    for sym in ("SHARIABEES.NS", "^NSEI"):
+        b = (r.get("benchmarks") or {}).get(sym) or {}
+        title, label = BENCH_TITLES[sym]
+        if b.get("status") == "OK" and b.get("curve"):
+            series.append({"key": sym, "kind": "nifty" if sym == "^NSEI" else "etf",
+                           "label": title + (" (" + NIFTY_LABEL + ")" if sym == "^NSEI" else ""),
+                           "pts": [(d, v) for d, v in b["curve"]]})
+        else:
+            missing_lines.append("%s: %s" % (title, "UNKNOWN (" + b["reason"] + ")" if b.get("status") != "OK"
+                                             else "line not saved in this run (made with v%s): run it again to see it"
+                                             % r.get("version")))
+    d0, d1 = _ord(curve[0]["date"]), _ord(curve[-1]["date"])
+    span = max(d1 - d0, 1)
+    X = lambda d: pad + (width - pad - right) * ((_ord(d) - d0) / span)
+    vals = [v for s in series for _, v in s["pts"]] + [cap]
+    lo, hi = min(vals), max(vals)
+    pad_v = (hi - lo) * 0.06 or cap * 0.05
+    lo, hi = lo - pad_v, hi + pad_v
+    Y = lambda v: 16 + (height - 16 - 30) * (1 - (v - lo) / (hi - lo))
+    out_series = []
+    for s in series:
+        pts = [(d, v) for d, v in s["pts"] if d0 <= _ord(d) <= d1]
+        if len(pts) < 2:
+            continue
+        last = pts[-1][1]
+        out_series.append({"key": s["key"], "kind": s["kind"], "label": s["label"],
+                           "points": " ".join("%.1f,%.1f" % (X(d), Y(v)) for d, v in pts),
+                           "end_x": round(X(pts[-1][0]), 1), "end_y": round(Y(last), 1),
+                           "end_label": "%s %s" % (inr_short(last), pct((last / cap - 1) * 100, 1)),
+                           "summary": "%s: %s to %s, %s at the end (%s)" % (
+                               s["label"], pts[0][0], pts[-1][0], inr(last, 0), pct((last / cap - 1) * 100))})
+    # keep the end labels from overlapping: at least 14px apart
+    order = sorted(out_series, key=lambda s: s["end_y"])
+    for a, b in zip(order, order[1:]):
+        if b["end_y"] - a["end_y"] < 14:
+            b["end_y"] = round(a["end_y"] + 14, 1)
+    ticks = [lo + (hi - lo) * k / 4 for k in range(5)]
+    years = sorted({c["date"][:4] for c in curve})
+    x0, x1 = X(curve[0]["date"]), X(curve[-1]["date"])
+    x_labels = [{"x": round(x0, 1), "label": curve[0]["date"]}]
+    for y in years[1:]:                                  # a year label that would touch the end dates is left out
+        x = X(y + "-01-01")
+        if x - x0 > 80 and x1 - x > 80:
+            x_labels.append({"x": round(x, 1), "label": y})
+    x_labels.append({"x": round(x1, 1), "label": curve[-1]["date"]})
+    # drawdown strip
+    peak, dds = None, []
+    for c in curve:
+        peak = c["equity"] if peak is None or c["equity"] > peak else peak
+        dds.append((c["date"], (c["equity"] / peak - 1) * 100 if peak else 0.0))
+    worst = min(v for _, v in dds)
+    floor = min(worst * 1.1, -1.0)
+    YD = lambda v: 24 + (dd_height - 24 - 22) * (v / floor)          # room above for the peak label
+    area = "%.1f,%.1f " % (X(dds[0][0]), YD(0)) + " ".join("%.1f,%.1f" % (X(d), YD(v)) for d, v in dds) + \
+           " %.1f,%.1f" % (X(dds[-1][0]), YD(0))
+    o = r["metrics"]["overall"]
+    marks = []
+    if o.get("drawdown_peak") and o.get("drawdown_trough"):
+        marks = [{"kind": "peak", "x": round(X(o["drawdown_peak"]), 1), "label": "peak " + o["drawdown_peak"]},
+                 {"kind": "trough", "x": round(X(o["drawdown_trough"]), 1),
+                  "label": "trough %s (%s)" % (o["drawdown_trough"], pct(o.get("max_drawdown_pct")))}]
+    return {"status": "ok", "width": width, "height": height, "dd_height": dd_height, "plot_right": width - right,
+            "pad": pad, "series": out_series, "capital_y": round(Y(cap), 1), "capital_label": inr_short(cap),
+            "y_labels": [{"y": round(Y(v), 1), "label": inr_short(v)} for v in ticks], "x_labels": x_labels,
+            "dd": {"area": area, "zero_y": round(YD(0), 1), "floor_y": round(YD(worst), 1),
+                   "floor_label": pct(worst), "marks": marks},
+            "missing_lines": missing_lines,
+            "summary": "; ".join(s["summary"] for s in out_series) + ". Worst drawdown %s, from %s to %s." % (
+                pct(o.get("max_drawdown_pct")), text(o.get("drawdown_peak")), text(o.get("drawdown_trough"))),
+            "legend": [{"kind": s["kind"], "label": s["label"]} for s in out_series]}
+
+
+def bt_trades(r):
+    rows = []
+    for k, t in enumerate(r.get("trades") or []):
+        rows.append({"n": k, "symbol": t["symbol"], "setup": t["setup"], "mode": t["mode"],
+                     "signal_date": t["signal_date"], "entry_date": t["entry_date"], "exit_date": t["exit_date"],
+                     "exit_reason": t["exit_reason"], "exit_kind": EXIT_KIND.get(t["exit_reason"], "unknown"),
+                     "r": t["r"], "pnl_rs": t["pnl_rs"], "qty": t["qty"], "risk": t.get("risk") or UNKNOWN,
+                     "display": {"entry": inr(t["entry_price"]), "exit": inr(t["exit_price"]), "r": signed_r(t["r"]),
+                                 "pnl_rs": inr(t["pnl_rs"]), "qty": str(t["qty"]),
+                                 "up": "▲" if t["r"] > 0 else "▼" if t["r"] < 0 else ""}})
+    return rows
+
+
+def api_backtest(q):
+    rid = (q.get("id") or [""])[0]
+    r, err = bt_load(rid)
+    if err:
+        return err
+    p, w, s, u = r["params"], r["window"], r["settings"], r["universe"]
+    trades = bt_trades(r)
+    late = r.get("late_joiners") or {}
+    out = {
+        "id": r["id"], "version": r.get("version"), "order": list(BT_ORDER),
+        "header": {"title": "Backtest %s to %s" % (text(w.get("first_day")), text(w.get("last_day"))),
+                   "items": [{"label": "Window", "value": "%s to %s (%s trading days)" % (
+                                 text(w.get("first_day")), text(w.get("last_day")), w.get("trading_days"))},
+                             {"label": "Split", "value": text(w.get("split"))},
+                             {"label": "Mode", "value": p["mode"] + (" (" + ", ".join(p["setups"]) + ")" if p.get("setups") else "")},
+                             {"label": "Capital", "value": inr(s["capital"], 0)},
+                             {"label": "Risk per trade", "value": num(s.get("risk_per_trade_pct"), 2, "%").replace(".00%", "%")},
+                             {"label": "Max positions", "value": str(p["max_positions"])},
+                             {"label": "Settings", "value": s["label"]},
+                             {"label": "WARN plans", "value": "taken" if p.get("take_warn", True) else "not taken"},
+                             {"label": "Late joiners", "value": "left out (--no-late)" if p.get("late") is False else "included"}],
+                   "end_rule": w.get("end_rule") or "not recorded (made before v0.2.2)",
+                   "run_at": text(r.get("run_at")), "made_with": "v" + text(r.get("version"))},
+        "banners": list(r.get("banners") or []),
+        "cards": bt_cards(r),
+        "equity": bt_equity(r),
+        "breakdown": bt_breakdown(r),
+        "compare": bt_compare(r),
+        "trades": trades,
+        "filters": {"setup": sorted({t["setup"] for t in trades}), "mode": sorted({t["mode"] for t in trades}),
+                    "exit_reason": sorted({t["exit_reason"] for t in trades})},
+        "universe": {"compliant": u.get("compliant"), "tested": u.get("tested"), "skipped_n": u.get("skipped"),
+                     "list_updated": text(u.get("list_updated")),
+                     "joined_late": [{"symbol": x["symbol"], "join_date": x["join_date"], "data_starts": x.get("data_starts")}
+                                     for x in r.get("joined_late") or []],
+                     "skipped": [{"symbol": x["symbol"], "reason": x["reason"]} for x in r.get("skipped") or []],
+                     "late_line": (late.get("text") or "Late joiners: UNKNOWN (this run was made before v0.2.2)").replace("Rs ", "₹")},
+        "footer": BT_FOOTER,
+    }
+    return out
+
+
+def bt_chart(q):
+    """GET /api/chart?bt=ID&n=K: one backtest trade on its price chart, the same view as a tracker row."""
+    r, err = bt_load((q.get("bt") or [""])[0])
+    if err:
+        return err
+    try:
+        t = (r.get("trades") or [])[int((q.get("n") or [""])[0])]
+    except (ValueError, IndexError):
+        return {"error": "no such trade in this backtest"}
+    sym = t["symbol"]
+    row = {"date": t["signal_date"], "entry": t["plan_entry"], "stop": t["stop"], "target": t["target"],
+           "filled": t["entry_date"], "fill": t["entry_price"], "exited": t["exit_date"], "exit": t["exit_price"]}
+    rng = r["window"].get("price_range") or "5y"
+    bars, fetched = tc.cached_bars(sym, rng)            # the bars the backtest itself used: no download
+    source = "cached bars from %s (the backtest's own prices)" % fetched if bars else None
+    if not bars:
+        try:
+            bars, _ = tc.get_daily_bars(sym, range_=rng, save=False)
+            source = "Yahoo Finance daily bars"
+        except (tc.FetchError, OSError, ValueError):
+            bars = None
+    if not bars:
+        return {"status": "unknown", "symbol": sym, "message": "price data unavailable"}
+    start = (tc.parse_date(t["signal_date"]) - dt.timedelta(days=45)).isoformat()
+    end = (tc.parse_date(t["exit_date"]) + dt.timedelta(days=10)).isoformat()
+    win = [b for b in bars if start <= b["date"] <= end]
+    if len(win) < 2:
+        return {"status": "unknown", "symbol": sym, "message": "price data unavailable"}
+    return {"status": "ok", "symbol": sym, "from": t["signal_date"], "source": source, "bars": len(win),
+            "first": win[0]["date"], "last": win[-1]["date"], "svg": chart_view(win, row),
+            "summary": "%s (backtest) from %s to %s: buy above %s, stop %s, target %s; %s on %s, %s"
+                       % (sym, win[0]["date"], win[-1]["date"], inr(t["plan_entry"]), inr(t["stop"]), inr(t["target"]),
+                          t["exit_reason"], t["exit_date"], signed_r(t["r"]))}
 
 
 # --- Settings (v0.1.8): every documented key, grouped. Validation is tc.validate_config, via actions.py ------
@@ -1137,9 +1468,10 @@ def run_status(runner):
 ROUTES = {"/api/meta": api_meta, "/api/dates": api_dates, "/api/today": api_today, "/api/tracker": api_tracker,
           "/api/halal": api_halal, "/api/tickets": api_tickets, "/api/chart": api_chart, "/api/settings": api_settings,
           "/api/risk-preview": api_risk_preview, "/api/config/backups": api_backups,
-          "/api/config/backup-diff": api_backup_diff}
+          "/api/config/backup-diff": api_backup_diff, "/api/backtests": api_backtests, "/api/backtest": api_backtest}
 PAGES = {"/": INDEX, "/index.html": INDEX}             # the only files served
-POST_ROUTES = ("/api/config", "/api/run")             # the only two requests that change anything (actions.py)
+POST_ROUTES = ("/api/config", "/api/run")             # the only two requests that change anything (actions.py);
+                                                      # /api/run starts tayyib-daily or (v0.2.2) a backtest
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1298,8 +1630,8 @@ def main(argv=None):
                % (HOST, a.port, e, a.port + 1))
     url = "http://%s:%d/" % (HOST, srv.server_address[1])
     print("tayyib dashboard on %s  data: %s" % (url, tc.data_dir()))
-    print("It reads your files; it changes only config.json (Settings, with backups) and runs tayyib-daily when you "
-          "press Run. It never places an order.")
+    print("It reads your files; it changes only config.json (Settings, with backups) and runs tayyib-daily or a "
+          "backtest when you press Run. It never places an order.")
     print("Press Ctrl+C to stop. Not financial advice, not a fatwa.")
     sys.stdout.flush()
     if not a.no_browser:

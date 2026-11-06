@@ -56,7 +56,8 @@ python3 tayyib-broker/ticket.py show                # the ticket the user places
 
 Dashboard (127.0.0.1 only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
 Everything is GET / HEAD except exactly two write endpoints: `POST /api/config` (saves `trader/config.json`
-through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib-daily`, analysis only).
+through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib-daily`, analysis only, or
+`tayyib-backtest run --years 3|5 --mode M [--compare] --write`, nothing else).
 Both need the Host, Origin, per-start token, JSON type and 64 KB checks. Never add another write endpoint,
 and never a button, endpoint or request that places, modifies or cancels an order or talks to a broker.
 

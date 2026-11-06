@@ -318,6 +318,18 @@ touched on one day, charges included). The Summary sheet gives the win rate and 
 PASS / WARN / BLOCK, so you can also see whether the risk check helped. It is a paper record: nothing
 is bought. A few weeks are noise, so judge it after 30 or more closed trades.
 
+### Why is the regime filter off by default?
+Because it has to earn its place. A "don't trade when the market is falling" rule sounds sensible, but it
+also skips the trades that start right at the bottom. We switch it on only if the backtest shows it helps,
+on more than one window (for example both 3 and 5 years), not because it sounds right. Run
+`backtest.py run --years 5 --regime-compare --write` and look at the Market regime compare table in the
+Backtest tab. With the filter off, the Today header still shows the regime as information.
+
+### What happens if a stock I hold stops being halal?
+You get one alert ("No longer compliant") at the top of the list, the email and the dashboard, with the
+ratios then and now, a SELL ticket you place yourself and a purification estimate. Nothing is sold for you.
+See the [User guide](USER_GUIDE.md#when-a-stock-you-hold-stops-being-halal).
+
 ### Does it place orders? Can it connect to Zerodha or Groww?
 No. There is no broker connection, and no code that places orders. You get a ticket with the exact steps,
 and you place the order yourself. A read-only connection (to see your holdings) is on the roadmap.

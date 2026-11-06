@@ -44,7 +44,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -197,6 +197,8 @@ DEFAULT_CONFIG = {
         "max_cash_receivables_to_assets_pct": 90.0,  # TASIS
         "noncompliant_investment_return_pct": 8.0,
         "near_limit_pct": 90.0,         # display only: flag a ratio from this share of its limit up to it
+        "held_recheck_days": 7,         # v0.2.4: re-screen a stock you hold when its screen is this old
+        "exit_grace_days": 0,           # v0.2.4: wording only: days to sell a held stock that stopped passing
         "parent_list_url": "https://niftyindices.com/IndexConstituent/ind_nifty500list.csv",
     },
     # news
@@ -220,6 +222,14 @@ DEFAULT_CONFIG = {
         "to": [],                       # empty = to yourself (from); at most 3
         "send_when": "always",          # "always" or "picks_only"
         "attach_md": True,              # attach the daily list as DATE.md
+    },
+    # market regime filter (v0.2.4), OFF by default: switched on only if the backtest shows it helps on more
+    # than one window. The index is a market thermometer only, never a stock to buy.
+    "regime": {
+        "enabled": False,
+        "index": "^NSEI",               # "^NSEI" (Nifty 50) or "SHARIABEES.NS" (Shariah BeES)
+        "rule": "close_below_200dma",   # or "sma50_below_sma200"
+        "action": "no_new_swing",       # or "no_new_trades", "half_risk"
     },
     "user_agent": "tayyib-trader/0.1 (+https://github.com/R12Wan-Pat3l/tayyib-trader)",
 }
@@ -320,6 +330,19 @@ DEFAULT_CONFIG_DOCS = {
     "halal.near_limit_pct": _doc("Display only: flag a halal ratio from this % of its limit up to the limit "
                                  "(90 = within 10% under it; at or over the limit is 'over limit')", 50, 100, "%"),
     "halal.parent_list_url": _doc("The index list that is self-screened", type="string"),
+    "halal.held_recheck_days": _doc("Re-screen a stock you hold when its halal screen is older than this (the "
+                                    "rest of the list keeps the monthly rebuild)", 1, 60, "days", type="int"),
+    "halal.exit_grace_days": _doc("Wording only: days you give yourself to sell a held stock that stopped "
+                                  "passing (0 = as soon as reasonable). Nothing is ever sold for you", 0, 90,
+                                  "days", type="int"),
+    "regime.enabled": _doc("Market regime filter: change new trades when the index is in a downtrend. Off "
+                           "by default: test it in the backtest first", type="bool"),
+    "regime.index": _doc("Index used as the market thermometer (never a stock to buy)", type="enum",
+                         choices=["^NSEI", "SHARIABEES.NS"]),
+    "regime.rule": _doc("Risk-off when: the index closes below its 200-day average, or its 50-day average is "
+                        "below its 200-day average", type="enum", choices=["close_below_200dma", "sma50_below_sma200"]),
+    "regime.action": _doc("On a risk-off day: no new swing trades, no new trades, or half the risk per trade",
+                          type="enum", choices=["no_new_swing", "no_new_trades", "half_risk"]),
     "news.feeds": _doc("RSS feeds read for market news: name -> URL", type="map"),
     "news.google_news": _doc("Search Google News India per stock", type="bool"),
     "news.nse_announcements": _doc("Read NSE corporate announcements per stock", type="bool"),
@@ -628,7 +651,10 @@ def halal_banner(cfg, universe=None):
 # Keys that change no decision; every other key is part of the settings snapshot.
 # display or transport only: email (v0.2.3: where the list is sent), user_agent (HTTP header), halal.loosen_note (banner text; the thresholds it
 # allows are recorded as values), halal.near_limit_pct (only marks ratios near their limit)
-SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct", "email")
+# v0.2.4: halal.held_recheck_days and halal.exit_grace_days only concern stocks you already hold (alerts and
+# wording), never which stocks today's list shows or how they are sized.
+SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct", "email", "halal.held_recheck_days",
+                    "halal.exit_grace_days")
 
 
 # Facts about the user, not strategy: your money and your broker. They stay in the hash (they change
@@ -780,6 +806,38 @@ def cmp_op(value, op, limit):
 # PASS / WARN / BLOCK group, the sizing order (which decides what the position limits block) and so
 # the top picks. With daily.min_past_trades_for_rank = 0 it is exactly the default@1 order.
 # ---------------------------------------------------------------------------
+
+def why_tier(it):
+    """C1 (v0.2.4): 0 = a decision line (setup checks, plan, risk: it passed or failed and that counted),
+    1 = information only (context, or a figure that ranks nothing: shown grey with an "info" mark, never a red
+    cross), 2 = UNKNOWN or not available (a source that did not answer: last, with its "check yourself" link)."""
+    note = str(it.get("note") or "")
+    if it.get("ok") is None or it.get("op") == NA_OP:
+        return 2
+    if it.get("op") == "info" or it.get("info") or "information only" in note:
+        return 1
+    return 0
+
+
+def order_why(items):
+    """why[] in display order: decision lines first, then information-only lines, then UNKNOWN lines; the
+    WHY_GROUPS order inside each tier (stable, so a group keeps its own order)."""
+    rank = {g: k for k, g in enumerate(WHY_GROUPS)}
+    return sorted(items or [], key=lambda x: (why_tier(x), rank.get(x.get("group"), 99)))
+
+
+def tm_label(expectancy_r, past_trades, min_trades):
+    """C2: '+0.81R (1 past trade: too few to judge)' under daily.min_past_trades_for_rank, else '+0.41R (9 past
+    trades)'. UNKNOWN when there is no expectancy."""
+    if expectancy_r is None:
+        return "UNKNOWN"
+    if past_trades is None:
+        return "%+.2fR (past trades UNKNOWN)" % expectancy_r
+    word = "past trade" if past_trades == 1 else "past trades"
+    if thin_evidence(past_trades, min_trades):
+        return "%+.2fR (%d %s: too few to judge)" % (expectancy_r, past_trades, word)
+    return "%+.2fR (%d %s)" % (expectancy_r, past_trades, word)
+
 
 def thin_evidence(past_trades, min_trades):
     """True when a stock has too few past trades of its setup for the expectancy to rank it."""
@@ -2460,6 +2518,204 @@ HARD_RULES = (
     "cash equities only: no futures, options or other derivatives",
     "every order needs the user's explicit yes; nothing here places orders",
 )
+
+
+# ---------------------------------------------------------------------------
+# Market regime (v0.2.4, OFF by default). The index is a thermometer, never a stock to buy. Causal: the state
+# on a day uses that day's index bar and earlier only.
+# ---------------------------------------------------------------------------
+
+REGIME_INDEXES = {"^NSEI": "Nifty 50", "SHARIABEES.NS": "Shariah BeES"}
+REGIME_RULES = ("close_below_200dma", "sma50_below_sma200")
+REGIME_ACTIONS = ("no_new_swing", "no_new_trades", "half_risk")
+REGIME_ACTION_TEXT = {"no_new_swing": "no new swing trades", "no_new_trades": "no new trades",
+                      "half_risk": "half the risk per trade"}
+
+
+def regime_state(bars, date, rule="close_below_200dma", index="^NSEI"):
+    """The regime on `date` from the index's bars dated `date` or earlier ->
+    {state: "risk-on" | "risk-off" | "UNKNOWN", date, close, sma50, sma200, index, name, rule, reason}.
+    UNKNOWN (with the reason) when the index has no bar on that day or under 200 bars up to it: never a guess."""
+    name = REGIME_INDEXES.get(index, index)
+    out = {"index": index, "name": name, "rule": rule, "state": "UNKNOWN", "date": date, "close": None,
+           "sma50": None, "sma200": None, "reason": None}
+    upto = [b for b in bars or [] if b.get("date") and b["date"] <= date and b.get("close") is not None]
+    if not upto or upto[-1]["date"] != date:
+        out["reason"] = "the %s has no bar for %s%s" % (name, date, " (last %s)" % upto[-1]["date"] if upto else "")
+        return out
+    if len(upto) < 200:
+        out["reason"] = "only %s of %s history up to %s (needs 200)" % (plural(len(upto), "bar"), name, date)
+        return out
+    closes = [b["close"] for b in upto[-200:]]
+    c, s200, s50 = closes[-1], sum(closes) / 200.0, sum(closes[-50:]) / 50.0
+    out.update(close=round(c, 2), sma200=round(s200, 2), sma50=round(s50, 2))
+    off = (s50 < s200) if rule == "sma50_below_sma200" else (c < s200)
+    out["state"] = "risk-off" if off else "risk-on"
+    return out
+
+
+def regime_text(st, action=None):
+    """'MARKET: Nifty 50 below its 200-day average → no new swing trades' (risk-off, with the action), or the
+    plain state ('MARKET: Nifty 50 above its 200-day average (risk-on)', 'MARKET: Nifty 50 regime UNKNOWN (why)')."""
+    name = st.get("name") or st.get("index")
+    if st.get("state") == "UNKNOWN":
+        return "MARKET: %s regime UNKNOWN (%s)" % (name, st.get("reason") or "no data")
+    off = st["state"] == "risk-off"
+    if st.get("rule") == "sma50_below_sma200":
+        what = "%s 50-day average %s its 200-day average" % (name, "below" if off else "above")
+    else:
+        what = "%s %s its 200-day average" % (name, "below" if off else "above")
+    if off and action:
+        return "MARKET: %s → %s" % (what, REGIME_ACTION_TEXT.get(action, action))
+    return "MARKET: %s (%s)" % (what, st["state"])
+
+
+def regime_line(rg):
+    """The regime as one line, for the daily .md and the dashboard header (B4, shown even when the filter is off):
+    'Market: Risk-off: Nifty 50 22,410.50, 200-day average 23,105.20 (filter off: information only)'."""
+    st = {"risk-on": "Risk-on", "risk-off": "Risk-off"}.get(rg.get("state"), "UNKNOWN")
+    if st == "UNKNOWN":
+        lv = "%s (%s)" % (rg.get("name") or rg.get("index"), rg.get("reason") or "no data")
+    else:
+        lv = "%s %s, 200-day average %s%s" % (rg.get("name"), "{:,.2f}".format(rg["close"]), "{:,.2f}".format(rg["sma200"]),
+                                               ", 50-day %s" % "{:,.2f}".format(rg["sma50"])
+                                               if rg.get("rule") == "sma50_below_sma200" else "")
+    if not rg.get("enabled"):
+        tail = "filter off: information only"
+    elif rg.get("applied"):
+        tail = "filter on: %s" % (rg.get("text") or "")
+    else:
+        tail = "filter on: no effect today"
+    return "Market: %s: %s (%s)" % (st, lv, tail)
+
+
+def regime_effect(st, rcfg):
+    """What the filter does today -> {active, block_modes, risk_factor, text}. Nothing unless it is enabled AND
+    the state is risk-off; an UNKNOWN state never blocks or allows anything extra (the filter does nothing)."""
+    rcfg = rcfg or {}
+    act = rcfg.get("action")
+    if not rcfg.get("enabled") or (st or {}).get("state") != "risk-off":
+        return {"active": False, "block_modes": [], "risk_factor": 1.0, "text": None}
+    return {"active": True, "block_modes": {"no_new_swing": ["swing"], "no_new_trades": ["swing", "delivery"]}.get(act, []),
+            "risk_factor": 0.5 if act == "half_risk" else 1.0, "text": regime_text(st, act)}
+
+
+# ---------------------------------------------------------------------------
+# Held stocks that stop passing the halal screen (v0.2.4). Nothing is ever sold: the user gets an alert, a
+# SELL ticket to place themselves and a purification estimate.
+# ---------------------------------------------------------------------------
+
+HELD_TITLES = {"BLOCK": "No longer compliant", "WARN": "Near a limit", "UNKNOWN": "Could not verify"}
+HELD_WORDING = ("This stock no longer passes the screen. Many Shariah boards advise selling it at the earliest "
+                "reasonable opportunity and purifying any gain after the change. The timing is your decision; ask "
+                "your scholar if unsure. Not a fatwa.")
+PURIFY_LABEL = "estimate: confirm with your scholar"
+
+
+def held_level(screen):
+    """-> "BLOCK" (now excluded or review), "WARN" (compliant, a ratio near its limit), "UNKNOWN" (the screen
+    failed or has no data: never read as compliant or as non-compliant) or None (compliant, nothing near)."""
+    st = (screen or {}).get("status")
+    if (screen or {}).get("error") or st not in ("compliant", "review", "excluded"):
+        return "UNKNOWN"
+    if st in ("review", "excluded"):
+        return "BLOCK"
+    return "WARN" if screen.get("near_limit") else None
+
+
+def ratio_changes(old, new, limits, near_pct=None):
+    """Old vs new value of each screen ratio against its limit -> [{check, key, old, new, limit, over, near}]."""
+    out = []
+    for label, key, lim, _ in _RATIO_CHECKS:
+        o, n, L = (old or {}).get(key), (new or {}).get(key), (limits or {}).get(lim)
+        if o is None and n is None:
+            continue
+        out.append({"check": label, "key": key, "old": o, "new": n, "limit": L, "over": is_over_limit(n, L),
+                    "near": is_near_limit(n, L, near_pct)})
+    return out
+
+
+def grace_text(since, grace_days, today=None):
+    """The wording of halal.exit_grace_days: 0 -> 'as soon as reasonable'; N -> 'by DATE (N days after the change;
+    K days left)'. Wording only."""
+    if not grace_days:
+        return "as soon as reasonable"
+    try:
+        by = parse_date(since) + dt.timedelta(days=int(grace_days))
+    except (TypeError, ValueError):
+        return "within %s of the change" % plural(int(grace_days), "day")
+    left = (by - (today or today_ist())).days
+    return "by %s (%s after the change; %s)" % (by.isoformat(), plural(int(grace_days), "day"),
+                                                "%s left" % plural(left, "day") if left >= 0 else
+                                                "%s past it" % plural(-left, "day"))
+
+
+BROKER_SELL_STEPS = {
+    "zerodha": [
+        "Kite -> Orders -> GTT: delete the stop-loss / target GTT for {sym} first, so the same shares cannot be "
+        "sold twice.",
+        "Kite -> Holdings -> {sym} -> Exit: Sell, product CNC (Longterm), quantity {qty}, order type Limit at "
+        "about the last price ({last}) or Market.",
+        "After it fills, record it: ticket.py close {pid} --price <your fill> --reason halal",
+    ],
+    "groww": [
+        "Groww -> Orders: cancel any stop-loss or GTT sell order for {sym} first, so the same shares cannot be "
+        "sold twice.",
+        "Groww -> Holdings -> {sym} -> Sell -> Delivery, quantity {qty}, Limit at about the last price ({last}) "
+        "or Market.",
+        "After it fills, record it: ticket.py close {pid} --price <your fill> --reason halal",
+    ],
+}
+BROKER_SELL_STEPS["custom"] = BROKER_SELL_STEPS["zerodha"]
+
+
+def sell_ticket(sym, qty, position_id, broker="zerodha", last=None, date=None, exchange="NSE"):
+    """The SELL ticket for a held stock that stopped passing the screen: CNC, the full quantity you hold, placed
+    by you in your broker app. Only a sell of shares already held (guard_order checks it); never a buy."""
+    o = {"id": "SELL-%s-%s" % (normalize_symbol(sym), date or today_ist().isoformat()), "position_id": position_id,
+         "symbol": normalize_symbol(sym), "exchange": exchange, "side": "SELL", "product": "CNC", "instrument": "EQ",
+         "qty": int(qty), "order_type": "LIMIT or MARKET", "reason": "halal", "manual": True,
+         "last_price": last, "broker": broker}
+    v = guard_order(o, {o["symbol"]: int(qty)})
+    if v:
+        raise ValueError("; ".join(v))
+    lp = "UNKNOWN" if last is None else "%.2f" % last
+    o["steps"] = [x.format(sym=o["symbol"], qty=o["qty"], last=lp, pid=position_id)
+                  for x in BROKER_SELL_STEPS.get(broker, BROKER_SELL_STEPS["zerodha"])]
+    o["note"] = "Nothing here places an order: you sell in your broker app, when you decide."
+    return o
+
+
+def purify_estimate(sym, qty, opened, since, since_price, last_price, ratio_pct, dividends):
+    """Purification estimate for a held stock that stopped passing: (a) the non-compliant share (ratio_pct) of the
+    dividends received while holding it (purification.json, dated on or after `opened`), plus (b) any gain since
+    the status-change date, (last price - the close on that date) x qty, if positive. A part that cannot be worked
+    out is UNKNOWN (None) with the reason, never 0. Labelled 'estimate: confirm with your scholar'."""
+    sym = normalize_symbol(sym)
+    divs = [d for d in dividends or [] if normalize_symbol(d.get("symbol")) == sym and str(d.get("date") or "") >= (opened or "")]
+    div_rs = round(sum(float(d.get("amount_rs") or 0) for d in divs), 2)
+    unknown = []
+    div_part = None
+    if not divs:
+        div_part = 0.0
+    elif ratio_pct is None:
+        unknown.append("the non-compliant income ratio is UNKNOWN: give it with purify.py --ratio")
+    else:
+        div_part = round(div_rs * float(ratio_pct) / 100.0, 2)
+    gain = gain_part = None
+    if since_price is None or last_price is None:
+        unknown.append("the price on %s or today is UNKNOWN" % (since or "the change date"))
+    else:
+        gain = round((float(last_price) - float(since_price)) * int(qty), 2)
+        gain_part = max(gain, 0.0)
+    total = None if div_part is None or gain_part is None else round(div_part + gain_part, 2)
+    return {"symbol": sym, "label": PURIFY_LABEL, "dividends_rs": div_rs, "dividends": len(divs),
+            "ratio_pct": ratio_pct, "dividend_part_rs": div_part, "since": since, "since_price": since_price,
+            "last_price": last_price, "qty": int(qty), "gain_since_rs": gain, "gain_part_rs": gain_part,
+            "total_rs": total, "unknown": unknown,
+            "command": "purify.py estimate %s --since %s" % (sym, since or "YYYY-MM-DD"),
+            "basis": "the non-compliant share of dividends received while holding, plus any gain since the "
+                     "status-change date"}
 
 
 # The steps a ticket shows for placing it yourself. tayyib-broker prints them and the dashboard shows

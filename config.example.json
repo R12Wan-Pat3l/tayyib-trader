@@ -24,7 +24,10 @@
     "auto_rebuild_days": 30,
     "max_debt_to_assets_pct": 25.0,
     "max_noncompliant_income_pct": 3.0,
-    "max_cash_receivables_to_assets_pct": 90.0
+    "max_cash_receivables_to_assets_pct": 90.0,
+    "held_recheck_days": 7,
+    "exit_grace_days": 0
   },
+  "regime": {"enabled": false, "index": "^NSEI", "rule": "close_below_200dma", "action": "no_new_swing"},
   "email": {"enabled": false, "smtp_host": "smtp.gmail.com", "smtp_port": 465, "from": "", "to": [], "send_when": "always", "attach_md": true}
 }

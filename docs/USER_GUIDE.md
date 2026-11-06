@@ -158,6 +158,34 @@ Both are greyed in Results and the Excel file, kept for the record, and not coun
 - **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.
 - **"Show my positions"**: your open and closed trades and how you're doing.
 
+### When a stock you hold stops being halal
+Every daily run re-checks the stocks you hold (your open positions) with the same halal screen. A held
+stock is screened again when its screen is more than a week old (`halal.held_recheck_days`, 7); the rest
+of the list keeps its monthly rebuild. Your own overrides still win.
+
+You get **one alert per change** (not a repeat every day; it stays listed as *open* until it is resolved):
+
+- **No longer compliant** (red): the stock is now excluded or under review. It shows which test failed,
+  the ratios when you bought against now, the date of the figures and where they came from. It also gives
+  you:
+  - a **SELL ticket** for the shares you hold (CNC, the Kite / Groww steps, cancel the stop / target GTT
+    first). You place it yourself, when you decide: nothing is ever sold for you;
+  - a **purification estimate**: the non-compliant share of the dividends you received while holding it,
+    plus any gain since the change (`purify.py estimate SYMBOL --since DATE`). It is an estimate: confirm
+    with your scholar.
+
+  "This stock no longer passes the screen. Many Shariah boards advise selling it at the earliest reasonable
+  opportunity and purifying any gain after the change. The timing is your decision; ask your scholar if
+  unsure. Not a fatwa." `halal.exit_grace_days` (0 = as soon as reasonable) only changes this wording and
+  its countdown.
+- **Near a limit** (amber): still compliant, but a ratio is close to its limit. Nothing to do yet.
+- **Could not verify** (grey): the screen data could not be fetched. It is shown as UNKNOWN with the
+  reason: never read as compliant, never as non-compliant. It is tried again on the next run.
+
+The alert is at the top of the daily list, the email and the dashboard (a red banner on Today, a section on
+Tickets). When you record the sale ("I sold SYMBOL at 1064", `ticket.py close ... --reason halal`) it is
+resolved. To run the check by itself: `py tayyib-halal/halal.py held` (add `--write` to save it).
+
 ### How would this strategy have done? (the backtest)
 Ask **"backtest my strategy"** (or run `py tayyib-backtest\backtest.py run --write` from your
 `tayyib-live` folder). It runs the daily list on every trading day of the last 3 years with your capital
@@ -226,6 +254,22 @@ minutes; compare takes about 3 times longer). You can close the panel: it keeps 
 appears in the picker when it's done. Only one run at a time (a backtest or today's list): a second press
 says so. It writes only your saved backtests and price cache, never your settings, tracker, tickets,
 positions or daily lists. Not financial advice, not a fatwa.
+
+### Market regime filter (optional)
+The Today header shows the market's state every day: **Risk-on** when the Nifty 50 closes above its 200-day
+average, **Risk-off** when it closes below, with both numbers. With the filter off (the default) this is
+information only.
+
+You can switch on a filter in Settings, Regime: on a risk-off day it can stop new swing trades
+(`no_new_swing`), stop all new trades (`no_new_trades`) or halve the risk per trade (`half_risk`). The rule
+can also be "the 50-day average is below the 200-day average". The index is only a thermometer, never a
+stock to buy. If the index data cannot be fetched, the regime is UNKNOWN, a banner says so, and the filter
+does nothing that day.
+
+**Test it before you switch it on.** Ask Claude **"backtest the regime filter for 3 and 5 years"**, or run
+`py tayyib-backtest/backtest.py run --years 5 --mode all --regime-compare --write`. The Backtest tab then shows
+five columns side by side (off and four variants: trades, win rate, expectancy, CAGR, max drawdown, worst
+year, swing and pullback expectancy). Switch it on only if a variant helps on more than one window.
 
 ### Once a month
 - The halal list refreshes itself (when it's 30 days old).

@@ -133,21 +133,29 @@ class Build(EmailCase):
 
     def test_sections_in_order(self):
         cfg = self.cfg()
-        self.put_daily()
+        d = daily()          # v0.2.4: the held section is the re-check's held_alerts[] (it replaced the simple list)
+        d["held_alerts"] = [{"symbol": "BETA", "level": "BLOCK", "title": tc.HELD_TITLES["BLOCK"], "qty": 5,
+                             "status_at_buy": "compliant", "status_now": "excluded", "data_date": "2026-03-31",
+                             "source": "re-screened", "ratios": [], "failed": ["debt 41% of assets, over 25%"],
+                             "alert": {"new": True, "since": "2026-10-30"}, "wording": tc.HELD_WORDING,
+                             "sell_by": "as soon as reasonable",
+                             "sell_ticket": tc.sell_ticket("BETA", 5, "BETA-1", last=50.0, date="2026-10-30"),
+                             "purify": tc.purify_estimate("BETA", 5, "2026-10-01", "2026-10-30", 50.0, 50.0, 1.0, [])}]
+        self.put_daily(d)
         self.write("halal_universe.json", {"updated": "2026-10-01", "stocks": {
             "ALFA": {"status": "compliant"}, "BETA": {"status": "excluded", "reasons": ["debt 41% of assets, over 25%"]}}})
         self.write("positions.json", {"positions": [{"symbol": "BETA", "status": "open"},
                                                     {"symbol": "ALFA", "status": "open"},
                                                     {"symbol": "GAMA", "status": "closed"}]})
         rep = ER.build(DAY, cfg)
-        self.assertEqual([h["symbol"] for h in rep["held_not_compliant"]], ["BETA"])
+        self.assertEqual([h["symbol"] for h in rep["held_alerts"]], ["BETA"])          # ALFA, GAMA: no alert
         self.assertEqual([c["symbol"] for c in rep["picks"]], ["ALFA", "BRAV", "CHRL"])
         self.assertEqual([o["symbol"] for o in rep["others"]], ["DELT", "ECHO", "FOXT"])
         c = rep["picks"][0]
         for k in ("entry", "stop", "target", "qty", "position", "loss_at_stop", "expectancy", "why", "setup", "mode"):
             self.assertIn(k, c)
         self.assertEqual((c["entry"], c["qty"], c["position"], c["expectancy"]), ("100.50", "40", "₹4,020", "+0.41R"))
-        self.assertEqual(c["why"][0]["mark"], "?")                       # what is UNKNOWN comes first
+        self.assertEqual((c["why"][0]["mark"], c["why"][-1]["mark"]), ("✓", "?"))  # v0.2.4 (C1): UNKNOWN comes last
         for out in (ER.render_html(rep), ER.render_text(rep)):
             low = out.lower()
             pos = [low.index(x) for x in ("no longer compliant", "exchange filings unavailable", "alfa", "delt",
@@ -576,7 +584,7 @@ class DrawdownLabels(unittest.TestCase):
 
 class Docs(unittest.TestCase):
     def test_version_and_docs(self):
-        self.assertEqual(tc.VERSION, "0.2.3")
+        self.assertTrue(tc.VERSION >= "0.2.3")              # pinned exactly by the newest test file
         guide = open(os.path.join(ROOT, "docs", "USER_GUIDE.md"), encoding="utf-8").read()
         faq = open(os.path.join(ROOT, "docs", "FAQ.md"), encoding="utf-8").read()
         self.assertIn("Get the list by email", guide)

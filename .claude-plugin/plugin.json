@@ -1,7 +1,7 @@
 {
   "name": "tayyib-trader",
   "description": "18 skills for halal swing and delivery trading on NSE/BSE: a one-command daily list, a backtest of the daily strategy, a local dashboard with safe settings, the list by email to your own inbox, Shariah screening, chart scanner, Indian news, entry timer, exit planner, time machine, position sizing with Indian charges, risk manager, order tickets, alerts, results, insider deals and purification. CNC only, no F&O or shorts, never places an order.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "author": {
     "name": "Rizwan Patel",
     "url": "https://github.com/R12Wan-Pat3l"

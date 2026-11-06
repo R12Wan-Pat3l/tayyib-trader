@@ -57,13 +57,15 @@ def main(argv=None):
         syms = syms[: a.limit]
     setups = [x.strip() for x in a.setups.split(",")] if a.setups else None
 
-    cands, errors = [], []
+    cands, errors, latest = [], [], None
     for s in syms:
         try:
             bars, _ = tc.get_daily_bars(s)
         except tc.FetchError as e:
             errors.append({"symbol": s, "error": str(e)})
             continue
+        if bars and (latest is None or bars[-1]["date"] > latest):
+            latest = bars[-1]["date"]                 # v0.2.4: tayyib-daily's market-closed check
         if len(bars) < cfg["scanner"]["min_history_bars"]:
             skipped.append({"symbol": s, "reason": "only %s of history" % tc.plural(len(bars), "day")})
             continue
@@ -96,7 +98,7 @@ def main(argv=None):
     cands = cands[: a.top]
     out = {"asof": tc.now_ist().isoformat(timespec="minutes"), "mode": a.mode,
            "universe_updated": uni.get("updated"), "scanned": len(syms),
-           "candidates": cands, "skipped": skipped, "errors": errors}
+           "candidates": cands, "skipped": skipped, "errors": errors, "latest_bar": latest}
     off = [n for n in tc.SWING_SETUPS + tc.DELIVERY_SETUPS if n not in tc.enabled_setups(cfg, [n])]
     if off:
         out["setups_disabled"] = off

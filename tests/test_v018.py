@@ -220,7 +220,8 @@ class SettingsPage(ServerCase):
     def test_every_editable_key_rendered_once_and_grouped(self):
         s = self.get("/api/settings")
         self.assertEqual([g["title"] for g in s["groups"]],
-                         ["Risk", "Plan", "Selection", "Broker & charges", "Halal", "Email", "Data & calendar"])  # Email: v0.2.3
+                         ["Risk", "Plan", "Selection", "Broker & charges", "Halal", "Email", "Regime",
+                          "Data & calendar"])  # Email: v0.2.3; Regime: v0.2.4
         keys = []
         for g in s["groups"]:
             for sec in g["sections"]:

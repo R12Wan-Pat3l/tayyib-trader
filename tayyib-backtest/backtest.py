@@ -317,17 +317,89 @@ def order_matters(picks, cfg, uni, ledger, cash, avail, free, day, take_warn):
     return False
 
 
+# ---------------------------------------------------------------------------
+# Market regime (v0.2.4): the same rule as tayyib-daily, causal (the index's bars up to day t only)
+# ---------------------------------------------------------------------------
+
+REGIME_VARIANTS = ("off", "close_below_200dma:no_new_swing", "close_below_200dma:no_new_trades",
+                   "close_below_200dma:half_risk", "sma50_below_sma200:no_new_swing")
+BANNER_REGIME_UNKNOWN = ("The regime index could not be fetched, so every regime variant behaves like 'off' (an "
+                         "UNKNOWN regime never blocks or allows anything).")
+
+
+def parse_regime(text):
+    """'off' -> None; 'rule:action' -> {"rule", "action"}; anything else -> ValueError."""
+    if text in (None, "", "off"):
+        return None
+    rule, _, action = str(text).partition(":")
+    if rule not in tc.REGIME_RULES or action not in tc.REGIME_ACTIONS:
+        raise ValueError("--regime must be off or RULE:ACTION with RULE in %s and ACTION in %s"
+                         % ("/".join(tc.REGIME_RULES), "/".join(tc.REGIME_ACTIONS)))
+    return {"rule": rule, "action": action}
+
+
+def regime_states(index_bars, days, rule, index):
+    """{date: tc.regime_state(...)} for every backtest day, each from the index's bars dated that day or earlier
+    only (changing a later bar cannot change an earlier day's state)."""
+    bars = sorted([b for b in index_bars or [] if b.get("close") is not None], key=lambda b: b["date"])
+    out, k = {}, 0
+    for d in sorted(days):
+        while k < len(bars) and bars[k]["date"] <= d:
+            k += 1
+        out[d] = tc.regime_state(bars[max(0, k - 260):k], d, rule, index)
+    return out
+
+
+def worst_year(curve):
+    """The calendar year with the lowest return on the account's equity (a part year is marked partial)."""
+    if not curve:
+        return None
+    by, prev, first_year = {}, curve[0]["equity"], curve[0]["date"][:4]
+    for c in curve:
+        y = c["date"][:4]
+        if y not in by:
+            by[y] = {"start": prev, "end": c["equity"], "first": c["date"], "last": c["date"]}
+        by[y]["end"], by[y]["last"] = c["equity"], c["date"]
+        prev = c["equity"]
+    rows = []
+    for y, v in sorted(by.items()):
+        partial = (y == first_year and not v["first"].endswith(("01-01", "01-02", "01-03", "01-04", "01-05"))) or \
+                  (y == curve[-1]["date"][:4] and v["last"] < y + "-12-24")
+        rows.append({"year": int(y), "return_pct": round((v["end"] / v["start"] - 1) * 100, 2) if v["start"] else None,
+                     "partial": partial})
+    rows = [r for r in rows if r["return_pct"] is not None]
+    return min(rows, key=lambda r: r["return_pct"]) if rows else None
+
+
+def regime_column(name, sim, capital, split):
+    m, _ = all_metrics(sim, capital, split)
+    o = m["overall"]
+    tr = sim["trades"]
+    sw = trade_stats([t for t in tr if t["mode"] == "swing"])
+    pb = trade_stats([t for t in tr if t["setup"] == "pullback"])
+    c = sim["counts"]
+    return {"variant": name, "trades": o["trades"], "win_rate_pct": o["win_rate_pct"], "expectancy_r": o["expectancy_r"],
+            "cagr_pct": o["cagr_pct"], "max_drawdown_pct": o["max_drawdown_pct"], "worst_year": worst_year(sim["curve"]),
+            "swing_trades": sw["trades"], "swing_expectancy_r": sw["expectancy_r"],
+            "pullback_trades": pb["trades"], "pullback_expectancy_r": pb["expectancy_r"],
+            "risk_off_days": c.get("regime_risk_off_days", 0), "unknown_days": c.get("regime_unknown_days", 0),
+            "picks_held_back": c.get("regime_blocked", 0), "too_few": o["trades"] < MIN_TRADES}
+
+
 def new_counts():
-    return {"signal_days": 0, "plans": 0, "not_triggered": 0, "no_cash_at_fill": 0, "qty_cut_at_fill": 0,
+    return {"signal_days": 0, "regime_risk_off_days": 0, "regime_unknown_days": 0, "regime_blocked": 0,
+            "regime_half_risk_days": 0, "plans": 0, "not_triggered": 0, "no_cash_at_fill": 0, "qty_cut_at_fill": 0,
             "not_sized": 0, "no_slot": 0, "tm_days": 0, "risk_checked": 0, "risk_blocked_plans": 0,
             "risk_blocked": {}, "risk_warned": {}, "warn_taken": 0, "warn_skipped": 0,
             "not_replayed": {k: 0 for k in NOT_REPLAYED}}
 
 
 def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, progress=None, uni=None,
-             take_warn=True, rank="tm"):
+             take_warn=True, rank="tm", regime=None):
     """Run the strategy over [start, end] on {sym: bars} (compliant stocks only, bars up to `end`).
     rank: "tm" (tayyib-daily's order, with the time machine) or "score" (setup score only, for --compare).
+    regime (v0.2.4): None, or {"rule", "action", "states": {date: regime_state}}: on a risk-off day the action
+    applies to that day's new plans, as live (an UNKNOWN day: no effect).
     -> {trades[], curve[], counts, days}."""
     uni = uni if uni is not None else {"stocks": {}}
     books = {s: Book(b) for s, b in data.items()}
@@ -407,10 +479,23 @@ def simulate(data, cfg, start, end, mode="all", setups=None, max_positions=5, pr
                 del pending[s]
         # 4. the close: today's list, ranked, sized and risk-checked against the simulated book
         if d != days[-1]:
+            eff, cfg_day = {"active": False, "block_modes": [], "risk_factor": 1.0}, cfg
+            if regime:
+                st = regime["states"].get(d) or {"state": "UNKNOWN"}
+                eff = tc.regime_effect(st, {"enabled": True, "action": regime["action"]})
+                counts["regime_risk_off_days"] += st["state"] == "risk-off"
+                counts["regime_unknown_days"] += st["state"] == "UNKNOWN"
+                if eff["risk_factor"] != 1.0:
+                    counts["regime_half_risk_days"] += 1
+                    cfg_day = dict(cfg, max_risk_per_trade_pct=cfg["max_risk_per_trade_pct"] * eff["risk_factor"])
             picks = scan_day(books, d, cfg, mode, setups, set(held) | set(pending))
+            if eff["block_modes"]:
+                kept = [p for p in picks if p["mode"] not in eff["block_modes"]]
+                counts["regime_blocked"] += len(picks) - len(kept)
+                picks = kept
             if picks:
                 counts["signal_days"] += 1
-                place_day(books, picks, cfg, uni, d, cash, held, pending, max_positions, take_warn, rank, counts,
+                place_day(books, picks, cfg_day, uni, d, cash, held, pending, max_positions, take_warn, rank, counts,
                           outcome)
         # 5. the last day: whatever is still held is valued at its last close, after the sell charges
         if d == days[-1]:
@@ -758,7 +843,36 @@ def late_share(trades, late, excluded=False):
             "total_pnl_rs": tot, "pct_of_total": 0.0 if excluded else pct, "excluded": excluded, "text": text}
 
 
-def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
+def load_regime(params, cfg, range_, days, index_fn):
+    """-> (index info, {variant: regime dict or None}) for --regime and --regime-compare (index fetched once)."""
+    wanted = set()
+    if params.get("regime") and params["regime"] != "off":
+        wanted.add(params["regime"])
+    if params.get("regime_compare"):
+        wanted |= set(REGIME_VARIANTS) - {"off"}
+    if not wanted:
+        return None, {}
+    idx = (cfg.get("regime") or {}).get("index") or "^NSEI"
+    info = {"index": idx, "name": tc.REGIME_INDEXES.get(idx, idx), "status": "OK", "reason": None}
+    try:
+        bars, _ = (index_fn or tc.get_daily_bars)(idx, range_=range_)
+    except tc.FetchError as e:
+        bars = []
+        info.update(status="UNKNOWN", reason="could not be fetched: %s" % str(e)[:200])
+    out, by_rule = {}, {}
+    for v in sorted(wanted):
+        r = parse_regime(v)
+        if r["rule"] not in by_rule:
+            by_rule[r["rule"]] = regime_states(bars, days, r["rule"], idx)
+        out[v] = dict(r, states=by_rule[r["rule"]])
+    if bars:
+        st = by_rule[sorted(by_rule)[0]]
+        info["risk_off_days"] = {rule: sum(1 for x in sts.values() if x["state"] == "risk-off") for rule, sts in by_rule.items()}
+        info["unknown_days"] = sum(1 for x in st.values() if x["state"] == "UNKNOWN")
+    return info, out
+
+
+def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index_fn=None):
     """The whole backtest -> result dict (no file is written here)."""
     syms, status_counts = halal_universe(uni)
     start, end, split = params["from"], params["to"], params["split"]
@@ -769,8 +883,29 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
     late_syms = {x["symbol"] for x in late}
     early = {s: b for s, b in data.items() if s not in late_syms}       # the same bars, late joiners left out
     capital = float(cfg["capital"])
-    sim = simulate(early if no_late else data, cfg, start, end, params["mode"], params["setups"],
-                   params["max_positions"], progress, uni=uni, take_warn=params["take_warn"], rank="tm")
+    used = early if no_late else data
+    all_days = sorted({b["date"] for bs in used.values() for b in bs if start <= b["date"] <= end})
+    rinfo, regimes = load_regime(params, cfg, range_, all_days, index_fn or bench_fn)
+    main_regime = params.get("regime") if params.get("regime") not in (None, "off") else None
+    sim = simulate(used, cfg, start, end, params["mode"], params["setups"],
+                   params["max_positions"], progress, uni=uni, take_warn=params["take_warn"], rank="tm",
+                   regime=regimes.get(main_regime) if main_regime else None)
+    regime_cmp = None
+    if params.get("regime_compare"):
+        cols = []
+        for v in REGIME_VARIANTS:
+            if progress:
+                progress("regime compare: %s" % v)
+            if v == (main_regime or "off"):
+                sv = sim
+            else:
+                sv = simulate(used, cfg, start, end, params["mode"], params["setups"], params["max_positions"],
+                              progress, uni=uni, take_warn=params["take_warn"], rank="tm", regime=regimes.get(v))
+            cols.append(regime_column(v, sv, capital, split))
+        regime_cmp = {"index": rinfo, "columns": cols,
+                      "note": "Each column is the same window, data, ranking, sizing and risk check; only the regime "
+                              "rule changes which new plans are placed (or at what risk) on risk-off days, computed "
+                              "from the index's bars up to that day. Information for deciding; the default stays off."}
     metrics, spl = all_metrics(sim, capital, split)
     compare = None
     if params.get("compare"):
@@ -850,7 +985,12 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None):
     }
     if compare:
         res["compare"] = compare
+    res["regime"] = {"variant": main_regime or "off", "index": rinfo}
+    if regime_cmp:
+        res["regime_compare"] = regime_cmp
     res["banners"] = banners(metrics["overall"], spl, benches)
+    if rinfo and rinfo.get("status") != "OK":
+        res["banners"].append(BANNER_REGIME_UNKNOWN)
     return res
 
 
@@ -934,6 +1074,25 @@ def compare_md(cp):
     return L + [""]
 
 
+def regime_md(rc):
+    cols = rc["columns"]
+    yr = lambda w: "UNKNOWN" if not w else "%d: %s%s" % (w["year"], fmt(w["return_pct"], "%"), " (part)" if w["partial"] else "")
+    rows = (("trades", lambda c: str(c["trades"]) + (" " + TOO_FEW if c["too_few"] else "")),
+            ("win rate", lambda c: fmt(c["win_rate_pct"], "%", 1)), ("expectancy", lambda c: fmt(c["expectancy_r"], "R")),
+            ("CAGR", lambda c: fmt(c["cagr_pct"], "%")), ("max drawdown", lambda c: fmt(c["max_drawdown_pct"], "%")),
+            ("worst year", lambda c: yr(c["worst_year"])),
+            ("swing: trades / expectancy", lambda c: "%d / %s" % (c["swing_trades"], fmt(c["swing_expectancy_r"], "R"))),
+            ("pullback: trades / expectancy", lambda c: "%d / %s" % (c["pullback_trades"], fmt(c["pullback_expectancy_r"], "R"))),
+            ("risk-off days", lambda c: str(c["risk_off_days"])), ("plans held back", lambda c: str(c["picks_held_back"])))
+    ix = rc.get("index") or {}
+    L = ["## Market regime compare", "", rc["note"], "",
+         "Index: %s (%s)%s." % (ix.get("name"), ix.get("index"), "" if ix.get("status") == "OK" else ": UNKNOWN, " + str(ix.get("reason"))), "",
+         "| | " + " | ".join(c["variant"] for c in cols) + " |", "|---" * (len(cols) + 1) + "|"]
+    for name, f in rows:
+        L.append("| %s | %s |" % (name, " | ".join(f(c) for c in cols)))
+    return L + [""]
+
+
 def render_md(r):
     w, u, s = r["window"], r["universe"], r["settings"]
     L = ["**%s**" % b for b in r["banners"]] + ["", "# Backtest %s" % r["id"], "",
@@ -970,6 +1129,10 @@ def render_md(r):
     L += ["", "The Nifty 50 is not halal-screened: it is there for reference only, not as a halal option.", ""]
     if r.get("compare"):
         L += compare_md(r["compare"])
+    if r.get("regime_compare"):
+        L += regime_md(r["regime_compare"])
+    if (r.get("regime") or {}).get("variant", "off") != "off":
+        L += ["Regime filter in this run: %s (index %s)." % (r["regime"]["variant"], (r["regime"].get("index") or {}).get("name")), ""]
     if w.get("end_rule"):
         L += ["Window end: %s." % w["end_rule"], ""]
     L += ["## What happened to the plans", ""] + counts_md(r["counts"]) + [""]
@@ -1035,6 +1198,11 @@ def main(argv=None):
                    help="leave out stocks that joined late (listed during the window)")
     r.add_argument("--compare", action="store_true",
                    help="also run (b) ranked by setup score only and (c) without late joiners, side by side")
+    r.add_argument("--regime", default="off", help="market regime filter for this run: off (default) or RULE:ACTION, "
+                   "e.g. close_below_200dma:no_new_swing (rules %s; actions %s)" % (", ".join(tc.REGIME_RULES),
+                                                                                  ", ".join(tc.REGIME_ACTIONS)))
+    r.add_argument("--regime-compare", action="store_true",
+                   help="also run %s on the same bars, side by side" % ", ".join(REGIME_VARIANTS))
     r.add_argument("--write", action="store_true", help="save trader/backtest/<id>.json and .md")
     r.add_argument("--json", action="store_true")
     ls = sub.add_parser("list", help="saved backtests")
@@ -1090,6 +1258,10 @@ def main(argv=None):
         bad = [x for x in setups if x not in tc.SWING_SETUPS + tc.DELIVERY_SETUPS]
         if bad:
             tc.die("unknown setup %s (choose from %s)" % (", ".join(bad), ", ".join(tc.SWING_SETUPS + tc.DELIVERY_SETUPS)))
+    try:
+        parse_regime(a.regime)
+    except ValueError as e:
+        tc.die(str(e))
     start, end, split, end_rule = window(a, tc.now_ist(), cfg)
     uni = tc.load_universe()
     if not uni.get("stocks"):
@@ -1098,6 +1270,8 @@ def main(argv=None):
               "max_positions": a.max_positions, "top": cfg["daily"]["top"], "warmup_bars": WARMUP_BARS,
               "tm_runs": TM_RUNS, "tm_seed": TM_SEED, "take_warn": a.take_warn, "compare": a.compare,
               "late": a.late, "end_rule": end_rule}
+    if a.regime != "off" or a.regime_compare:              # v0.2.4 (left out when off, so earlier ids stay the same)
+        params.update(regime=a.regime, regime_compare=a.regime_compare)
     t0 = time.time()
     progress = None if a.json else (lambda m: sys.stderr.write("  %s\n" % m))
     res = run(params, cfg, uni, progress=progress)

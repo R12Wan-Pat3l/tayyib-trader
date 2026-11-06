@@ -35,6 +35,11 @@ analyses, plans and checks. It never places an order.
    which in India may need SEBI Research Analyst registration; each person runs their own copy. The SMTP
    password is read only from the environment variable `TAYYIB_SMTP_PASSWORD`: never ask for it in the chat,
    never write it to `config.json` or any file, never print or log it.
+11. Held stocks (v0.2.4): when `halal.py held` or the daily list says a held stock is "No longer compliant",
+   say it first, with its ratios and source. Offer the SELL ticket and the purification estimate; never sell,
+   never say it must be sold now (the timing is the user's, with their scholar), and never call a "Could not
+   verify" stock compliant or non-compliant. The regime filter stays OFF unless the user switches it on;
+   suggest `backtest.py run --regime-compare` first.
 
 ## Today's list in one command
 
@@ -66,7 +71,8 @@ through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib
 Both need the Host, Origin, per-start token, JSON type and 64 KB checks. Never add another write endpoint,
 and never a button, endpoint or request that places, modifies or cancels an order or talks to a broker.
 
-While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions`.
+While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|close|positions`,
+`tayyib-halal/halal.py held` (re-check the stocks you hold), `tayyib-purify/purify.py estimate SYMBOL --since D`.
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.
 Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] --write` (writes only `trader/backtest/`),
 `backtest.py list`, `backtest.py show ID`. Read out every line of its `banners[]` first: they are the

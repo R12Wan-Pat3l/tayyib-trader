@@ -60,6 +60,15 @@ How to present it:
 - Halal-compliant stocks only (see `tayyib-halal`). Anything else is skipped or blocked.
 - Delivery (CNC) only: no intraday (MIS), no F&O, no short selling, no margin or MTF.
 - Nothing in tayyib-trader places an order. The user places it in their broker app after an explicit yes.
-- Not financial advice, not a fatwa. Say so when you present results, briefly.
+- ## v0.2.4
+
+- `held_alerts[]` at the top: stocks the user holds that are **No longer compliant**, **Near a limit** or
+  **Could not verify**. Say these first (see tayyib-halal, "Stocks you hold").
+- The market regime line ("Market: Risk-on / Risk-off / UNKNOWN ..."): information only unless the user
+  switched the regime filter on; then FILTERED rows say "MARKET: ...".
+- "market closed (no bars for today)": after 3:30 PM IST no stock had a bar for today, so no list was made
+  (a holiday missing from the settings). `--force` makes one anyway.
+
+Not financial advice, not a fatwa. Say so when you present results, briefly.
 
 Files live in `trader/` in the current folder (override with `TAYYIB_DIR`). Every script takes `--json`.

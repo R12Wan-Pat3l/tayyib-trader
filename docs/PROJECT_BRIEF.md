@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.3).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.4).
 
 ## What it is
 
@@ -12,8 +12,8 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.3** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.3; v0.1.3 is folded into v0.1.4)
-- Tests: 380 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Latest release: **v0.2.4** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.4; v0.1.3 is folded into v0.1.4)
+- Tests: 404 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 
@@ -40,7 +40,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | tayyib-dashboard | local web page over the `trader/` files (127.0.0.1): Today, Results, Halal, Tickets, Backtest, Settings; GET only except `POST /api/config` and `POST /api/run` (today's list, a backtest, or (v0.2.3) a test email); first-run setup when `config.json` is missing |
 | tayyib-email | today's list to the user's own inbox (personal use only; at most 3 addresses): banners first, PASS cards, other rows, tracker, held-but-not-compliant in red; FAILED / stale email instead of old picks; nothing on market-closed days; password only from `TAYYIB_SMTP_PASSWORD`; `trader/email/` (v0.2.3) |
 | tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json` |
-| tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), plus user overrides; `compare` against a trusted fund list |
+| tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), plus user overrides; `compare` against a trusted fund list; `held`: re-checks the stocks you hold (v0.2.4) |
 | tayyib-scanner | swing setups (breakout, pullback, oversold, squeeze) and delivery (trend) |
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
 | tayyib-entry / tayyib-exit | trigger status; stop (swing max 10%, delivery max 15%), target (2R / 3R), time stop |
@@ -196,11 +196,16 @@ over MCP (stdio), none of which place orders.
   flags groups under 30 trades, Nifty banner, `--compare`.
 - **v0.2.2:** the Backtest tab and its Run button; the window ends on the last completed
   session; `--no-late`, compare column (c), the late joiners' P&L share. No daily-list changes (default@2).
-- **v0.2.3** (this release): `tayyib-email`, `daily.py --email`, the Windows scheduled task, `start.bat` and
+- **v0.2.3:** `tayyib-email`, `daily.py --email`, the Windows scheduled task, `start.bat` and
   the first-run setup, the Settings Email section with "Send test email", drawdown labels that never cross
   their lines. No daily-list changes (default@2).
-- **v0.2.4** (next): the full alert for a held stock that
-  is no longer compliant.
+- **v0.2.4** (this release): held-stock halal alerts (`halal.py held`: No longer compliant / Near a limit /
+  Could not verify, one per status change, a SELL ticket and a purification estimate, resolved on sale); the
+  market-regime filter, OFF (live, the Today header, `backtest --regime` / `--regime-compare`, a Settings
+  group); Why ordering, the time-machine label, market-closed detection (`--force`). No daily-list changes
+  with defaults (default@2).
+- **Next:** switch the regime filter on only if `--regime-compare` shows a variant helps on more than one
+  window.
 
 Later:
 - Read-only Zerodha / Groww connection (holdings, positions)

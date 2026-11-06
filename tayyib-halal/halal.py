@@ -9,6 +9,12 @@ that is not 'compliant'. Two ways to build it:
      Trusted as compliant, minus the known-excluded businesses.
   2. self-screen (default) the Nifty 500 list -> business screen (industry,
      name, known exclusions) -> TASIS-style financial ratios from Yahoo.
+
+held (v0.2.4): re-checks the stocks you HOLD (open positions in positions.json) with the same screen when
+their screen is older than halal.held_recheck_days (default 7), and alerts you once per status change:
+"No longer compliant" (now excluded or review), "Near a limit" or "Could not verify" (the screen failed).
+It offers a SELL ticket to place yourself and a purification estimate. It never sells anything.
+--write saves trader/held_halal.json, the alerts in alerts.json and the status at buy time on each position.
 """
 import argparse
 import os
@@ -344,6 +350,211 @@ def cmd_compare(a, cfg):
     print("\nRecord any other ruling: halal.py override SYMBOL --status excluded|compliant --note \"source\"")
 
 
+HELD_FILE = "held_halal.json"
+
+
+def screen_live(sym, rec, cfg):
+    """The tayyib-halal screen for one held stock, now -> screen dict. A failure is status "unknown" with the
+    error: never read as compliant or as non-compliant."""
+    today = tc.today_ist().isoformat()
+    st, why = tc.business_screen(sym, rec.get("name", ""), rec.get("industry", ""))
+    out = {"status": None, "ratios": {}, "as_of": None, "near_limit": [], "over_limit": [], "reasons": list(why),
+           "screened": today, "source": "re-screened %s (held stock): Yahoo annual figures, TASIS-style" % today,
+           "error": None}
+    if st == "excluded":
+        out["status"] = "excluded"
+        out["source"] = "re-screened %s (held stock): business screen" % today
+        return out
+    try:
+        fs = tc.financial_screen(tc.fetch_fundamentals(sym), cfg)
+    except tc.FetchError as e:
+        out.update(status="unknown", error="financials unavailable: %s" % str(e)[:200], screened=None)
+        out["reasons"].append(out["error"])
+        return out
+    out.update(ratios=fs["ratios"], as_of=fs["as_of"], near_limit=fs["near_limit"], over_limit=fs["over_limit"])
+    out["reasons"] += fs["reasons"]
+    out["status"] = fs["status"] if fs["status"] != "compliant" or st == "pass" else "review"
+    if out["status"] == "unknown":
+        out["error"] = "; ".join(fs["reasons"][:1]) or "missing data"
+    return out
+
+
+def _screen_age(screen, uni):
+    d = (screen or {}).get("screened") or uni.get("updated")
+    try:
+        return (tc.today_ist() - tc.parse_date(d)).days
+    except (TypeError, ValueError):
+        return None
+
+
+def _last_close(sym, save):
+    try:
+        bars, _ = tc.get_daily_bars(sym, save=save)
+        return bars[-1]["close"], bars[-1]["date"]
+    except (tc.FetchError, IndexError, KeyError):
+        return None, None
+
+
+def held_view(cfg, write=False):
+    """The held-stock re-check (pure of side effects unless write). -> (out, files) where files are the new
+    contents of positions.json, alerts.json and held_halal.json (written by the caller when write)."""
+    today = tc.today_ist().isoformat()
+    h = cfg["halal"]
+    uni = tc.load_universe()
+    pos = tc.read_json("positions.json", {"positions": []}) or {"positions": []}
+    al = tc.read_json("alerts.json", {"alerts": []}) or {"alerts": []}
+    store = tc.read_json(HELD_FILE, {"symbols": {}}) or {"symbols": {}}
+    store.setdefault("symbols", {})
+    overrides = tc.read_json("halal_overrides.json", {}) or {}
+    open_pos = [x for x in pos.get("positions", []) if x.get("status") == "open"]
+    backfilled = []
+    for x in open_pos:                                  # the status at buy time (v0.2.4); older positions backfilled
+        if not x.get("halal_at_buy"):
+            rec = dict((uni.get("stocks") or {}).get(x["symbol"]) or {"status": "unknown", "source": "not in the halal list"})
+            x["halal_at_buy"] = {"status": rec.get("status"), "ratios": rec.get("ratios") or {},
+                                 "as_of": rec.get("as_of"), "date": today, "source": rec.get("source") or "halal list built %s" % uni.get("updated"),
+                                 "backfilled": True}
+            backfilled.append(x["symbol"])
+    syms = sorted({x["symbol"] for x in open_pos})
+    items, errors, n_next = [], [], 1 + max([x.get("n", 0) for x in al["alerts"]] or [0])
+    for sym in syms:
+        mine = [x for x in open_pos if x["symbol"] == sym]
+        qty = sum(int(x["qty"]) for x in mine)
+        first = min(mine, key=lambda x: x.get("opened") or "")
+        at_buy = first.get("halal_at_buy") or {}
+        rec = tc.halal_status(sym, uni)                 # the list record, overrides applied
+        mem = store["symbols"].get(sym) or {}
+        ov = overrides.get(sym) if (overrides.get(sym) or {}).get("status") in tc.STATUSES else None
+        screen = mem.get("screen")
+        rechecked = False
+        if ov:
+            screen = {"status": ov["status"], "ratios": (screen or {}).get("ratios") or rec.get("ratios") or {},
+                      "as_of": (screen or {}).get("as_of") or rec.get("as_of"), "near_limit": [], "over_limit": [],
+                      "reasons": ["your override: %s" % (ov.get("note") or "no note")], "screened": today,
+                      "source": "your override (set %s)" % (ov.get("date") or "UNKNOWN"), "error": None}
+        elif sym in tc.KNOWN_EXCLUDED:
+            screen = {"status": "excluded", "ratios": {}, "as_of": None, "near_limit": [], "over_limit": [],
+                      "reasons": ["core business: %s" % tc.KNOWN_EXCLUDED[sym]], "screened": today,
+                      "source": "known exclusion", "error": None}
+        else:
+            base = screen or ({"status": rec.get("status"), "ratios": rec.get("ratios") or {}, "as_of": rec.get("as_of"),
+                               "near_limit": rec.get("near_limit") or [], "over_limit": rec.get("over_limit") or [],
+                               "reasons": rec.get("reasons") or [], "screened": uni.get("updated"),
+                               "source": "halal list built %s" % (uni.get("updated") or "UNKNOWN"), "error": None}
+                              if (uni.get("stocks") or {}).get(sym) else None)
+            age = _screen_age(base, uni) if base else None
+            if base is None or age is None or age >= h["held_recheck_days"]:
+                screen = screen_live(sym, rec, cfg)
+                rechecked = True
+                if screen["error"] and base:
+                    screen["last_good"] = {k: base.get(k) for k in ("status", "ratios", "as_of", "screened", "source")}
+            else:
+                screen = base
+        screen = dict(screen)
+        screen["near_limit"] = tc.near_limits(screen.get("ratios"), h) if screen.get("status") == "compliant" else []
+        level = tc.held_level(screen)
+        status_now = "UNKNOWN" if level == "UNKNOWN" else screen["status"]
+        last_status = mem.get("last_status")
+        last, last_date = _last_close(sym, save=write)
+        key = "%s:%s" % (level, status_now)
+        opened = [z for z in al["alerts"] if z.get("kind") == "halal" and z["symbol"] == sym and z.get("status") == "open"]
+        same = [z for z in opened if z.get("key") == key]
+        new = False
+        if level in ("BLOCK", "WARN") or (level == "UNKNOWN" and not opened):
+            if not same:
+                for z in opened:
+                    z.update(status="resolved", resolved=today, resolution="superseded: now %s" % key)
+                z = {"n": n_next, "symbol": sym, "kind": "halal", "level": level, "key": key,
+                     "note": "%s: %s" % (tc.HELD_TITLES[level], sym), "status": "open",
+                     "fired": tc.now_ist().isoformat(timespec="minutes"), "created": today, "since": today,
+                     "since_price": last, "from_status": last_status or at_buy.get("status"), "to_status": status_now}
+                n_next += 1
+                al["alerts"].append(z)
+                same, new = [z], True
+        elif level is None:
+            for z in opened:
+                z.update(status="resolved", resolved=today, resolution="status now %s, nothing near a limit" % status_now)
+        alert = (same or [z for z in opened if z.get("status") == "open"] or [None])[0]
+        if level == "UNKNOWN":
+            errors.append("%s: %s" % (sym, screen.get("error") or "no data"))
+        item = {"symbol": sym, "name": rec.get("name", ""), "qty": qty, "opened": first.get("opened"),
+                "position_id": first.get("id"), "level": level, "title": tc.HELD_TITLES.get(level),
+                "status_at_buy": at_buy.get("status") or "UNKNOWN", "backfilled": bool(at_buy.get("backfilled")),
+                "last_status": last_status, "status_now": status_now, "rechecked": rechecked,
+                "ratios": tc.ratio_changes(at_buy.get("ratios") or (mem.get("screen") or {}).get("ratios"),
+                                           screen.get("ratios"), h, h.get("near_limit_pct")),
+                "failed": [r for r in screen.get("reasons", [])
+                           if not r.startswith(("all three", "business screen passed"))][:3]
+                if level == "BLOCK" else [],
+                "near": screen.get("near_limit") or [], "data_date": screen.get("as_of"),
+                "source": screen.get("source"), "screened": screen.get("screened"),
+                "reason": screen.get("error"), "last_good": screen.get("last_good"),
+                "last_price": last, "last_price_date": last_date,
+                "alert": None if alert is None else {"n": alert["n"], "since": alert.get("since"), "new": new,
+                                                     "open": alert.get("status") == "open"}}
+        if level == "BLOCK":
+            since = (alert or {}).get("since") or today
+            item["wording"] = tc.HELD_WORDING
+            item["sell_by"] = tc.grace_text(since, h.get("exit_grace_days") or 0)
+            item["sell_ticket"] = tc.sell_ticket(sym, qty, first.get("id"), cfg.get("broker", "zerodha"), last, today,
+                                                 cfg.get("exchange", "NSE"))
+            ratio = (screen.get("ratios") or {}).get("noncompliant_income_pct")
+            divs = (tc.read_json("purification.json", {"dividends": []}) or {}).get("dividends", [])
+            item["purify"] = tc.purify_estimate(sym, qty, first.get("opened"), since, (alert or {}).get("since_price"),
+                                                last, ratio, divs)
+        items.append(item)
+        mem = dict(mem, screen=screen if rechecked or ov or not mem.get("screen") else mem.get("screen"),
+                   last_checked=today)
+        if level != "UNKNOWN":
+            mem["last_status"] = status_now
+        store["symbols"][sym] = mem
+    for z in al["alerts"]:                             # held no more (sold): resolve
+        if z.get("kind") == "halal" and z.get("status") == "open" and z["symbol"] not in syms:
+            z.update(status="resolved", resolved=today, resolution="no longer held")
+    alerts = [x for x in items if x["level"]]
+    order = {"BLOCK": 0, "UNKNOWN": 1, "WARN": 2}
+    alerts.sort(key=lambda x: (order[x["level"]], x["symbol"]))
+    out = {"checked": today, "held": items, "alerts": alerts, "errors": errors, "backfilled": backfilled,
+           "recheck_days": h["held_recheck_days"], "written": bool(write),
+           "note": None if syms else "no open positions in positions.json: nothing to re-check"}
+    store.update(updated=today, view=out)
+    return out, {"positions.json": pos if backfilled else None, "alerts.json": al, HELD_FILE: store}
+
+
+def cmd_held(a, cfg):
+    out, files = held_view(cfg, write=a.write)
+    if a.write:
+        for name, obj in files.items():
+            if obj is not None and (name != "alerts.json" or obj["alerts"] or os.path.exists(tc.path(name))):
+                tc.write_json(name, obj)
+    if a.json:
+        return tc.print_json(out)
+    if out["note"]:
+        print(out["note"])
+    if out["held"]:
+        print("%-12s %5s  %-12s %-12s %-22s %s" % ("stock", "qty", "at buy", "now", "alert", "data"))
+    for x in out["held"]:
+        print("%-12s %5d  %-12s %-12s %-22s %s (%s)" % (
+            x["symbol"], x["qty"], x["status_at_buy"] + ("*" if x["backfilled"] else ""), x["status_now"],
+            "%s %s" % (x["level"], x["title"]) if x["level"] else "-", x["data_date"] or "UNKNOWN", x["source"]))
+        for r in x["ratios"]:
+            print("    %-48s %s -> %s (limit %s)%s" % (r["check"], "-" if r["old"] is None else "%.2f%%" % r["old"],
+                                                      "UNKNOWN" if r["new"] is None else "%.2f%%" % r["new"],
+                                                      "-" if r["limit"] is None else "%.0f%%" % r["limit"],
+                                                      " OVER" if r["over"] else " near" if r["near"] else ""))
+        if x["level"] == "UNKNOWN":
+            print("    could not verify: %s" % (x["reason"] or "no data"))
+        if x["level"] == "BLOCK":
+            print("    " + x["wording"])
+            print("    sell %s; SELL ticket %s (CNC, %d shares, you place it)" % (x["sell_by"], x["sell_ticket"]["id"],
+                                                                               x["qty"]))
+    if any(x["backfilled"] for x in out["held"]):
+        print("* status at buy backfilled from the current list (not recorded when you bought)")
+    if not a.write:
+        print("(nothing saved: run with --write to save the alerts)")
+    print(tc.DISCLAIMER)
+
+
 def cmd_override(a, cfg):
     if a.status not in tc.STATUSES:
         tc.die("status must be one of %s" % ", ".join(tc.STATUSES))
@@ -382,13 +593,15 @@ def main(argv=None):
     o.add_argument("--status", default="excluded")
     o.add_argument("--note")
     o.add_argument("--clear", action="store_true")
-    for sp in (b, c, l_, o, cp):
+    hd = sub.add_parser("held", help="re-check the stocks you hold (v0.2.4); alerts once per status change")
+    hd.add_argument("--write", action="store_true", help="save held_halal.json, alerts.json and positions' status at buy")
+    for sp in (b, c, l_, o, cp, hd):
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     cfg = tc.load_config()
     tc.report_config(cfg)
     {"build": cmd_build, "check": cmd_check, "list": cmd_list, "override": cmd_override,
-     "compare": cmd_compare}[a.cmd](a, cfg)
+     "compare": cmd_compare, "held": cmd_held}[a.cmd](a, cfg)
 
 
 if __name__ == "__main__":

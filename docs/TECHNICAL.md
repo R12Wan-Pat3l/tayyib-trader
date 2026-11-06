@@ -74,7 +74,7 @@ All state lives in `./trader/` (override with `TAYYIB_DIR`):
 
 | step | command | reads | writes |
 |---|---|---|---|
-| halal | `tayyib-halal/halal.py build \| check \| list \| compare \| override` | Nifty 500 CSV, Yahoo fundamentals | `halal_universe.json`, `halal_overrides.json` |
+| halal | `tayyib-halal/halal.py build \| check \| list \| compare \| override \| held` | Nifty 500 CSV, Yahoo fundamentals | `halal_universe.json`, `halal_overrides.json`; `held --write`: `held_halal.json`, halal alerts in `alerts.json`, `halal_at_buy` on positions |
 | scan | `tayyib-scanner/scan.py --mode swing\|delivery\|all` | universe, Yahoo daily bars | `scan.json` |
 | news | `tayyib-news/news.py --symbols A,B` | RSS, Google News, NSE | `news.json` |
 | entry | `tayyib-entry/entry.py check SYM [--mode]` | scan, bars | `entries.json` (the exit planner uses a record only once TRIGGERED, or when the scan has no newer signal) |
@@ -216,6 +216,66 @@ impossible when the ETF is UNKNOWN, and "The Nifty 50 (not halal-screened, price
 its CAGR is higher (reference only, not a halal option).
 
 MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
+
+## Held-stock halal re-check (v0.2.4)
+
+`halal.py held [--write]` (`held_view()`), run by `tayyib-daily` on every list (before planning; a failure is a
+banner, never a stopped list):
+
+- Held = open positions in `positions.json`. Each has `halal_at_buy` {status, ratios, as_of, date, source,
+  backfilled}: written by `ticket.py placed`, or backfilled from the list record (not the override) and
+  marked `backfilled: true`.
+- Screen: an override wins (`halal_overrides.json`), then `KNOWN_EXCLUDED`; otherwise the last screen kept in
+  `held_halal.json` (or the list record) when it is younger than `halal.held_recheck_days`, else
+  `screen_live()`: `business_screen` + `fetch_fundamentals` + `financial_screen`, the same screen as `build`.
+  The universe file is not changed.
+- `tc.held_level()`: BLOCK (review / excluded), WARN (compliant, `near_limits` non-empty), UNKNOWN (fetch failed
+  or missing data: status "UNKNOWN", the last good screen kept, `last_status` not updated), None.
+- Alerts in `alerts.json`: `kind: "halal"`, `key = LEVEL:status`, `status: open|resolved`, `since`,
+  `since_price`, and `fired` set at creation, so `alerts.py check` never prices them. Same key: no new alert
+  (`alert.new` false). A new key resolves the old one ("superseded"). Compliant and nothing near: resolved.
+  Not held any more, or `ticket.py close` of the whole position: resolved; `held_halal.json`'s view drops it.
+  `alerts.py clear` keeps open halal alerts.
+- BLOCK items carry `wording` (`tc.HELD_WORDING`), `sell_by` (`tc.grace_text`, `halal.exit_grace_days`),
+  `sell_ticket` (`tc.sell_ticket`: side SELL, CNC, the held quantity, `guard_order` checked, Kite / Groww steps
+  from `BROKER_SELL_STEPS`) and `purify` (`tc.purify_estimate`: dividends since `opened` x the non-compliant
+  income ratio, plus max(0, (last close - close on the change date) x qty); a missing part is None, listed in
+  `unknown`). `purify.py estimate SYMBOL --since D` prints the same.
+- Output: daily `held_alerts[]` and `held_check`; `held_halal.json` {symbols: {screen, last_status,
+  last_checked}, view}; the dashboard reads the view (`held_alerts_now()`), the email the day's `held_alerts[]`
+  (or the view when there is no list).
+
+## Market regime (v0.2.4, OFF by default)
+
+`regime` {enabled false, index `^NSEI` | `SHARIABEES.NS`, rule `close_below_200dma` | `sma50_below_sma200`,
+action `no_new_swing` | `no_new_trades` | `half_risk`}. In the settings hash (a decision once on); the defaults
+keep default@2.
+
+- `tc.regime_state(bars, date, rule, index)`: only bars dated <= date; UNKNOWN without a bar on that date or
+  under 200 bars. `tc.regime_effect(state, cfg)`: active only when enabled AND risk-off -> `block_modes`,
+  `risk_factor`, `text` ("MARKET: Nifty 50 below its 200-day average → no new swing trades").
+- Live (`daily.py`): the index bar on the scan's latest bar date; blocked rows are FILTERED with that reason
+  and a RISK why item `MARKET`; `half_risk` passes `--risk-pct` x 0.5 to `size.py`. Enabled and UNKNOWN: a
+  banner, no effect. `out["regime"]` always (the Today header line, `tc.regime_line`).
+- Backtest: `--regime off|RULE:ACTION`, `--regime-compare` (`REGIME_VARIANTS`, the same bars; the index
+  fetched once). `regime_states()` walks the index bars forward, so a later bar cannot change an earlier day.
+  On a risk-off day the action filters that day's picks or halves `max_risk_per_trade_pct` for sizing and
+  the risk check. Columns (`regime_column`): trades, win rate, expectancy, CAGR, max drawdown, worst calendar
+  year (part years marked), swing and pullback trades / expectancy, risk-off days, plans held back. Index
+  UNKNOWN: a banner, every variant behaves like off. `params` gets `regime` keys only when used, so earlier
+  ids are unchanged.
+
+## Why ordering, time-machine label, market closed (v0.2.4)
+
+- `tc.why_tier(item)`: 0 decision, 1 information only (`op` "info", `info`, or "information only" in the note),
+  2 UNKNOWN / not available (`ok` None or `op` not_available). `tc.order_why` sorts by tier, then group. The
+  `.md` (`why_md`), the email (`why_lines`: mark "i" for info, "check yourself" on UNKNOWN) and the dashboard
+  (`why_view` items carry `tier`; the drawer shows decisions by group, then "Information only", then "UNKNOWN:
+  check yourself" with the links) use it. `why[]` in the `.json` keeps its group order.
+- `tc.tm_label(exp, past, k)`: "+0.81R (1 past trade: too few to judge)".
+- `scan.py` records `latest_bar`. `daily.market_closed()`: after 15:30 IST on a configured trading day, bars
+  were read and none is dated today -> no list, `daily/closed.json` gets the day, exit 0; `--force` runs. The
+  email reads `closed.json`: nothing sent, logged `market_closed`.
 
 ## Email (`tayyib-email`, v0.2.3)
 

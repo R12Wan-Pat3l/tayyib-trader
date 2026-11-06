@@ -172,8 +172,9 @@ def why_view(items, headlines=None):
         rows = []
         for x in mine:
             ok = x.get("ok")
+            tier = tc.why_tier(x)                         # C1 (v0.2.4): 0 decision, 1 information only, 2 UNKNOWN
             mark = "ok" if ok is True else "failed" if ok is False else "unknown"
-            if x.get("op") == "info" and ok is not None:
+            if tier == 1 and ok is not None:              # information only: grey "i", never a red cross
                 mark = "info"
             if x.get("op") == tc.NA_OP:                     # NSE refused automated access: neutral, never a pass
                 mark = "na"
@@ -187,7 +188,7 @@ def why_view(items, headlines=None):
                          "limit": limit, "mark": mark,
                          "symbol": {"ok": "✓", "failed": "✗", "unknown": UNKNOWN, "info": "i", "na": "–"}[mark],
                          "note": x.get("note"), "near_limit": near_of(x),
-                         "over_limit": over_of(x),
+                         "over_limit": over_of(x), "tier": tier,
                          "stop_capped": bool(x.get("stop_capped"))})
         out.append({"group": g, "items": rows})
     return out
@@ -354,7 +355,8 @@ def row_view(r, k_min, older=False, headlines=None):
             "gain_at_target_rs": inr(r.get("gain_at_target_rs"), 0), "rr_net": num(r.get("rr_net")),
             "expectancy_r": signed_r(r.get("expectancy_r")), "past_trades": text(r.get("past_trades")),
             "score": num(r.get("score"), 1), "valid_until": text(r.get("valid_until")),
-            "verdict": text(r.get("verdict"))}
+            "verdict": text(r.get("verdict")),
+            "time_machine": tc.tm_label(r.get("expectancy_r"), r.get("past_trades"), 0 if older else k_min)}
     if older:                      # made before v0.1.7: ranked by expectancy alone, no thin-evidence label
         use, ranked = OLDER_USE, "expectancy (older list)"
     else:
@@ -368,6 +370,61 @@ def row_view(r, k_min, older=False, headlines=None):
                 stop_capped=bool(r.get("stop_capped") or any(x.get("stop_capped") for x in why)),
                 near_limit=badge["state"] == "near", over_limit=badge["state"] == "over", halal_badge=badge,
                 why_summary=summary, ladder=ladder(r), why_view=why_view(why, headlines))
+
+
+HELD_KIND = {"BLOCK": "block", "WARN": "warn", "UNKNOWN": "unknown"}
+
+
+def pct_or(v):
+    return UNKNOWN if v is None else "%.2f%%" % v
+
+
+def held_alerts_now(daily=None):
+    """v0.2.4: the held-stock halal alerts still open: the last re-check (held_halal.json, kept current when you
+    sell), else the list's held_alerts[]; only stocks still open in positions.json. Display data only."""
+    hh = tc.read_json("held_halal.json", None)
+    al = ((hh or {}).get("view") or {}).get("alerts")
+    if al is None:
+        al = (daily or {}).get("held_alerts") or []
+    held = {p.get("symbol") for p in (tc.read_json("positions.json", {}) or {}).get("positions") or []
+            if p.get("status") == "open"}
+    out = []
+    for x in al:
+        if x.get("symbol") not in held or x.get("level") not in HELD_KIND:
+            continue
+        a = x.get("alert") or {}
+        v = {"symbol": x["symbol"], "level": x["level"], "kind": HELD_KIND[x["level"]], "title": x.get("title"),
+             "qty": x.get("qty"), "status_at_buy": text(x.get("status_at_buy")), "backfilled": bool(x.get("backfilled")),
+             "status_now": text(x.get("status_now")), "data_date": text(x.get("data_date")),
+             "source": text(x.get("source")), "reason": x.get("reason"), "failed": x.get("failed") or [],
+             "open_since": a.get("since"), "new": bool(a.get("new")),
+             "ratios": [{"check": r["check"], "old": pct_or(r.get("old")), "new": pct_or(r.get("new")),
+                         "limit": UNKNOWN if r.get("limit") is None else "%.0f%%" % r["limit"],
+                         "flag": "over" if r.get("over") else "near" if r.get("near") else None}
+                        for r in x.get("ratios") or []]}
+        if x["level"] == "BLOCK" and x.get("sell_ticket"):
+            t = x["sell_ticket"]
+            v["wording"], v["sell_by"] = x.get("wording"), x.get("sell_by")
+            v["ticket"] = {"id": t["id"], "qty": t["qty"], "product": t["product"], "side": t["side"],
+                           "broker": t.get("broker") or "zerodha",
+                           "steps": {b: tc.sell_ticket(x["symbol"], t["qty"], t.get("position_id"), b, t.get("last_price"),
+                                                       t["id"][-10:])["steps"] for b in ("zerodha", "groww")}}
+            p = x.get("purify") or {}
+            v["purify"] = {"label": p.get("label"), "total": inr(p.get("total_rs")), "command": p.get("command"),
+                           "basis": p.get("basis"), "dividends": inr(p.get("dividend_part_rs")),
+                           "gain": inr(p.get("gain_part_rs")), "unknown": p.get("unknown") or []}
+        out.append(v)
+    order = {"BLOCK": 0, "UNKNOWN": 1, "WARN": 2}
+    return sorted(out, key=lambda v: (order[v["level"]], v["symbol"]))
+
+
+def regime_view(rg):
+    """B4: the regime line for the Today header (even when the filter is off). UNKNOWN when the list has none."""
+    if not rg:
+        return {"state": "UNKNOWN", "kind": "unknown", "line": "Market regime: UNKNOWN (this list was made before v0.2.4)"}
+    k = {"risk-on": "pass", "risk-off": "block"}.get(rg.get("state"), "unknown")
+    return {"state": rg.get("state") or "UNKNOWN", "kind": k, "line": tc.regime_line(rg), "enabled": bool(rg.get("enabled")),
+            "applied": bool(rg.get("applied")), "filtered": rg.get("filtered") or []}
 
 
 def api_today(q):
@@ -418,6 +475,7 @@ def api_today(q):
             "older_list": older, "rank_note": rank_note,
             "min_past_trades_for_rank": None if older else k_min, "counts": counts,
             "top_picks": picks, "rows": rows, "notes": d.get("notes") or [], "halal_changed": changed,
+            "regime": regime_view(d.get("regime")), "held_alerts": held_alerts_now(d),
             "checks": sorted({r.get("risk") for r in rows if r.get("risk")},
                              key=lambda c: (CHECK_ORDER.index(c) if c in CHECK_ORDER else 9, c)),
             "modes": sorted({r.get("mode") for r in rows if r.get("mode")})}
@@ -746,7 +804,7 @@ def api_tickets(q):
                                 "pnl_rs": inr(p.get("pnl_rs")), "r": signed_r(p.get("r")),
                                 "qty": text(p.get("qty")), "opened": text(p.get("opened")),
                                 "closed": text(p.get("closed")), "time_stop_date": text(p.get("time_stop_date"))})
-    return {"tickets": tickets, "ready": live, "blocked": blocked,
+    return {"tickets": tickets, "ready": live, "blocked": blocked, "held_alerts": held_alerts_now(),
             "blocked_title": "Blocked (not tickets)",
             "open": [pview(p) for p in opened], "closed": [pview(p) for p in closed],
             "totals": {"closed": len(closed), "winners": sum(1 for p in closed if (p.get("pnl_rs") or 0) > 0),
@@ -825,7 +883,7 @@ BT_DIR = "backtest"
 BT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(swing|delivery|all)_\d{4}-\d{2}-\d{2}_[0-9a-f]{6}$")
 BT_MISSING = {"missing": "backtest", "hint": "run a backtest"}
 BT_FOOTER = "Past results do not predict future results. Not financial advice, not a fatwa."
-BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "trades", "universe", "footer"]
+BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "regime", "trades", "universe", "footer"]
 TOO_FEW_TEXT = "(too few to judge)"
 NIFTY_LABEL = "not halal-screened, reference only"
 EXIT_KIND = {"TARGET": "pass", "STOP": "block", "BREAKEVEN": "warn", "TIME EXIT": "info", "OPEN AT END": "info"}
@@ -1088,6 +1146,26 @@ def bt_trades(r):
     return rows
 
 
+def bt_regime(r):
+    """v0.2.4: the --regime-compare table (None when the run has none)."""
+    rc = r.get("regime_compare")
+    if not rc:
+        return None
+    yr = lambda w: UNKNOWN if not w else "%d: %s%s" % (w["year"], pct(w["return_pct"]), " (part)" if w["partial"] else "")
+    rows = (("Trades", lambda c: "%d%s" % (c["trades"], " " + TOO_FEW_TEXT if c["too_few"] else "")),
+            ("Win rate", lambda c: pct(c["win_rate_pct"], 1)), ("Expectancy", lambda c: signed_r(c["expectancy_r"])),
+            ("CAGR", lambda c: pct(c["cagr_pct"])), ("Max drawdown", lambda c: pct(c["max_drawdown_pct"])),
+            ("Worst year", lambda c: yr(c["worst_year"])),
+            ("Swing: trades / expectancy", lambda c: "%d / %s" % (c["swing_trades"], signed_r(c["swing_expectancy_r"]))),
+            ("Pullback: trades / expectancy", lambda c: "%d / %s" % (c["pullback_trades"], signed_r(c["pullback_expectancy_r"]))),
+            ("Risk-off days", lambda c: str(c["risk_off_days"])), ("Plans held back", lambda c: str(c["picks_held_back"])))
+    ix = rc.get("index") or {}
+    return {"columns": [c["variant"] for c in rc["columns"]],
+            "rows": [{"label": name, "cells": [f(c) for c in rc["columns"]]} for name, f in rows],
+            "note": rc.get("note"), "index": "%s (%s)%s" % (ix.get("name"), ix.get("index"),
+                                                            "" if ix.get("status") == "OK" else ": UNKNOWN, %s" % ix.get("reason"))}
+
+
 def api_backtest(q):
     rid = (q.get("id") or [""])[0]
     r, err = bt_load(rid)
@@ -1116,6 +1194,7 @@ def api_backtest(q):
         "equity": bt_equity(r),
         "breakdown": bt_breakdown(r),
         "compare": bt_compare(r),
+        "regime": bt_regime(r),
         "trades": trades,
         "filters": {"setup": sorted({t["setup"] for t in trades}), "mode": sorted({t["mode"] for t in trades}),
                     "exit_reason": sorted({t["exit_reason"] for t in trades})},
@@ -1187,6 +1266,10 @@ def _group_of(key):
         return "selection", "The daily list"
     if key.startswith("email."):
         return "email", "Your inbox"
+    if key.startswith("regime."):
+        return "regime", "Market regime filter"
+    if key in ("halal.held_recheck_days", "halal.exit_grace_days"):
+        return "halal", "Stocks you hold"
     if key in ("broker", "exchange") or key.startswith("charges."):
         return "broker", "Broker and charges"
     if key.startswith("brokers."):
@@ -1206,11 +1289,14 @@ SETTING_GROUPS = (
     ("halal", "Halal", "Stricter than TASIS saves freely. Looser needs your source or scholar, and every list then says so."),
     ("email", "Email", "Today's list by email to your own inbox, sent from this computer after the scheduled run. "
               "The password is never stored here: it is read only from the environment variable TAYYIB_SMTP_PASSWORD."),
+    ("regime", "Regime", "Optional, OFF by default: change new trades when the market index is in a downtrend. "
+                         "Test it in the Backtest tab first (--regime-compare). The index is a thermometer, never a "
+                         "stock to buy."),
     ("data", "Data & calendar", "Holidays, news sources and the request header."),
 )
 SECTION_ORDER = {"plan": ("Swing trades", "Delivery trades", "Prices"),
                  "selection": ("The daily list", "Liquidity and history"),
-                 "halal": ("Thresholds", "Your source", "The halal list")}
+                 "halal": ("Thresholds", "Your source", "The halal list", "Stocks you hold")}
 TASIS_LOOSER = {"max_debt_to_assets_pct": "above", "max_noncompliant_income_pct": "above",
                 "max_cash_receivables_to_assets_pct": "above", "noncompliant_investment_return_pct": "below"}
 

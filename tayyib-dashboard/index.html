@@ -301,6 +301,12 @@ ul.items li:last-child { border-bottom:0; }
 ul.items .mk { width:24px; height:24px; border-radius:50%; display:grid; place-items:center; }
 ul.items .mk.k-pass { background:var(--pass-bg); } ul.items .mk.k-block { background:var(--block-bg); }
 ul.items .mk.k-unknown { background:var(--unknown-bg); } ul.items .mk.k-info { background:var(--info-bg); }
+ul.items.info-items { color:var(--muted); }
+.regime-line { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.card.held.k-block { border-left:5px solid var(--block); } .card.held.k-warn { border-left:5px solid var(--warn); }
+.card.held.k-unknown { border-left:5px solid var(--unknown); }
+.card.held .purify { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+.card.held .purify .bh { display:flex; justify-content:space-between; align-items:center; gap:8px; }
 ul.items .chk { font-weight:600; font-size:14px; }
 ul.items .val { font-size:14px; overflow-wrap:anywhere; } ul.items .lim { color:var(--muted); font-size:13px; }
 ul.items .note { font-size:12.5px; color:var(--muted); margin-top:2px; overflow-wrap:anywhere; }
@@ -812,11 +818,22 @@ function newsEl(lines, links) {
   }), linksEl(links));
 }
 function whyGroups(box, groups, links) {
-  var placed = false;
+  // v0.2.4 (C1): decision lines first, group by group; then information-only lines (grey "i"); then every UNKNOWN /
+  // not-available line, last, with the "check yourself" links
+  var tierOf = function (x) { return x.tier === undefined ? (x.mark === "unknown" || x.mark === "na" ? 2 : x.mark === "info" ? 1 : 0) : x.tier; };
+  var dec = [], info = [], unk = [];
   groups.forEach(function (g) {
-    var n = { ok:0, failed:0, unknown:0, na:0 };
+    var d = g.items.filter(function (x) { return tierOf(x) === 0; });
+    if (d.length) dec.push({ group:g.group, items:d });
+    g.items.forEach(function (x) { var t = tierOf(x); if (t === 1) info.push(Object.assign({ grp:g.group }, x)); if (t === 2) unk.push(Object.assign({ grp:g.group }, x)); });
+  });
+  if (info.length) dec.push({ group:"Information only", items:info, info:true });
+  if (unk.length) dec.push({ group:"UNKNOWN: check yourself", items:unk, unk:true });
+  var placed = false;
+  dec.forEach(function (g) {
+    var n = { ok:0, failed:0, unknown:0, na:0, info:0 };
     g.items.forEach(function (x) { if (n[x.mark] !== undefined) n[x.mark] += 1; });
-    var ul = el("ul", { cls:"items" });
+    var ul = el("ul", { cls:"items" + (g.info ? " info-items" : "") });
     g.items.forEach(function (x) {
       var m = MARKS[x.mark] || MARKS.unknown;
       var flags = [];
@@ -826,7 +843,7 @@ function whyGroups(box, groups, links) {
       ul.appendChild(el("li", null,
         el("span", { cls:"mk k-" + m[0], title:m[2] }, icon(m[0], 14)),
         el("div", { style:"min-width:0" },
-          el("div", { cls:"chk" }, el("span", { cls:"word k-" + m[0], text:x.mark === "unknown" ? "UNKNOWN" : x.mark === "na" ? "NOT AVAILABLE" : m[1] + " " + m[2] }), x.check),
+          el("div", { cls:"chk" }, el("span", { cls:"word k-" + m[0], text:x.mark === "unknown" ? "UNKNOWN" : x.mark === "na" ? "NOT AVAILABLE" : m[1] + " " + m[2] }), x.grp ? x.grp + ": " + x.check : x.check),
           el("div", { cls:"val" }, el("span", { text:x.value }), x.limit ? el("span", { cls:"lim", text:"  " + x.limit }) : null),
           flags.length ? el("div", null, flags) : null,
           x.note ? el("div", { cls:"note", text:x.note }) : null)));
@@ -835,8 +852,9 @@ function whyGroups(box, groups, links) {
       n.ok ? el("span", { cls:"k-pass", title:n.ok + " passed" }, "✓ " + n.ok) : null,
       n.failed ? el("span", { cls:"k-block", title:n.failed + " failed" }, "✗ " + n.failed) : null,
       n.unknown ? el("span", { cls:"k-unknown", title:n.unknown + " UNKNOWN" }, "? " + n.unknown) : null,
-      n.na ? el("span", { cls:"k-na", title:n.na + " not available (check yourself)" }, "– " + n.na) : null);
-    var lk = g.group === "NEWS" ? linksEl(links) : null;
+      n.na ? el("span", { cls:"k-na", title:n.na + " not available (check yourself)" }, "– " + n.na) : null,
+      n.info ? el("span", { cls:"k-info", title:n.info + " information only" }, "i " + n.info) : null);
+    var lk = g.unk ? linksEl(links) : null;
     if (lk) placed = true;
     box.appendChild(el("details", { cls:"grp", open:"" }, el("summary", null, el("span", { text:g.group }), tally), ul, lk));
   });
@@ -893,7 +911,7 @@ function pickCard(r, i) {
       el("div", null, el("dt", { text:"Quantity" }), el("dd", { text:d.qty + " shares" })),
       el("div", null, el("dt", { text:"Risk at stop" }), el("dd", { text:d.loss_at_stop_rs })),
       el("div", null, el("dt", { text:"Net reward : risk" }), el("dd", { text:d.rr_net })),
-      el("div", null, el("dt", { text:"Time machine" }), el("dd", { text:d.expectancy_r }))),
+      el("div", null, el("dt", { text:"Time machine" }), el("dd", { text:d.time_machine || d.expectancy_r }))),
     el("p", { cls:"why-line", text:r.why_summary }),
     newsEl(r.news_lines, r.links),
     el("div", { cls:"card-actions" }, el("span", { cls:"small muted", text:"Valid until " + d.valid_until }), why));
@@ -917,6 +935,7 @@ function renderToday(panel, d, dates) {
       el("h1", { text:d.date_long }),
       el("div", { cls:"line", text:"Written " + d.asof_time + " IST · " + d.scanned + " halal-compliant stocks scanned (list of " + d.universe_updated + ")" }),
       el("span", { cls:"made" }, d.made_with),
+      d.regime ? el("div", { cls:"line regime-line", id:"regimeLine" }, chip(d.regime.state === "UNKNOWN" ? "UNKNOWN" : d.regime.state === "risk-on" ? "Risk-on" : "Risk-off", d.regime.kind), " ", el("span", { text:d.regime.line.replace(/^Market: [^:]+: /, "Market: ") })) : null,
       el("div", { cls:"runrow" }, sel, runButton("onhero"), el("span", { cls:"runstate", id:"runState", hidden:"hidden" }))),
     el("div", { cls:"tiles" },
       tile("Capital", d.capital_short, d.capital_short !== d.capital ? d.capital : "your trading money"),
@@ -925,6 +944,11 @@ function renderToday(panel, d, dates) {
       tile("PASS", String(c.PASS || 0), "within every limit", "st-pass", icon("pass", 14)),
       tile("WARN", String(c.WARN || 0), "allowed: read the reason", "st-warn", icon("warn", 14)),
       tile("BLOCK", String(c.BLOCK || 0), "do not take", "st-block", icon("block", 14)))));
+  (d.held_alerts || []).forEach(function (h) {             // v0.2.4: stocks you hold that stopped passing (or near)
+    var a = el("a", { href:"#tickets", text:"see it on Tickets" });
+    add(panel, banner([el("b", { text:h.title + ": " + h.symbol }), " (" + h.qty + " shares; at buy " + h.status_at_buy + ", now " + h.status_now + ")",
+      h.level === "BLOCK" ? ". Sell " + h.sell_by + ": a SELL ticket you place yourself and a purification estimate are ready: " : h.level === "UNKNOWN" ? ": " + (h.reason || "no data") + ". Not read as compliant or as non-compliant: " : ": a ratio is near its limit: ", a], h.kind));
+  });
   if (d.banner) add(panel, banner(d.banner, "warn"));
   d.banners.forEach(function (b) { add(panel, banner(b, "warn")); });
   if (d.staleness.stale) add(panel, banner(["Stale: ", d.staleness.reasons.join("; "), "."], "warn"));
@@ -1213,6 +1237,33 @@ function stepsBlock(t, b) {
   return [el("div", { cls:"bh" }, el("b", { text:b[1] + (t.broker === b[0] ? " (your broker)" : "") }), btn),
           el("ol", { cls:"steps" }, list.map(function (s) { return el("li", null, el("span", { text:s })); }))];
 }
+function heldCard(h) {
+  var card = el("article", { cls:"card held k-" + h.kind, "data-held":h.symbol },
+    el("div", { cls:"top" }, el("div", { style:"min-width:0" }, el("div", { cls:"sym", text:h.symbol }),
+      el("div", { cls:"co", text:h.qty + " shares · open since " + (h.open_since || "UNKNOWN") })), chip(h.title, h.kind)),
+    el("p", { cls:"small", style:"margin-top:8px", text:"At buy: " + h.status_at_buy + (h.backfilled ? " (backfilled from the list)" : "") + " · now: " + h.status_now + " · data " + h.data_date + " · " + h.source }));
+  if (h.ratios.length) card.appendChild(table([
+    { title:"Test", td:"wide", cell:function (r) { return r.check; } }, { title:"Before", num:true, cell:function (r) { return r.old; } },
+    { title:"Now", num:true, cell:function (r) { return el("b", { cls:r.flag === "over" ? "k-block" : r.flag === "near" ? "k-warn" : null, text:r.new }); } },
+    { title:"Limit", num:true, cell:function (r) { return r.limit; } }], h.ratios, {}));
+  h.failed.forEach(function (f) { card.appendChild(el("p", { cls:"small k-block", text:"failed: " + f })); });
+  if (h.level === "UNKNOWN") card.appendChild(banner("Could not verify: " + (h.reason || "no data") + ". Not read as compliant or as non-compliant.", "unknown"));
+  if (h.ticket) {
+    var mine = h.ticket.broker === "groww" ? ["groww", "Groww", "Groww"] : ["zerodha", "Zerodha Kite", "Kite"];
+    var other = mine[0] === "groww" ? ["zerodha", "Zerodha Kite", "Kite"] : ["groww", "Groww", "Groww"];
+    card.appendChild(el("p", { cls:"small", style:"margin-top:10px", text:h.wording }));
+    card.appendChild(el("p", { style:"margin-top:8px" }, el("b", { text:"Sell " + h.sell_by + "." }), " SELL ticket " + h.ticket.id + ": CNC, " + h.ticket.qty + " shares, you place it."));
+    card.appendChild(el("div", { cls:"broker" }, stepsBlock(h.ticket, mine)));
+    card.appendChild(el("details", { cls:"more broker" }, el("summary", { text:other[1] + " steps" }), stepsBlock(h.ticket, other)));
+    var p = h.purify, btn = el("button", { cls:"copy", type:"button", text:"Copy purify command" });
+    btn.addEventListener("click", function () { copyText(p.command, btn); });
+    card.appendChild(el("div", { cls:"purify" }, el("div", { cls:"bh" }, el("b", { text:"Purification " + p.total }), btn),
+      el("p", { cls:"small muted", text:p.label + ": " + p.basis + " (dividends " + p.dividends + ", gain " + p.gain + ")." }),
+      el("span", { cls:"cmd", text:p.command }),
+      p.unknown.length ? el("p", { cls:"small", text:"UNKNOWN: " + p.unknown.join("; ") }) : null));
+  }
+  return card;
+}
 function ticketCard(t) {
   if (t.halal_changed) return el("article", { cls:"card" }, el("div", { cls:"top" }, el("span", { cls:"sym", text:t.symbol }), badge(t.halal_now || "unknown")),
     el("div", { style:"margin-top:12px" }, banner(t.message, "block")));
@@ -1243,6 +1294,10 @@ function renderTickets(panel, d) {
     svg("svg", { viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", "stroke-width":"1.8", "stroke-linecap":"round", "stroke-linejoin":"round", "aria-hidden":"true" },
       svg("path", { d:"M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z" }), svg("path", { d:"M8.8 12.2l2.2 2.2 4.4-4.6" })),
     el("div", null, el("b", { text:"Nothing here places an order" }), el("span", { text:"You place every order yourself, in your broker app, after you have said yes. The buttons here only copy the steps." }))));
+  if ((d.held_alerts || []).length) {
+    add(panel, el("h2", { cls:"section" }, "Stocks you hold: halal re-check", el("small", { text:"one alert per status change; open until resolved" })));
+    add(panel, el("div", { cls:"grid-cards held-cards" }, d.held_alerts.map(heldCard)));
+  }
   if (d.orders_missing) add(panel, banner(["No tickets file: ", d.orders_missing.hint, "."], "unknown"));
   add(panel, el("h2", { cls:"section" }, "Ready to review", el("small", { text:"PASS and WARN, not yet placed" })));
   add(panel, d.ready.length ? el("div", { cls:"grid-cards" }, d.ready.map(ticketCard))
@@ -1879,6 +1934,14 @@ function renderBacktest(panel, d, runs) {
         el("p", { cls:"small muted", style:"margin:-6px 0 10px", text:d.compare.note }),
         d.compare.note_c ? el("p", { cls:"small muted", style:"margin:-4px 0 10px", text:d.compare.note_c }) : null,
         btCompareTable(d.compare));
+    },
+    regime:function () {
+      if (!d.regime) return null;
+      var rg = d.regime;
+      return el("div", { id:"btRegime" }, el("h2", { cls:"section" }, "Market regime compare", el("small", { text:"index: " + rg.index })),
+        el("p", { cls:"small muted", style:"margin:-6px 0 10px", text:rg.note }),
+        el("div", { cls:"panel" }, table([{ title:"", cell:function (r) { return el("b", { text:r.label }); } }].concat(rg.columns.map(function (c, i) {
+          return { title:c, num:true, cell:function (r) { return r.cells[i]; } }; })), rg.rows, {})));
     },
     trades:function () {
       return el("div", null, el("h2", { cls:"section" }, "Trades", el("small", { text:"R after charges, signed; the chart shows each one on its prices" })), btTrades(d));

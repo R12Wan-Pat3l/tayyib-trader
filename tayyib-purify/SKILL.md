@@ -35,6 +35,15 @@ Islamic-studies frame, answer in that register and cite sources carefully.
 - Halal-compliant stocks only (see `tayyib-halal`). Anything else is skipped or blocked.
 - Delivery (CNC) only: no intraday (MIS), no F&O, no short selling, no margin or MTF.
 - Nothing in tayyib-trader places an order. The user places it in their broker app after an explicit yes.
-- Not financial advice, not a fatwa. Say so when you present results, briefly.
+- ## A held stock that stopped passing (v0.2.4)
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/purify.py" estimate SYMBOL --since YYYY-MM-DD   # the date of the "No longer compliant" alert
+```
+
+The non-compliant share of the dividends received while holding it, plus any gain since the change. Always
+say it is an estimate: confirm with your scholar. A part it cannot work out is UNKNOWN, never 0.
+
+Not financial advice, not a fatwa. Say so when you present results, briefly.
 
 Files live in `trader/` in the current folder (override with `TAYYIB_DIR`). Every script takes `--json`.

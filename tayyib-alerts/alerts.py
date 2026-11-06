@@ -124,13 +124,17 @@ def main(argv=None):
         if a.json:
             return tc.print_json(store)
         for x in store["alerts"]:
-            print("#%-3d %-12s %-6s %-10s %-6s %s" % (x["n"], x["symbol"], x["kind"], x["level"],
-                                                   ("cancelled" if str(x["fired"]).startswith("cancelled") else "rang") if x["fired"] else "live",
-                                                   x["note"]))
+            if x["kind"] == "halal":                  # v0.2.4: held-stock halal alerts (tayyib-halal held)
+                state = x.get("status") or "open"
+            else:
+                state = ("cancelled" if str(x["fired"]).startswith("cancelled") else "rang") if x["fired"] else "live"
+            print("#%-3d %-12s %-6s %-10s %-9s %s" % (x["n"], x["symbol"], x["kind"], x["level"], state, x["note"]))
         return
 
     if a.cmd == "clear":
-        store["alerts"] = [x for x in store["alerts"] if not x["fired"]] if a.fired else []
+        keep = lambda x: x.get("kind") == "halal" and x.get("status") == "open"   # open halal alerts stay
+        store["alerts"] = [x for x in store["alerts"] if not x["fired"] or keep(x)] if a.fired else \
+            [x for x in store["alerts"] if keep(x)]
         tc.write_json("alerts.json", store)
         print("cleared")
 

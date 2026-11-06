@@ -65,6 +65,18 @@ How to present it:
 - Nothing in tayyib-trader places an order. The user places it in their broker app after an explicit yes.
   This skill writes only `trader/backtest/` (and the price cache): never the tracker, orders, positions,
   daily lists or config.
-- Not financial advice, not a fatwa. Say so when you present results, briefly.
+- ## Market regime filter (v0.2.4)
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --years 5 --mode all --regime-compare --write   # off + 4 variants, same bars
+python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --years 3 --regime close_below_200dma:no_new_swing --write
+```
+
+Causal: each day's regime uses the index's bars up to that day only. Compare trades, win rate, expectancy,
+CAGR, max drawdown, worst year and the swing / pullback expectancy across the columns. Recommend switching the
+filter on (Settings, Regime) only if a variant helps on more than one window (e.g. both 3 and 5 years); it
+is OFF by default.
+
+Not financial advice, not a fatwa. Say so when you present results, briefly.
 
 Files live in `trader/` in the current folder (override with `TAYYIB_DIR`). Every script takes `--json`.

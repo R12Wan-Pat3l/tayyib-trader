@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.2.4 (2026-11-06)
+
+A warning when a stock you hold stops being halal, an optional market-regime filter (OFF by default, tested in
+the backtest first), and three fixes. With default settings no daily-list decision changes (still default@2;
+the baseline is unchanged).
+
+### Added
+
+- **Held-stock halal re-check** (`halal.py held [--write]`, run by every daily list). Open positions are
+  screened again with the same screen when their screen is older than `halal.held_recheck_days` (7); the rest
+  keeps the 30-day rebuild; overrides win. Compared with the status at buy time (now stored on each position
+  when placed; older positions backfilled from the list and marked "backfilled") and the last known status.
+  Levels: **No longer compliant** (excluded or review: which test failed, old vs new ratios, data date and
+  source), **Near a limit** (WARN) and **Could not verify** (UNKNOWN with the reason; never compliant or
+  non-compliant). One alert per symbol per status change, kept open until resolved; resolved when you record
+  the sale (`ticket.py close`).
+- Shown at the top of the daily `.md` / `.json` (`held_alerts[]`), as a red banner on the dashboard Today tab,
+  in a Tickets section, at the top of the email (replacing v0.2.3's simple list) and in `alerts.json`.
+- It offers, never acts: a **SELL ticket** for the full quantity (CNC sell of a held position, manual, the Kite
+  / Groww steps) and a **purification estimate** (`purify.py estimate SYMBOL --since DATE`: dividends while
+  holding x the non-compliant ratio, plus any gain since the change; "estimate: confirm with your scholar").
+  `halal.exit_grace_days` (0) changes only the wording.
+- **Market-regime filter** (`regime.*`, OFF): index `^NSEI` (or `SHARIABEES.NS`), rule `close_below_200dma` or
+  `sma50_below_sma200`, action `no_new_swing`, `no_new_trades` or `half_risk`, applied at the plan / size
+  stage with a why[] line "MARKET: Nifty 50 below its 200-day average → no new swing trades". Index data
+  missing: UNKNOWN, a banner, no effect. The Today header shows the regime even when the filter is off.
+- Backtest: `--regime off|RULE:ACTION` and `--regime-compare` (five variants on the same bars, causal: the
+  index's bars up to each day only): trades, win rate, expectancy, CAGR, max drawdown, worst year, swing and
+  pullback expectancy. Shown in the Backtest tab. Settings: a Regime group.
+
+### Fixed
+
+- **Why ordering** (email, dashboard, `.md`): decision lines first, then information-only lines (grey, an
+  "info" mark, never a red cross), then UNKNOWN lines last with their "check yourself" links.
+- **Time machine label**: "+0.81R (1 past trade: too few to judge)" under `daily.min_past_trades_for_rank`.
+- **Market closed**: after 3:30 PM IST, when no scanned stock has a bar for today (a holiday missing from your
+  settings), no new list, no email, logged "market closed (no bars for today)"; `--force` runs anyway. The
+  "stale" email is only for a real failure.
+
 ## v0.2.3 (2026-11-06)
 
 Today's halal list by email, from your own computer, every trading day, without running anything. For your

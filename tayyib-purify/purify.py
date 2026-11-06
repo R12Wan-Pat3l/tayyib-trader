@@ -11,6 +11,9 @@ the ruling is your scholar's.
 
   add-dividend SYM AMOUNT [--date] [--ratio PCT]
   report [--year YYYY] [--include-gains]
+  estimate SYM --since DATE   a held stock that stopped passing the screen (v0.2.4): the non-compliant share
+                              of the dividends received while holding it, plus any gain since DATE (the status
+                              change). An estimate: confirm with your scholar.
 """
 import argparse
 import os
@@ -43,6 +46,11 @@ def main(argv=None):
     rp.add_argument("--year", type=int, help="calendar year (default: all)")
     rp.add_argument("--include-gains", action="store_true", help="also purify realised gains")
     rp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    es = sub.add_parser("estimate", help="purification estimate for a held stock that stopped passing")
+    es.add_argument("symbol")
+    es.add_argument("--since", required=True, help="the status-change date (from the alert)")
+    es.add_argument("--ratio", type=float, help="non-compliant income %% to use instead of the screen's")
+    es.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     store = tc.read_json("purification.json", {"dividends": []}) or {"dividends": []}
 
@@ -53,6 +61,9 @@ def main(argv=None):
         tc.write_json("purification.json", store)
         print("recorded %s dividend of %s on %s" % (d["symbol"], tc.fmt_rs(a.amount), d["date"]))
         return
+
+    if a.cmd == "estimate":
+        return estimate(a, store)
 
     lines, total, unknown = [], 0.0, []
     yr = (lambda d: d is None or a.year is None or str(d).startswith(str(a.year)))
@@ -92,6 +103,39 @@ def main(argv=None):
     if unknown:
         print("  ratio unknown for: %s (use --ratio when recording)" % ", ".join(sorted(set(unknown))))
     print("Arithmetic only. Ask your scholar which income to purify and how.")
+
+
+def estimate(a, store):
+    sym = tc.normalize_symbol(a.symbol)
+    held = [x for x in (tc.read_json("positions.json", {}) or {}).get("positions", [])
+            if x.get("status") == "open" and x["symbol"] == sym]
+    if not held:
+        tc.die("%s is not an open position in positions.json" % sym)
+    qty = sum(int(x["qty"]) for x in held)
+    opened = min(x.get("opened") or "" for x in held)
+    r, src = ratio_for(sym, a.ratio)
+    try:
+        bars, _ = tc.get_daily_bars(sym)
+    except tc.FetchError:
+        bars = []
+    on = [b for b in bars if b["date"] <= a.since]
+    since_px = on[-1]["close"] if on else None
+    last = bars[-1]["close"] if bars else None
+    out = tc.purify_estimate(sym, qty, opened, a.since, since_px, last, r, store.get("dividends", []))
+    out["ratio_source"] = src
+    if getattr(a, "json", False):
+        return tc.print_json(out)
+    f = lambda v: "UNKNOWN" if v is None else tc.fmt_rs(v)
+    print("Purification estimate for %s (%s)" % (sym, out["label"]))
+    print("  dividends while holding (since %s): %s x %s = %s" % (opened, f(out["dividends_rs"]),
+          "UNKNOWN" if r is None else "%.2f%%" % r, f(out["dividend_part_rs"])))
+    print("  gain since %s: (%s - %s) x %d = %s, counted if positive: %s" % (
+        a.since, "UNKNOWN" if last is None else "%.2f" % last, "UNKNOWN" if since_px is None else "%.2f" % since_px,
+        qty, f(out["gain_since_rs"]), f(out["gain_part_rs"])))
+    print("  total: %s" % f(out["total_rs"]))
+    for u in out["unknown"]:
+        print("  UNKNOWN: " + u)
+    print("Arithmetic only. Ask your scholar which income and which gain to purify, and how.")
 
 
 if __name__ == "__main__":

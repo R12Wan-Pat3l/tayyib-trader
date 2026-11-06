@@ -51,7 +51,8 @@ CLOSE_MIN = 15 * 60 + 30
 CLOSED = ("TARGET", "STOP", "BREAKEVEN", "TIME EXIT")
 NOT_COUNTED = ("SUPERSEDED", "REPLACED", "ALREADY_HELD")
 LOG_KEEP = 500
-MAX_WHY = 5
+MAX_WHY = 6          # decision lines shown per card; then up to MAX_INFO info lines and every UNKNOWN line
+MAX_INFO = 2
 
 
 class Problem(Exception):
@@ -119,19 +120,31 @@ def mark(ok):
 
 
 def why_lines(row):
-    """The first lines of the row's Why: what failed or is UNKNOWN first, then the setup and the plan."""
-    items = [it for it in (row.get("why") or []) if it.get("op") != "info"]
-    first = [it for it in items if it.get("ok") is not True]
-    rest = [it for it in items if it.get("ok") is True and it.get("group") in ("SETUP", "HISTORY", "PLAN")]
+    """The first lines of the row's Why (C1, v0.2.4): decision lines first (what failed, then the setup, plan and
+    risk checks that passed), then information-only lines (mark "i", grey, never a red cross), then UNKNOWN
+    lines last ("?", with "check yourself")."""
+    items = tc.order_why(row.get("why") or [])
+    dec = [it for it in items if tc.why_tier(it) == 0]
+    dec = [it for it in dec if it.get("ok") is False] + \
+          [it for it in dec if it.get("ok") is True and it.get("group") in ("SETUP", "PLAN", "HISTORY", "RISK")
+           and it.get("check") not in ("score", "quantity set by")]
+    rank = {g: k for k, g in enumerate(tc.WHY_GROUPS)}
+    dec = sorted(dec[:MAX_WHY], key=lambda it: rank.get(it.get("group"), 99))
+    info = [it for it in items if tc.why_tier(it) == 1][:MAX_INFO]
+    unk = [it for it in items if tc.why_tier(it) == 2]
     out = []
-    for it in (first + rest)[:MAX_WHY]:
-        s = "%s %s" % (it.get("check"), _val(it.get("value"), it.get("unit")))
-        if it.get("op") and it.get("limit") is not None:
-            s += " %s %s" % ({"==": "="}.get(it["op"], it["op"]), _val(it["limit"], it.get("unit")))
-        note = (it.get("note") or "").replace("UNKNOWN: ", "")
-        if note and it.get("ok") is not True:
-            s += " (%s)" % note[:120]
-        out.append({"mark": mark(it.get("ok")), "text": s.replace("Rs ", "₹")})
+    for tier, group in ((0, dec), (1, info), (2, unk)):
+        for it in group:
+            s = "%s %s" % (it.get("check"), _val(it.get("value"), it.get("unit")))
+            if it.get("op") and it.get("op") != "info" and it.get("limit") is not None:
+                s += " %s %s" % ({"==": "="}.get(it["op"], it["op"]), _val(it["limit"], it.get("unit")))
+            note = (it.get("note") or "").replace("UNKNOWN: ", "")
+            if note and (it.get("ok") is not True or tier == 1):
+                s += " (%s)" % note[:120]
+            if tier == 2:
+                s += ": check yourself"
+            out.append({"mark": "i" if tier == 1 else mark(it.get("ok")), "tier": tier,
+                        "text": s.replace("Rs ", "₹")})
     return out
 
 
@@ -167,13 +180,14 @@ def r_text(v):
     return "UNKNOWN" if v is None else "%+.2fR" % v
 
 
-def card(row):
+def card(row, k=8):
     return {"symbol": row["symbol"], "name": row.get("name") or "", "setup": row.get("setup"), "mode": row.get("mode"),
             "check": row.get("risk"), "entry": price(row.get("entry")), "stop": price(row.get("stop")),
             "stop_pct": "UNKNOWN" if row.get("stop_pct") is None else "%.1f%%" % row["stop_pct"],
             "target": price(row.get("target")), "qty": "UNKNOWN" if row.get("qty") is None else str(row["qty"]),
             "position": rs(row.get("position_rs")), "loss_at_stop": rs(row.get("loss_at_stop_rs")),
             "expectancy": r_text(row.get("expectancy_r")),
+            "time_machine": tc.tm_label(row.get("expectancy_r"), row.get("past_trades"), k),
             "past_trades": "UNKNOWN" if row.get("past_trades") is None else str(row["past_trades"]),
             "valid_until": row.get("valid_until") or "UNKNOWN", "why": why_lines(row)}
 
@@ -215,20 +229,20 @@ def tracker_view(date):
             "by_check": by}
 
 
-def held_not_compliant():
-    """Open positions (positions.json) whose halal status is no longer compliant."""
+def held_alerts(daily):
+    """v0.2.4: the held-stock halal alerts: the day's list (held_alerts[]), or when there is no list the last
+    re-check saved by tayyib-halal held (held_halal.json). Only stocks still held."""
+    if daily is not None and "held_alerts" in daily:
+        al = daily.get("held_alerts") or []
+    else:
+        al = ((tc.read_json("held_halal.json", {}) or {}).get("view") or {}).get("alerts") or []
     pos = (tc.read_json("positions.json", {}) or {}).get("positions") or []
-    held = sorted({p.get("symbol") for p in pos if p.get("status") == "open" and p.get("symbol")})
-    if not held:
-        return []
-    uni = tc.load_universe()
-    out = []
-    for s in held:
-        h = tc.halal_status(s, uni)
-        if h.get("status") != "compliant":
-            out.append({"symbol": s, "status": h.get("status") or "unknown",
-                        "reason": "; ".join((h.get("reasons") or [])[:2]) or "no reason recorded"})
-    return out
+    held = {p.get("symbol") for p in pos if p.get("status") == "open"}
+    return [x for x in al if x.get("symbol") in held]
+
+
+def pct(v):
+    return "UNKNOWN" if v is None else "%.2f%%" % v
 
 
 def build(date, cfg, run_failed=None):
@@ -237,7 +251,7 @@ def build(date, cfg, run_failed=None):
     if run_failed:
         problem = "tayyib-daily failed: %s" % run_failed + ("; " + problem if problem else "")
     rep = {"date": date.isoformat(), "day": long_day(date), "version": tc.VERSION, "footer": FOOTER % tc.VERSION,
-           "personal_note": PERSONAL_NOTE, "held_not_compliant": held_not_compliant(), "tracker": tracker_view(date)}
+           "personal_note": PERSONAL_NOTE, "held_alerts": held_alerts(daily), "tracker": tracker_view(date)}
     if problem:
         rep.update(kind="failed", subject=SUBJECT_FAILED, problem=problem, banners=[], picks=[], others=[],
                    notes=[], counts={})
@@ -246,7 +260,8 @@ def build(date, cfg, run_failed=None):
     counts = {k: sum(1 for r in rows if r.get("risk") == k) for k in ("PASS", "WARN", "BLOCK")}
     top = [s for s in daily.get("top_picks") or []]
     by_sym = {r["symbol"]: r for r in rows}
-    picks = [card(by_sym[s]) for s in top if s in by_sym]
+    k = (((daily.get("settings") or {}).get("values") or {}).get("daily") or {}).get("min_past_trades_for_rank", 8)
+    picks = [card(by_sym[s], k) for s in top if s in by_sym]
     others = [other_row(r) for r in rows if r["symbol"] not in top]
     banners = ([daily["banner"]] if daily.get("banner") else []) + list(daily.get("banners") or [])
     if picks:
@@ -261,7 +276,7 @@ def build(date, cfg, run_failed=None):
     return rep
 
 
-ORDER = ("problem", "held_not_compliant", "banners", "picks", "others", "tracker", "notes", "personal_note", "footer")
+ORDER = ("problem", "held_alerts", "banners", "picks", "others", "tracker", "notes", "personal_note", "footer")
 
 
 def render_text(rep):
@@ -270,10 +285,8 @@ def render_text(rep):
         L += ["RUN FAILED / DATA STALE (%s)" % rep["day"], rep["problem"],
               "No picks are shown: an older list is never presented as today's. Run tayyib-daily again, or open "
               "the dashboard.", ""]
-    if rep["held_not_compliant"]:
-        L.append("!! HELD BUT NO LONGER COMPLIANT: check these positions (a full alert comes in a later version)")
-        L += ["  %s: %s (%s)" % (h["symbol"], h["status"], h["reason"]) for h in rep["held_not_compliant"]]
-        L.append("")
+    for h in rep["held_alerts"]:
+        L += held_text(h) + [""]
     for b in rep["banners"]:
         L += ["WARNING: " + b, ""]
     if rep["picks"]:
@@ -282,8 +295,7 @@ def render_text(rep):
             L += ["", "%d. %s  %s %s  check %s" % (i, c["symbol"], c["mode"], c["setup"], c["check"]),
                   "   buy above %s · stop %s (-%s) · target %s" % (c["entry"], c["stop"], c["stop_pct"], c["target"]),
                   "   qty %s · position %s · loss at stop %s" % (c["qty"], c["position"], c["loss_at_stop"]),
-                  "   time machine %s (%s past trades) · valid until %s" % (c["expectancy"], c["past_trades"],
-                                                                           c["valid_until"])]
+                  "   time machine %s · valid until %s" % (c["time_machine"], c["valid_until"])]
             L += ["   %s %s" % (w["mark"], w["text"]) for w in c["why"]]
         L.append("")
     elif rep["kind"] == "none":
@@ -327,18 +339,70 @@ def _box(inner, bg, ink, border):
             % (bg, ink, border, ink, inner))
 
 
+def held_text(h):
+    """One held-stock alert as plain text."""
+    head = {"BLOCK": "!! ", "WARN": "! ", "UNKNOWN": "? "}[h["level"]]
+    L = ["%s%s: %s (%d shares). At buy: %s%s. Now: %s. Data %s, %s%s" % (
+        head, h["title"].upper(), h["symbol"], h["qty"], h["status_at_buy"], " (backfilled)" if h.get("backfilled") else "",
+        h["status_now"], h.get("data_date") or "UNKNOWN", h.get("source") or "UNKNOWN source",
+        "" if (h.get("alert") or {}).get("new") else "; open since %s" % (h.get("alert") or {}).get("since"))]
+    for r in h.get("ratios") or []:
+        if r["over"] or r["near"] or h["level"] == "BLOCK":
+            L.append("  %s: %s -> %s (limit %s)%s" % (r["check"], pct(r["old"]), pct(r["new"]),
+                                                       "-" if r["limit"] is None else "%.0f%%" % r["limit"],
+                                                       " OVER" if r["over"] else " near the limit" if r["near"] else ""))
+    L += ["  failed: " + f for f in h.get("failed") or []]
+    if h["level"] == "UNKNOWN":
+        L.append("  Could not verify: %s. Not read as compliant or as non-compliant." % (h.get("reason") or "no data"))
+    if h["level"] == "BLOCK":
+        t, p = h["sell_ticket"], h["purify"]
+        L += ["  " + h["wording"], "  Sell %s. SELL ticket %s (CNC, %d shares; you place it):" % (h["sell_by"], t["id"], t["qty"])]
+        L += ["    %d. %s" % (i, x) for i, x in enumerate(t["steps"], 1)]
+        L.append("  Purification (%s): %s · %s" % (p["label"], rs(p["total_rs"]), p["command"]))
+    return L
+
+
+def held_html(h):
+    """One held-stock alert box: red (No longer compliant), amber (Near a limit), grey (Could not verify)."""
+    colours = {"BLOCK": (C["bad_bg"], C["bad_ink"], "#f3b8b1"), "WARN": (C["warn_bg"], C["warn_ink"], "#f0d58a"),
+               "UNKNOWN": ("#eef0f1", C["muted"], "#cfd5d7")}[h["level"]]
+    a = h.get("alert") or {}
+    rows = "".join('<tr><td style="padding:2px 8px 2px 0;">%s</td><td style="padding:2px 8px;">%s &rarr; <b>%s</b></td>'
+                   '<td style="padding:2px 0;">limit %s%s</td></tr>'
+                   % (_e(r["check"]), _e(pct(r["old"])), _e(pct(r["new"])),
+                      "-" if r["limit"] is None else "%.0f%%" % r["limit"],
+                      " &middot; <b>OVER</b>" if r["over"] else " &middot; near" if r["near"] else "")
+                   for r in h.get("ratios") or [] if r["over"] or r["near"] or h["level"] == "BLOCK")
+    inner = ['<b>&#9888; %s: %s</b> <span style="font-size:13px;">(%d shares)%s</span>'
+             % (_e(h["title"]), _e(h["symbol"]), h["qty"], "" if a.get("new") else " &middot; open since %s" % _e(a.get("since"))),
+             '<div style="font-size:13px;margin-top:3px;">At buy: <b>%s</b>%s &middot; now: <b>%s</b> &middot; data %s '
+             '&middot; %s</div>' % (_e(h["status_at_buy"]), " (backfilled)" if h.get("backfilled") else "",
+                                   _e(h["status_now"]), _e(h.get("data_date") or "UNKNOWN"), _e(h.get("source") or "UNKNOWN source"))]
+    if rows:
+        inner.append('<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:13px;margin-top:6px;'
+                     'color:inherit;">%s</table>' % rows)
+    inner += ['<div style="font-size:13px;">failed: %s</div>' % _e(f) for f in h.get("failed") or []]
+    if h["level"] == "UNKNOWN":
+        inner.append('<div style="font-size:13px;margin-top:4px;">UNKNOWN: %s. Not read as compliant or as '
+                     'non-compliant.</div>' % _e(h.get("reason") or "no data"))
+    if h["level"] == "BLOCK":
+        t, p = h["sell_ticket"], h["purify"]
+        steps = "".join("<li>%s</li>" % _e(x) for x in t["steps"])
+        inner.append('<div style="font-size:13px;margin-top:6px;">%s</div><div style="font-size:13px;margin-top:6px;">'
+                     '<b>Sell %s.</b> SELL ticket %s: CNC, %d shares, you place it:<ol style="margin:4px 0 0 18px;'
+                     'padding:0;">%s</ol></div><div style="font-size:13px;margin-top:6px;">Purification (%s): <b>%s</b>'
+                     ' &middot; <code>%s</code></div>' % (_e(h["wording"]), _e(h["sell_by"]), _e(t["id"]), t["qty"],
+                                                         steps, _e(p["label"]), _e(rs(p["total_rs"])), _e(p["command"])))
+    return _box("".join(inner), *colours)
+
+
 def render_html(rep):
     H = []
     if rep.get("problem"):
         H.append(_box('<b>&#9888; Run FAILED / data stale (%s)</b><br>%s<br><span style="font-size:13px;">No picks are '
                       'shown: an older list is never presented as today\'s. Run tayyib-daily again, or open the '
                       'dashboard.</span>' % (_e(rep["day"]), _e(rep["problem"])), C["bad_bg"], C["bad_ink"], "#f3b8b1"))
-    if rep["held_not_compliant"]:
-        items = "".join("<li><b>%s</b>: %s (%s)</li>" % (_e(h["symbol"]), _e(h["status"]), _e(h["reason"]))
-                        for h in rep["held_not_compliant"])
-        H.append(_box('<b>&#9888; Held but no longer compliant</b><br><span style="font-size:13px;">Check these '
-                      'positions (a full alert comes in a later version).</span><ul style="margin:6px 0 0 18px;'
-                      'padding:0;">%s</ul>' % items, C["bad_bg"], C["bad_ink"], "#f3b8b1"))
+    H += [held_html(h) for h in rep["held_alerts"]]
     for b in rep["banners"]:
         H.append(_box("<b>&#9888; Warning:</b> " + _e(b), C["warn_bg"], C["warn_ink"], "#f0d58a"))
     if rep["picks"]:
@@ -346,15 +410,15 @@ def render_html(rep):
         for i, c in enumerate(rep["picks"], 1):
             cells = [("Buy above", c["entry"]), ("Stop", "%s (&minus;%s)" % (_e(c["stop"]), _e(c["stop_pct"]))),
                      ("Target", c["target"]), ("Qty", c["qty"]), ("Position", c["position"]),
-                     ("Loss at stop", c["loss_at_stop"]), ("Time machine", "%s (%s past)" % (_e(c["expectancy"]),
-                                                                                           _e(c["past_trades"]))),
+                     ("Loss at stop", c["loss_at_stop"]), ("Time machine", c["time_machine"]),
                      ("Valid until", c["valid_until"])]
             grid = "".join('<td style="padding:4px 10px 4px 0;vertical-align:top;width:50%%;"><span style="font-size:'
                            '12px;color:%s;">%s</span><br><b style="font-size:15px;">%s</b></td>%s'
                            % (C["muted"], _e(k), v if "&" in str(v) else _e(v), "</tr><tr>" if j % 2 else "")
                            for j, (k, v) in enumerate(cells))
             why = "".join('<div style="font-size:13px;color:%s;margin-top:2px;">%s %s</div>'
-                          % (C["ink"] if w["mark"] == "✓" else C["bad_ink"], _e(w["mark"]), _e(w["text"]))
+                          % ({0: C["ink"] if w["mark"] == "✓" else C["bad_ink"], 1: C["muted"], 2: C["warn_ink"]}[w["tier"]],
+                             "&#9432; info:" if w["tier"] == 1 else _e(w["mark"]), _e(w["text"]))
                           for w in c["why"])
             H.append('<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin:0 0 12px;'
                      'background:%s;border:1px solid %s;border-radius:10px;"><tr><td style="padding:14px;">'
@@ -546,6 +610,10 @@ def do_send(cfg, date, dry_run=False, scheduled=False, run_failed=None):
         log(dict(base, status="market_closed", recipients=0, error=None))
         return result("market_closed", message="market closed on %s (weekend or a holiday in your settings): nothing "
                                                "sent" % date.isoformat())
+    closed = ((tc.read_json(os.path.join("daily", "closed.json"), {}) or {}).get("days") or {}).get(date.isoformat())
+    if closed and not run_failed and not os.path.exists(os.path.join(tc.data_dir(), "daily", date.isoformat() + ".json")):
+        log(dict(base, status="market_closed", recipients=0, error=None, reason="market closed (no bars for today)"))
+        return result("market_closed", message="%s: nothing sent" % closed)
     frm, to = recipients(cfg)
     rep = build(date, cfg, run_failed)
     if cfg["email"].get("send_when") == "picks_only" and rep["kind"] == "none" and not dry_run:

@@ -8,7 +8,8 @@ and Groww, then records what you actually did:
   show                         tickets for PASS/WARN orders
   placed ID --price P          you bought: opens a position in trader/positions.json
   stop ID --stop P             raise a stop (trailing); a stop can never be lowered
-  close ID --price P           you sold: closes it, P&L after charges and in R
+  close ID --price P           you sold: closes it, P&L after charges and in R (a held-stock halal
+                               alert for it is resolved when the whole position is sold)
   positions                    open and closed trades with totals
 """
 import argparse
@@ -115,6 +116,10 @@ def main(argv=None):
                     "target": o["target"], "time_stop_date": o.get("time_stop_date"),
                     "opened": a.date or tc.today_ist().isoformat(), "status": "open",
                     "buy_charges_rs": tc.order_charges("BUY", fill, qty, cfg)["total"], "product": "CNC"}
+        rec = tc.halal_status(o["symbol"])              # v0.2.4: the status at buy time, for the held-stock re-check
+        position["halal_at_buy"] = {"status": rec.get("status"), "ratios": rec.get("ratios") or {},
+                                    "as_of": rec.get("as_of"), "date": position["opened"],
+                                    "source": rec.get("source"), "backfilled": False}
         pos["positions"].append(position)
         o["status"] = "PLACED"
         tc.write_json("positions.json", pos)
@@ -159,10 +164,20 @@ def main(argv=None):
         tc.write_json("positions.json", pos)
         if full:
             al = tc.read_json("alerts.json", {"alerts": []}) or {"alerts": []}
+            still = any(y["symbol"] == x["symbol"] and y["status"] == "open" for y in pos["positions"])
             for z in al["alerts"]:
                 if z["symbol"] == x["symbol"] and not z["fired"] and z["note"].split(":")[0] in ("STOP", "TARGET", "TIME STOP"):
                     z["fired"] = "cancelled: position closed"
+                if z.get("kind") == "halal" and z["symbol"] == x["symbol"] and z.get("status") == "open" and not still:
+                    z.update(status="resolved", resolved=closed["closed"],
+                             resolution="you sold it on %s at %.2f" % (closed["closed"], a.price))
             tc.write_json("alerts.json", al)
+            hh = tc.read_json("held_halal.json", None)
+            if hh and not still:                        # the dashboard's held-stock view drops it too
+                view = hh.get("view") or {}
+                for k in ("held", "alerts"):
+                    view[k] = [y for y in view.get(k) or [] if y.get("symbol") != x["symbol"]]
+                tc.write_json("held_halal.json", hh)
         if a.json:
             return tc.print_json(closed)
         print("closed %d %s @ %.2f (%s): %s after charges, %+.2fR"

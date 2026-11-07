@@ -2,7 +2,8 @@
 
 This guide takes you from nothing to your first daily halal list, then shows the routine. There are two
 equal ways to use it on Windows: with **Claude Code** (you ask in plain words), or **without Claude Code**
-(double-click `start.bat` and use the dashboard). Mac and Linux are the same, with `python3` in place of `py`.
+(double-click `start.bat` and use the dashboard). Mac and Linux are the same, with `start.sh` in place of
+`start.bat` and `python3` in place of `py` (see [Mac and Linux](#mac-and-linux)).
 
 Nothing in this tool can place an order. You always place it yourself, after you decide.
 
@@ -17,8 +18,13 @@ Choose one way: **Option A, with Claude Code** (steps 1 to 6 below) or **Option 
 
 ### 1. Install Python
 1. Go to https://www.python.org/downloads/ and download Python 3 (any 3.8 or newer).
-2. Run the installer. On the first screen, tick **"Add Python to PATH"**, then click Install.
-3. Open **Command Prompt** and type `py --version`. You should see `Python 3.x.x`.
+2. Run the installer. On its first screen, at the bottom, tick **"Add python.exe to PATH"**, then click
+   **Install Now**. This also installs the **py launcher**, the `py` command this guide uses (the other box,
+   "Use admin privileges when installing py.exe", can stay as it is). Older installers say "Add Python 3.x to
+   PATH" and "Install launcher for all users": tick both.
+3. Open **Command Prompt** (Start menu, type `cmd`, Enter) and type `py --version`. You should see
+   `Python 3.x.x`. If it says `'py' is not recognized`, run the installer again, choose **Modify**, and tick
+   **py launcher**.
 
 ### 2. Install Claude Code
 Follow https://claude.com/claude-code and sign in with your Claude account.
@@ -58,43 +64,120 @@ Ask: **"Build my halal stock list"**. It checks about 500 companies and takes ab
 After this, the daily list refreshes it automatically every 30 days.
 
 ### Option B: Start without Claude Code
-1. Install Python as in step 1 above (tick **"Add Python to PATH"**).
-2. Download the tool to `C:\tayyib-trader` (see below), then **double-click `start.bat`** there.
-3. The **Welcome** screen asks for your capital, broker and risk per trade.
-4. Every trading day after 3:30 PM, press **Run today's list**, then place any order yourself in Kite or Groww.
+You need no Claude account and no command typing for the daily routine: everything is in the dashboard.
+On a Mac or Linux, see [Mac and Linux](#mac-and-linux) below.
 
-You don't need Claude Code open to use the dashboard. In the folder where you cloned or unzipped
-tayyib-trader, **double-click `start.bat`**. It:
+**B1. Install Python** as in [step 1](#1-install-python) above (tick **"Add python.exe to PATH"**).
+
+**B2. Get the tool into `C:\tayyib-trader`.** Either way works:
+- **With git** (if you have it), in Command Prompt:
+  ```
+  git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader
+  ```
+- **Without git:** on the [GitHub page](https://github.com/R12Wan-Pat3l/tayyib-trader) click the green
+  **Code** button, then **Download ZIP**. In your Downloads folder, right-click `tayyib-trader-main.zip`,
+  **Extract All...**, **Extract**. It makes a folder called **`tayyib-trader-main`**, and Windows often puts a
+  second `tayyib-trader-main` folder inside the first. Open them until you see `start.bat`, go up one level,
+  and move **that** folder (the one that holds `start.bat`) to `C:\`, then rename it to **`tayyib-trader`**.
+
+**Check:** open `C:\tayyib-trader` in File Explorer. You should see `start.bat`, `start.sh`, `README.md`,
+`docs`, `core`, `mcp`, `tools` and folders named `tayyib-daily`, `tayyib-dashboard` and so on. If you see only
+one folder called `tayyib-trader-main`, it is one level too deep: move the inside one up. The tool's path
+must be `C:\tayyib-trader\start.bat`.
+
+**B3. Double-click `start.bat`** in `C:\tayyib-trader`. A black window opens. It:
 - finds Python (`py`); if it can't, it says how to install it;
 - uses your data folder `%USERPROFILE%\tayyib-live\trader` (or the one in `TAYYIB_DIR`, if you set one), and
   creates it the first time;
-- opens the dashboard in your browser. Keep the black window open while you use it; close it to stop.
+- opens the dashboard in your browser at `http://127.0.0.1:8765/`. **Keep the black window open** while you
+  use it; close it to stop. (If the browser doesn't open by itself, type that address into it.)
 
-The very first time (no `config.json` yet) the dashboard opens a **Welcome** screen: your capital, your
-broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you want, your email address.
-It saves them the same safe way as the Settings tab. There is no password field on purpose (see below).
-**Not now** closes it; it comes back next time until you save.
+If Windows shows "Windows protected your PC" or "Do you want to run this file?" (it can for a file from a
+downloaded ZIP), choose **More info**, **Run anyway** / **Run**. `start.bat` is about 20 lines of plain text: you can
+open it in Notepad first and read what it does.
 
-Get a fixed copy of the tool first (the plugin's own folder can move when it updates). In Command Prompt:
-```
-git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader
-```
-(No git? On the GitHub page click **Code, Download ZIP** and unzip it to `C:\tayyib-trader`.) Once a month
-run `git -C C:\tayyib-trader pull` to get updates.
+**B4. The Welcome screen.** The very first time (no `config.json` yet) the dashboard opens a **Welcome**
+screen: your capital, your broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you
+want, your email address. Press **Save**. It saves them the same safe way as the Settings tab. There is no
+password field on purpose (see Part 3). **Not now** closes it; it comes back next time until you save.
+
+**B5. Your first list.** After 3:30 PM IST on a trading day, on the Today tab press **Run today's list**.
+The first run also **builds your halal list** (it checks about 500 companies): that takes about 5 minutes
+more than a normal run, and the progress panel shows it. After that the list refreshes itself every 30 days.
+When it finishes, the Today tab shows your list.
+
+**B6.** Every trading day after 3:30 PM: double-click `start.bat`, press **Run today's list**, read it, and
+place any order yourself in Kite or Groww (the Tickets tab has the steps). Part 2 below shows the rest.
+
+**Updates.** Once a month: with git, `git -C C:\tayyib-trader pull`; without git, download the ZIP again and
+replace the `C:\tayyib-trader` folder. Your data is in `%USERPROFILE%\tayyib-live`, not in the tool's folder, so
+an update never touches it.
+
+### Mac and Linux
+The same as Option B, with `start.sh` in place of `start.bat` and `python3` in place of `py`:
+1. Install Python 3.8 or newer (Mac: from python.org or `brew install python`; Linux: usually already there,
+   check with `python3 --version`).
+2. Get the tool: `git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git ~/tayyib-trader` (or the ZIP,
+   unzipped and renamed to `~/tayyib-trader`).
+3. In Terminal: `~/tayyib-trader/start.sh`. It uses `~/tayyib-live/trader` (or `TAYYIB_DIR`), creates it,
+   and opens the dashboard. Keep Terminal open; Ctrl+C stops it. If it says "permission denied", run
+   `sh ~/tayyib-trader/start.sh` instead.
+4. Welcome screen, then **Run today's list**, as in B4 and B5.
+
+Commands elsewhere in this guide are written for Windows: on Mac and Linux use `python3`, `/` instead of `\`,
+`~/tayyib-live` for `%USERPROFILE%\tayyib-live`, and `export TAYYIB_DIR=...` for `set TAYYIB_DIR=...`.
 
 ---
 
 ## Part 2: Every trading day (about 5 minutes)
 
-1. **After 3:30 PM**, open Claude Code in your `tayyib-live` folder and ask:
-   **"Give me today's halal list"**
+1. **After 3:30 PM**, make today's list: in Claude Code (opened in your `tayyib-live` folder) ask
+   **"Give me today's halal list"**, or without Claude Code double-click `start.bat` and press **Run today's
+   list**.
 2. Read the **top picks** and the table. Read every WARN and BLOCK reason.
    - No picks today is normal. Not trading is also a decision.
-3. For a stock you like, ask: **"Show me the ticket for SYMBOL"**. You get the exact Kite or Groww steps.
+3. For a stock you like, ask: **"Show me the ticket for SYMBOL"**, or open the dashboard's **Tickets** tab.
+   You get the exact Kite or Groww steps.
 4. If you decide to take it, **place it yourself** in Kite or Groww:
    - Buy, **CNC** (delivery), order type SL or GTT at the entry price.
    - When it fills, add the **stop-loss and target** (in Kite: GTT, OCO).
-5. Tell Claude your fill: **"I bought SYMBOL at 1004.50"**. It records it in your journal.
+5. Record your fill in your journal: tell Claude **"I bought SYMBOL at 1004.50"**, or use the command in the
+   table below.
+
+### Without Claude Code: the commands
+Everything you would ask Claude has a command. The dashboard covers the list, the tickets, your positions and
+your settings; the journal (what you bought and sold), alerts and purification are commands.
+
+**Which data folder a command uses.** Every command reads and writes the folder named in `TAYYIB_DIR`; if that
+is not set, it uses a folder called `trader` inside the folder you are in. `start.bat` sets it for you, but a
+new Command Prompt window does not. So open Command Prompt and type these two lines first (once per window):
+```
+cd C:\tayyib-trader
+set TAYYIB_DIR=%USERPROFILE%\tayyib-live\trader
+```
+(Or set it for good with `setx TAYYIB_DIR "%USERPROFILE%\tayyib-live\trader"` and open a new window. Or, instead,
+`cd %USERPROFILE%\tayyib-live` and write the full path: `py C:\tayyib-trader\tayyib-broker\ticket.py positions`.)
+If you forget, a command run in `C:\tayyib-trader` uses an empty `C:\tayyib-trader\trader` folder and says
+`no order/position ...` or shows nothing: set `TAYYIB_DIR` and run it again.
+
+**The ticket ID.** On the dashboard's **Tickets** tab every ticket shows its ID in small grey letters under the
+stock name, for example `TATAELXSI-2026-11-06-breakout`; `py tayyib-broker\ticket.py show` prints it too
+("TICKET <ID>"). A position keeps its ticket's ID. You can also type the stock's symbol instead of the ID.
+
+| With Claude Code | Without Claude Code (Command Prompt, from `C:\tayyib-trader`, with `TAYYIB_DIR` set or from your `tayyib-live` folder) |
+|---|---|
+| "Give me today's halal list" | Dashboard: **Run today's list**. Or `py tayyib-daily\daily.py` |
+| "Show me the ticket for SYMBOL" | Dashboard: **Tickets** tab. Or `py tayyib-broker\ticket.py show` |
+| "I bought SYMBOL at 1004.50" | `py tayyib-broker\ticket.py placed ID --price 1004.50` (add `--qty N` if you bought a different number of shares) |
+| "I sold SYMBOL at 1064" | `py tayyib-broker\ticket.py close ID --price 1064` (add `--qty N` for a part sale, `--reason stop`, `target`, `time`, `trail`, `manual` or `halal`) |
+| "Raise my stop on SYMBOL to 1020" | `py tayyib-broker\ticket.py stop ID --stop 1020` (a stop can only go up) |
+| "Check my alerts" | Once after each buy: `py tayyib-alerts\alerts.py add --from-positions` (the stop, target and time limit of your open positions). Then any time: `py tayyib-alerts\alerts.py check` |
+| "Show my positions" | `py tayyib-broker\ticket.py positions` (or the dashboard's **Tickets** tab, at the bottom) |
+| "I got a dividend of 240 from SYMBOL" | `py tayyib-purify\purify.py add-dividend SYMBOL 240 --date 2026-08-14` |
+| "How much should I purify for 2026?" | `py tayyib-purify\purify.py report --year 2026` (add `--include-gains` to purify gains too) |
+
+Every command has `--help` (for example `py tayyib-broker\ticket.py placed --help`). None of them places an
+order: they only write your journal.
 
 ### Check how the earlier picks did (the Excel tracker)
 Every daily list is recorded automatically and followed on the real prices after that. Open
@@ -117,14 +200,15 @@ backtest** button on the Backtest tab), all explained below.
 **Open it on Windows:**
 - In Claude Code (in your `tayyib-live` folder), ask: **"Show my dashboard"**. Your browser opens
   `http://127.0.0.1:8765/`.
-- Or without Claude: double-click **`start.bat`** in the tool's folder (see
-  [Start without Claude Code](#start-without-claude-code)), or open Command Prompt, then
+- Or without Claude: double-click **`start.bat`** in `C:\tayyib-trader` (see
+  [Option B](#option-b-start-without-claude-code)), or open Command Prompt, then
   ```
   cd %USERPROFILE%\tayyib-live
-  py C:\Code\Trader\tayyib-trader\tayyib-dashboard\dashboard.py
+  py C:\tayyib-trader\tayyib-dashboard\dashboard.py
   ```
-  (use the folder where you cloned or installed tayyib-trader). Leave that window open while you use the
-  dashboard; press **Ctrl+C** in it to stop. If the port is busy, add `--port 8800`.
+  (use the folder where you cloned or unzipped tayyib-trader). Leave that window open while you use the
+  dashboard; press **Ctrl+C** in it to stop. If the port is busy, add `--port 8800` (it works on `start.bat`
+  too: see [Something not working?](#something-not-working)).
 
 **What each tab means:**
 On a phone the tabs are at the bottom of the screen.
@@ -185,9 +269,13 @@ When a later list shows a stock again, the tracker counts it once:
 Both are greyed in Results and the Excel file, kept for the record, and not counted.
 
 ### While you hold a trade
-- **"Check my alerts"**: tells you if a stop, target or time limit was hit.
-- **"I sold SYMBOL at 1064"**: records the sale, with profit after charges.
-- **"Show my positions"**: your open and closed trades and how you're doing.
+- **"Check my alerts"** (`py tayyib-alerts\alerts.py check`): tells you if a stop, target or time limit was hit.
+- **"I sold SYMBOL at 1064"** (`py tayyib-broker\ticket.py close ID --price 1064`): records the sale, with
+  profit after charges.
+- **"Show my positions"** (`py tayyib-broker\ticket.py positions`): your open and closed trades and how you're
+  doing.
+
+(Without Claude Code, see [the commands](#without-claude-code-the-commands) for the data-folder rule.)
 
 The **pullback** setup is on by default (v0.2.6; v0.2.5 had switched it off, which made the whole strategy
 worse: see "Why one backtest number isn't enough" below). Settings, Selection, "Setup: pullback (swing)"
@@ -395,7 +483,9 @@ list: not a promise, not financial advice.
 - Every few months, compare it with a Shariah fund's holdings: see the [FAQ](FAQ.md#how-do-i-check-the-halal-list-is-right).
 
 ### Once a year
-- **"How much should I purify for 2026?"**: the charity amount from your dividends.
+- **"How much should I purify for 2026?"** (`py tayyib-purify\purify.py report --year 2026`): the charity
+  amount from your dividends. Record each dividend when it arrives ("I got a dividend of 240 from SYMBOL", or
+  `py tayyib-purify\purify.py add-dividend SYMBOL 240 --date 2026-08-14`).
 
 ---
 
@@ -481,7 +571,7 @@ the page has **Reset all to defaults**. "Reset all" keeps your capital and broke
 you, not strategy) unless you tick **Also reset capital and broker**. Resetting Halal puts back the TASIS
 limits, turns "review" stocks off and clears your source / scholar note. A reset only changes the form:
 nothing is saved until you press **Review & save** and confirm, and the old settings are kept as a backup,
-so you can undo it from **Backups**. After a full reset your settings code is `default@2`, even if you kept
+so you can undo it from **Backups**. After a full reset your settings code is `default@4`, even if you kept
 your own capital and broker (the page tells you it kept them).
 
 The rules that keep it halal and cash-only are shown under **Always on**: they are not settings, and the
@@ -539,8 +629,9 @@ only halal-compliant stocks. These are rules in the code, not settings.
 TASIS limits, and the dashboard will not save. With it, every daily list starts
 with a line saying the thresholds are looser than TASIS, and why. See the [FAQ](FAQ.md#can-i-loosen-the-halal-thresholds).
 
-Every daily list records a short code for the settings it used: `default@2` when you changed nothing
-(your own capital and broker don't count),
+Every daily list records a short code for the settings it used: `default@4` when you changed nothing
+(your own capital and broker don't count; older lists say `default@2` or `default@3`, and default@4 makes
+exactly the same decisions as default@2),
 otherwise a code such as `b1d996bb` that stands for your changes. The Excel tracker's Summary sheet
 splits the results by that code, so after a change you can see whether the new
 settings did better or worse.
@@ -558,8 +649,15 @@ The time machine shows past odds; your own journal shows whether *you* can follo
 
 | problem | fix |
 |---|---|
-| `py` not found | Reinstall Python with "Add Python to PATH" ticked |
+| `py` not found, or `start.bat` says "Python was not found" | Run the Python installer again with **"Add python.exe to PATH"** ticked (choose **Modify** and tick **py launcher** if Python is already there), then open a new window |
 | `python3` opens the Microsoft Store | Normal on Windows: the tool uses `py` |
+| `start.bat` closes at once, or "cannot find the path" | It is one folder too deep or too high: `C:\tayyib-trader\start.bat` must exist (see [B2](#option-b-start-without-claude-code)) |
+| "Could not get the Nifty 500 list" | niftyindices.com refused the download. Open https://niftyindices.com/IndexConstituent/ind_nifty500list.csv in your browser (or niftyindices.com, Nifty 500, "Index constituents"), save the file as **`ind_nifty500list.csv`** in **`%USERPROFILE%\tayyib-live\trader\`** (the folder the message names), then press **Run today's list** again |
+| "cannot listen on 127.0.0.1:8765 ... is the dashboard already running?" | It probably is: look for the other black window, or the open tab. Otherwise another program uses the port: in Command Prompt, `C:\tayyib-trader\start.bat --port 8800` (the browser then opens `http://127.0.0.1:8800/`) |
+| The tabs say "run tayyib-daily" (or "No tickets file") | No list has been made yet in this data folder: on the Today tab press **Run today's list** (after 3:30 PM IST). A new data folder starts empty |
+| The scheduled task didn't run (no email at 4:20 PM) | The PC was asleep, shut down or logged off at 4:20 PM: the task only runs while you are logged in. `py tools\schedule_windows.py status` (from `C:\tayyib-trader`) shows whether the task exists and its next run; `install --yes` makes it again |
+| Email: "password not set" | Type `setx TAYYIB_SMTP_PASSWORD "your16letters"` in Command Prompt, then **close the `start.bat` window and double-click `start.bat` again** (a running window never sees a new `setx`). Then press **Send test email** in Settings, Email |
+| A command says `no order/position ...` or shows nothing | It is using another data folder: `set TAYYIB_DIR=%USERPROFILE%\tayyib-live\trader` first (see [the commands](#without-claude-code-the-commands)) |
 | "NSE did not answer" / HTTP 403 | NSE sometimes blocks scripts. Insider data shows UNKNOWN; everything else still works |
 | A stock you know is halal is blocked | See the [FAQ](FAQ.md): you can check it and record your ruling |
 | Anything else | Open an issue: https://github.com/R12Wan-Pat3l/tayyib-trader/issues |

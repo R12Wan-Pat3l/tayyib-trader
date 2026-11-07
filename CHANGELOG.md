@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.2.7 (2026-11-07)
+
+Install and run from the docs alone: with or without Claude Code, on Windows, Mac or Linux. Docs, launchers and
+tests only: no decision changes (still default@4, which equals default@2).
+
+### Added
+
+- **`start.sh`** for Mac and Linux: the same as `start.bat`. It finds `python3` (3.8+), uses
+  `~/tayyib-live/trader` unless `TAYYIB_DIR` is set, creates it and opens the dashboard. It runs nothing else.
+  Executable in git, LF line endings kept by `.gitattributes`.
+- **`tools/smoke_fresh.py`**: a fresh-install smoke test (standard library, offline). It copies the repo to a temp
+  folder with an empty temp `TAYYIB_DIR`, runs `--help` on every skill script and `mcp/server.py`, checks the core
+  copies, starts the dashboard on a free port and checks the page, `/api/meta` (version, the Welcome condition) and
+  that every data tab answers with its "missing" hint, never a 500. The Tests workflow runs it on every push.
+- `mcp/server.py --help` and `--version`.
+- `tests/test_v027.py`: start.sh's default folder and that it starts only the dashboard (run with a fake
+  `python3` on Linux CI), the same for start.bat, and a check that README, the user guide and How it works never
+  call an older `default@N` the current default.
+
+### Docs
+
+- README **Start here**: three quick starts side by side: Claude Code, Windows without Claude Code (`start.bat`),
+  Mac / Linux (`start.sh`).
+- User guide, Option B: the first **Run today's list** also builds the halal list (about 5 minutes more); the ZIP
+  unzips to `tayyib-trader-main` (move or rename it so `C:\tayyib-trader\start.bat` exists, with a "you should
+  see..." check); the current Python installer wording ("Add python.exe to PATH", the py launcher).
+- User guide, Part 2: every "ask Claude" step has its command without Claude Code (journal, stop, alerts,
+  positions, purification), checked against each `--help`; where to find the ticket ID; the `TAYYIB_DIR` /
+  data-folder rule, once.
+- Troubleshooting: the Nifty 500 download refused (save `ind_nifty500list.csv` yourself), a busy port
+  (`start.bat --port 8800`), tabs that say "run tayyib-daily", a scheduled task that did not run, "password not
+  set".
+- Technical guide: a developer quick start (clone, tests, smoke test, `TAYYIB_DIR`, daily, dashboard) with the
+  network domains needed; `marketplace.json` in the release checklist.
+- Labels: places that still called default@2 the current default now say default@4 (= default@2 in decisions).
+
 ## v0.2.6 (2026-11-06)
 
 Pullback is back on by default, and the backtest can now show a range of results instead of one number.

@@ -19,3 +19,5 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python3 tools/sync_core.py --check
       - run: python3 -m unittest discover -s tests
+      - name: Fresh-install smoke test (empty data folder, dashboard, --help of every script)
+        run: python3 tools/smoke_fresh.py

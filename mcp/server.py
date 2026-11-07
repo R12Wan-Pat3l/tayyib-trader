@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 PROTOCOL = "2025-06-18"
 
 
@@ -172,7 +172,15 @@ def handle(msg):
     raise NotImplementedError(method)
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ("-h", "--help"):            # v0.2.7: a real --help (the smoke test checks it)
+        print(__doc__.strip())
+        print("\n%d tools, none of which place orders. Version %s." % (len(TOOLS), VERSION))
+        return
+    if argv and argv[0] == "--version":
+        print(VERSION)
+        return
     for line in sys.stdin:
         line = line.strip()
         if not line:

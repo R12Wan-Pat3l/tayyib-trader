@@ -19,6 +19,19 @@ mkdir -p ~/tayyib-live && cd ~/tayyib-live        # your data folder; trader/ is
 export T=~/tayyib-trader                          # wherever you cloned it (Windows: set T=...)
 ```
 
+## 0b. Fresh install (offline, about 30 seconds)
+
+```bash
+python3 tools/smoke_fresh.py                      # Windows: py tools\smoke_fresh.py
+```
+
+It copies the repo to a temp folder, uses an empty temp data folder (`TAYYIB_DIR`) and checks what a new
+user meets first: `--help` of every skill script and of `mcp/server.py`, the core copies in sync, and the
+dashboard: it starts on a free port, serves the page, `/api/meta` has this version and the Welcome screen
+condition (no `config.json`), and every data tab answers with its "missing" hint, never an error 500. Then it
+stops the dashboard and deletes the temp folders (`--keep` keeps them). Expect `N passed, 0 failed`. The
+Tests workflow runs it on every push.
+
 ## 1. Prices (Yahoo)
 
 ```bash

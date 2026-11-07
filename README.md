@@ -28,41 +28,29 @@ market closes. You decide, and you place the order yourself.
 
 ## Start here
 
+Three ways to install and run it. All three use the same data folder (`tayyib-live`), so you can switch later.
+
+| step | With Claude Code | Windows, without Claude Code | Mac / Linux, without Claude Code |
+|---|---|---|---|
+| 1 | Install [Python](https://www.python.org/downloads/) 3.8+ (tick **"Add python.exe to PATH"**) and [Claude Code](https://claude.com/claude-code) | Install [Python](https://www.python.org/downloads/) 3.8+: tick **"Add python.exe to PATH"** (the `py` launcher comes with it) | Install Python 3.8+ (`python3 --version` to check) |
+| 2 | In Claude Code: `/plugin marketplace add R12Wan-Pat3l/tayyib-trader`, then `/plugin install tayyib-trader@tayyib-trader` | `git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git C:\tayyib-trader`, or **Code, Download ZIP**, unzip, and move the folder that holds `start.bat` to `C:\tayyib-trader` | `git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git ~/tayyib-trader` |
+| 3 | `mkdir %USERPROFILE%\tayyib-live`, `cd` into it, start `claude` there, and ask **"Create my tayyib config"** with your capital, risk and broker | Double-click **`C:\tayyib-trader\start.bat`** (keep the black window open) | In Terminal: `~/tayyib-trader/start.sh` (keep it open) |
+| 4 | After 3:30 PM IST: **"Give me today's halal list"** (the first one also builds the halal list: about 5 minutes more) | The **Welcome** screen: capital, broker, risk per trade. Save | The **Welcome** screen: capital, broker, risk per trade. Save |
+| 5 | **"Show me the ticket for SYMBOL"**, then place it yourself in Kite or Groww | After 3:30 PM IST: **Run today's list** (the first run also builds the halal list: about 5 minutes more) | After 3:30 PM IST: **Run today's list** (the first run also builds the halal list) |
+| 6 | **"I bought SYMBOL at P"** records it; **"show my dashboard"** shows everything | **Tickets** tab: copy the Kite / Groww steps and place the order yourself | **Tickets** tab: copy the steps and place the order yourself |
+
+Your files stay on your computer in `tayyib-live\trader` (Mac / Linux: `~/tayyib-live/trader`); the halal list
+refreshes itself every month and `tracker.xlsx` there follows every pick. `start.bat` and `start.sh` only open
+the dashboard, which places no order. The **[User guide](docs/USER_GUIDE.md)** has every step, with checks, the
+commands for recording trades without Claude Code, and fixes for common problems.
+
 | You are... | Read |
 |---|---|
 | New, not technical | **[User guide](docs/USER_GUIDE.md)**: install, first run, daily routine, step by step |
 | Curious how it works | **[How it works](docs/HOW_IT_WORKS.md)**: the whole thing in plain words |
 | Asking "how do you decide halal?", "where is the data from?" | **[FAQ](docs/FAQ.md)** |
-| A developer | **[Technical guide](docs/TECHNICAL.md)**: architecture, files, commands, config, tests |
+| A developer | **[Technical guide](docs/TECHNICAL.md)**: developer quick start, architecture, files, commands, config, tests |
 | An AI session joining the project | **[Project brief](docs/PROJECT_BRIEF.md)**: what exists, decisions made, data files |
-
-## Quick start (Claude Code)
-
-1. Install [Python](https://www.python.org/downloads/) and [Claude Code](https://claude.com/claude-code).
-2. In Claude Code, add the tool (one time):
-   ```
-   /plugin marketplace add R12Wan-Pat3l/tayyib-trader
-   /plugin install tayyib-trader@tayyib-trader
-   ```
-3. Every trading day after 3:30 PM, ask: **"Give me today's halal list"**.
-4. Pick a stock you like, ask **"show me the ticket for SYMBOL"**, and place it yourself in Kite or Groww.
-5. Open `tayyib-live\trader\tracker.xlsx` any time to see how every earlier pick did, or ask
-   **"show my dashboard"** to see everything in your browser, change your settings safely and run today's list.
-
-The first run builds the halal list (about 5 minutes). After that it refreshes itself every month.
-
-## Quick start without Claude Code
-
-1. Install [Python](https://www.python.org/downloads/) (3.8 or newer). On the installer's first screen tick
-   **"Add Python to PATH"**.
-2. On the [GitHub page](https://github.com/R12Wan-Pat3l/tayyib-trader) click **Code, Download ZIP** and unzip it
-   to `C:\tayyib-trader`.
-3. Double-click **`start.bat`** in that folder. Keep the black window open while you use the dashboard.
-4. The **Welcome** screen asks for your capital, broker and risk per trade. Save it.
-5. Every trading day after 3:30 PM, press **Run today's list**.
-6. Pick a stock, open its ticket on the Tickets tab, and **place the order yourself** in Kite or Groww.
-
-The [User guide](docs/USER_GUIDE.md) has both ways step by step.
 
 ## The 18 skills
 

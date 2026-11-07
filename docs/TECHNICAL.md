@@ -37,6 +37,36 @@ answer", "NSE failed: HTTP 503").
 
 ## Install
 
+### Developer quick start
+
+From nothing to a running dashboard on your own data (Windows Command Prompt; Mac / Linux below):
+
+```bat
+git clone https://github.com/R12Wan-Pat3l/tayyib-trader.git
+cd tayyib-trader
+py -m unittest discover -s tests
+py tools\smoke_fresh.py
+set TAYYIB_DIR=%USERPROFILE%\tayyib-live\trader
+py tayyib-daily\daily.py
+py tayyib-dashboard\dashboard.py
+```
+
+The tests and the smoke test are offline (about a minute together). `daily.py` is meant for after 3:30 PM IST;
+its first run also builds the halal list (about 5 minutes more). The dashboard opens `http://127.0.0.1:8765/`.
+
+Mac / Linux: `export TAYYIB_DIR=~/tayyib-live/trader` (and `mkdir -p "$TAYYIB_DIR"`), `/` for `\`, or simply
+`./start.sh`. `TAYYIB_DIR` names the **trader folder itself**; without it every script uses `./trader` in the
+current folder, so a script run from the repo would write `tayyib-trader/trader/` (git-ignored, but not your data).
+Run the tests and the smoke test without `TAYYIB_DIR` pointing at real data: they use temp folders and fixtures.
+
+Network (the daily list and the halal build; tests and the smoke test need none): `query1.finance.yahoo.com`,
+`query2.finance.yahoo.com` (prices, fundamentals), `niftyindices.com` (the Nifty 500 list), `news.google.com` and
+the RSS hosts in `config.news.feeds` (Moneycontrol, ET Markets, Livemint), `www.nseindia.com` (announcements,
+insider, deals: usually refused, then UNKNOWN), and your SMTP server for the optional email
+(`smtp.gmail.com:465`). The dashboard listens on `127.0.0.1` only.
+
+### Ways to install
+
 | way | how |
 |---|---|
 | Claude Code plugin | `/plugin marketplace add R12Wan-Pat3l/tayyib-trader`, then `/plugin install tayyib-trader@tayyib-trader`. Update: `claude plugin update tayyib-trader@tayyib-trader` |
@@ -94,7 +124,7 @@ What `daily` does:
 - It rebuilds the halal list on the first run, and again whenever the list is `halal.auto_rebuild_days` (default 30) old.
 - It keeps one setup per stock. With `--mode all` it alternates swing and delivery.
 - It skips stocks you already hold or have placed.
-- Orders are sized in rank order (`tc.rank_key`, default@2): stocks with at least
+- Orders are sized in rank order (`tc.rank_key`, since default@2): stocks with at least
   `daily.min_past_trades_for_rank` (8) past trades of their setup first, best time-machine expectancy
   first; then the rest by setup score. The same key orders the rows inside each PASS / WARN / BLOCK group
   and so picks the top picks. Because the risk check fills limits in file order, it also decides which
@@ -357,7 +387,7 @@ unknown)" with `HELD_WORDING_UNKNOWN_BUY`.
 
 `regime` {enabled false, index `^NSEI` | `SHARIABEES.NS`, rule `close_below_200dma` | `sma50_below_sma200`,
 action `no_new_swing` | `no_new_trades` | `half_risk`}. In the settings hash (a decision once on); the defaults
-keep default@2.
+keep default@4 (= default@2 in decisions).
 
 - `tc.regime_state(bars, date, rule, index)`: only bars dated <= date; UNKNOWN without a bar on that date or
   under 200 bars. `tc.regime_effect(state, cfg)`: active only when enabled AND risk-off -> `block_modes`,
@@ -403,7 +433,7 @@ keep default@2.
 `ssl.create_default_context()`), `from` (type `email`), `to` (type `emails`, at most `tc.MAX_EMAIL_TO` = 3;
 empty means `[from]`), `send_when` (`always` | `picks_only`), `attach_md` (true). `tc.EMAIL_RE` refuses
 spaces, CR/LF, commas and angle brackets (no header injection). `email` is in `SETTINGS_EXCLUDE`: it is
-not part of the settings snapshot or hash (still default@2). Invalid email values are reported as
+not part of the settings snapshot or hash (still default@4). Invalid email values are reported as
 "(not shown)" so addresses stay out of daily notes.
 
 **The password** is read only from `TAYYIB_SMTP_PASSWORD` (`email_report.password()`). Any config key that
@@ -449,7 +479,12 @@ and the user logged in.
 
 **`start.bat`** (repo root): checks `py`, sets `TAYYIB_DIR` to `%USERPROFILE%\tayyib-live\trader` when it is
 not set (in the code `TAYYIB_DIR` names the trader folder itself), creates it, works from its parent and
-starts the dashboard (which opens the browser).
+starts the dashboard (which opens the browser). Extra arguments go to the dashboard (`start.bat --port 8800`).
+
+**`start.sh`** (repo root, v0.2.7, executable in git, LF endings by `.gitattributes`): the same for Mac / Linux.
+It picks the first of `python3`, `python` that is 3.8+, defaults `TAYYIB_DIR` to `~/tayyib-live/trader`,
+creates it, `cd`s to its parent and `exec`s `tayyib-dashboard/dashboard.py "$@"`. It runs nothing else
+(`tests/test_v027.py` checks both).
 
 ## Rules in code (not configurable)
 
@@ -653,7 +688,7 @@ issues same-origin GETs to `/api/...`.
 
 | endpoint | returns |
 |---|---|
-| `/api/meta` | version, data folder, settings label and header ("Current settings: default@2"), the latest list's `banners[]`, the halal banner, config notes |
+| `/api/meta` | version, data folder, settings label and header ("Current settings: default@4"), the latest list's `banners[]`, the halal banner, config notes |
 | `/api/dates` | the dates of every `daily/DATE.json`, newest first |
 | `/api/today?date=` | that day's list (default the newest): rows with `display` strings, `why_view` (groups with ✓ / ✗ / UNKNOWN), `stop_capped`, `near_limit`, `ranked_by`, `expectancy_use`; top picks; `staleness {stale, reasons[]}` (not today's list, or `asof` before 15:30 IST) |
 | `/api/tracker` | rows with a labelled `verdict` (TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending, BREAKEVEN), `summary` from `tracker.summary()` (the function the Excel Summary sheet uses, so the numbers match), `settings_split`, the equity curve (cumulative R by exit date), and `noise_banner` until 30 closed trades |
@@ -794,13 +829,24 @@ Failures are reported and never filled with guesses: missing data gives `unknown
 python3 -m unittest discover -s tests          # offline, synthetic fixtures, real data formats
 python3 tools/sync_core.py --check
 python3 tests/make_fixtures.py                 # regenerate fixtures
+python3 tools/smoke_fresh.py                   # fresh-install smoke test (offline, v0.2.7)
 ```
+
+**Fresh-install smoke test (v0.2.7).** `tools/smoke_fresh.py` (stdlib, offline, no order) copies the repo to a temp
+folder without `.git`, `trader/` or caches, points `TAYYIB_DIR` at an empty temp folder and checks: `--help`
+exits 0 for every skill script and `mcp/server.py`; `sync_core.py --check` is clean in the copy; the dashboard
+starts on a free port with `--no-browser`, serves `/`, `/api/meta` has the version and `first_run: true` (the
+Welcome screen), every data endpoint (`/api/today`, `/api/tracker`, `/api/halal`, `/api/tickets`,
+`/api/backtests`, `/api/backtest`) answers 200 with `missing` and a `hint`, no other GET route answers 500, and
+no `config.json` is written. It then stops the server and deletes the temp folders (`--keep` keeps them). The
+Tests workflow runs it after the suite.
 
 Live checks against real data: [TESTING.md](../TESTING.md).
 
 ## Releasing
 
-1. Bump the version everywhere: `.claude-plugin/plugin.json`, `VERSION` in `core/tayyib_core.py` (then sync) and in `mcp/server.py`, and add a new top entry to `CHANGELOG.md`. `claude plugin update` only compares this number, and `tests/test_repo.py` fails if they disagree.
+1. Bump the version everywhere: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (the plugin
+   entry's `version`), `VERSION` in `core/tayyib_core.py` (then sync) and in `mcp/server.py`, and add a new top entry to `CHANGELOG.md`. `claude plugin update` only compares this number, and `tests/test_repo.py` fails if they disagree.
 2. Make sure the tests pass and the sync check is clean.
 3. Tag `vX.Y.Z` and push the tag. The **Release** workflow (`.github/workflows/release.yml`) runs the
    tests on the tagged code and publishes the GitHub release, with notes from CHANGELOG.md

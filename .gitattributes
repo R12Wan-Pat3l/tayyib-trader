@@ -1,0 +1,3 @@
+# start.sh must keep LF endings (sh breaks on CRLF), even in a Windows clone; start.bat gets CRLF.
+*.sh text eol=lf
+*.bat text eol=crlf

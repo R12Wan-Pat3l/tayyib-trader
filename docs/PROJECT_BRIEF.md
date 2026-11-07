@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-06 (v0.2.6).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-07 (v0.2.7).
 
 ## What it is
 
@@ -12,7 +12,7 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.6** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.6; v0.1.3 is folded into v0.1.4)
+- Latest release: **v0.2.7** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.7; v0.1.3 is folded into v0.1.4)
 - Tests: 450 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
@@ -54,7 +54,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 
 | file | contents |
 |---|---|
-| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (list-level warnings; v0.1.9 wording: "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy."), `settings{hash, label ("default@2" when nothing differs; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
+| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (list-level warnings; v0.1.9 wording: "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy."), `settings{hash, label ("default@4" when nothing differs, = default@2 in decisions; "default@2" / "default@3" on older lists; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
 | `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result`. v0.1.7 flags: HALAL ratio items `near_limit` (at or above `halal.near_limit_pct` = 90% of the limit), PLAN `stop capped` item with `stop_capped: true`, SETUP context items with `op: "info"` (% above the 200-day average, 126-day return) |
 | `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
 | `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys from 90% of their limit up to it), over_limit[] (at or over it); v0.1.7}}` |
@@ -168,9 +168,9 @@ over MCP (stdio), none of which place orders.
   `TAYYIB_SMTP_PASSWORD`; password-like config keys are refused. `email` is outside the settings hash. A
   missing / stale / failed list sends the FAILED email, never older picks. `daily.py --email` wraps the
   unchanged pipeline; `tools/schedule_windows.py` creates only the task `tayyib-daily` (weekdays 16:20 IST,
-  `--yes` required); `start.bat` sets `TAYYIB_DIR` to `%USERPROFILE%\tayyib-live\trader` (the code's
+  `--yes` required); `start.bat` (and `start.sh` on Mac / Linux, v0.2.7) sets `TAYYIB_DIR` to `%USERPROFILE%\tayyib-live\trader` (the code's
   `TAYYIB_DIR` is the trader folder).
-- **Releases:** bump `plugin.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
+- **Releases:** bump `plugin.json`, `marketplace.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
 ## The user's setup (Rizwan, Windows)
@@ -219,10 +219,13 @@ over MCP (stdio), none of which place orders.
   the whole strategy did worse without it on the same windows (5 y CAGR 8.0% -> 4.1%, 3 y 7.9% -> 7.0%); see the
   CHANGELOG. Holdings import from Zerodha / Groww files (`ticket.py import`, read only, preview first, kind
   "holding": not trades). "Not compliant now (status at purchase unknown)". Risk-off date ranges.
-- **v0.2.6** (this release): **pullback back on (default@4 = default@2)**, the v0.2.5 banner replaced by a one-time
+- **v0.2.6**: **pullback back on (default@4 = default@2)**, the v0.2.5 banner replaced by a one-time
   "Pullback is back on by default (v0.2.6)" banner (configs with their own pullback setting untouched), and the
   robustness test: `backtest.py run --robust [N]` and `--robust-compare "A" "B"`, with range bars and the verdict in
   the Backtest tab.
+- **v0.2.7** (this release): install from the docs alone. `start.sh` (Mac / Linux), `tools/smoke_fresh.py`
+  (fresh-install smoke test, in CI), README three quick starts, the no-Claude command for every journal step in
+  the user guide, troubleshooting rows, a developer quick start. No decision changes (default@4).
 - **Next:** switch the regime filter on only with a robust-compare verdict of 80%+ on 3 and 5 years.
 
 Later:

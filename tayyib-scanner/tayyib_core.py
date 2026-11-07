@@ -56,15 +56,21 @@ VERSION = "0.2.7"
 #   4  v0.2.6: pullback back on (switching it off made the whole strategy worse in the 3- and 5-year backtests):
 #      every default and every decision equals default@2 exactly (tests/test_v026.py). default@3 stays a known
 #      historic label (DEFAULTS_HISTORY)
-DEFAULTS_VERSION = 4
+#   5  v0.2.7: simple settings. The halal thresholds, charges and user agent are fixed in code, halal per-stock
+#      overrides are gone and the "custom" broker is removed. With the same halal list every decision equals
+#      default@4 (= default@2): tests/test_v027.py against baseline_default2/5.json.gz
+DEFAULTS_VERSION = 5
 # What each defaults version was, for labels on old rows and the "same as" line of the settings snapshot.
 DEFAULTS_HISTORY = {
     1: "v0.1.5: every threshold in config, the v0.1.4 values",
     2: "v0.1.7: ranking on thin evidence (daily.min_past_trades_for_rank 8)",
     3: "v0.2.5: default@2 with the pullback setup off (historic: reversed in v0.2.6)",
     4: "v0.2.6: pullback back on; every value and decision equals default@2",
+    5: "v0.2.7: simple settings; halal rules, charges and user agent fixed; no halal overrides. With the same "
+       "halal list every decision equals default@4 (= default@2)",
 }
-DEFAULTS_SAME_AS = {4: 2}                     # default@4 is default@2 in every decision-affecting value
+# default@4 and default@5 make the default@2 decisions (default@5: given the same halal list)
+DEFAULTS_SAME_AS = {4: 2, 5: 2}
 # the differences from the current defaults that make up an earlier defaults version exactly
 DEFAULTS_HISTORIC_DIFFS = {3: (("scanner.setups.pullback.enabled", False),)}
 # the Settings note under the pullback switch (v0.2.6)
@@ -123,6 +129,12 @@ def write_json(name, obj):
     os.replace(tmp, p)
     return p
 
+
+# What we are, honestly. NSE and BSE get only this: no browser user agent, no browser-fingerprint headers,
+# no homepage cookie warm-up. If they refuse automated access, the check is UNKNOWN (v0.1.9 decision:
+# no bot-check circumvention anywhere in the project). v0.2.7: it is also every request's user agent, and it
+# cannot be changed in config.json (user_agent is a fixed key).
+HONEST_UA = "tayyib-trader/%s (+https://github.com/R12Wan-Pat3l/tayyib-trader)" % VERSION
 
 DEFAULT_CONFIG = {
     # money
@@ -186,15 +198,14 @@ DEFAULT_CONFIG = {
         "delivery": {"max_stop_pct": 15.0, "min_stop_atr": 1.5,
                      "target_r": 3.0, "max_hold_days": 250},
     },
-    # charges (equity delivery). Verify against your broker's charges page.
+    # charges (equity delivery), fixed in code since v0.2.7: the built-in broker tables. Verify against your
+    # broker's charges page; a change here is a code change, not a setting.
     "broker": "zerodha",
     "brokers": {
         "zerodha": {"brokerage_pct": 0.0, "brokerage_min": 0.0, "brokerage_cap": 0.0,
                     "dp_charge_per_sell": 15.34},
         "groww": {"brokerage_pct": 0.1, "brokerage_min": 5.0, "brokerage_cap": 20.0,
                   "dp_charge_per_sell": 15.34},
-        "custom": {"brokerage_pct": 0.0, "brokerage_min": 0.0, "brokerage_cap": 0.0,
-                   "dp_charge_per_sell": 15.34},
     },
     "charges": {
         "stt_pct": 0.1,                 # delivery: on buy and on sell
@@ -204,22 +215,22 @@ DEFAULT_CONFIG = {
         "stamp_duty_buy_pct": 0.015,
         "gst_pct": 18.0,                # on brokerage + exchange (incl. IPFT) + SEBI
     },
-    # halal
+    # halal: the TASIS screen, fixed in code since v0.2.7 (the method, the four limits, review blocked, the
+    # Nifty 500 list). No per-stock overrides: the automatic screen decides.
     "halal": {
-        "method": "tasis",              # "tasis" or "custom" (thresholds that differ from TASIS)
-        "loosen_note": "",              # REQUIRED to loosen any threshold: your source or scholar
+        "method": "tasis",              # fixed
         "require_compliant": True,      # locked: a hard rule, cannot be switched off
-        "allow_review": False,          # treat 'review' as BLOCK unless true (loosening: needs loosen_note)
+        "allow_review": False,          # fixed: 'review' stocks are always blocked
         "list_max_age_days": 120,       # warn when the list is older
         "auto_rebuild_days": 30,        # tayyib-daily rebuilds the list when older (0 = never)
-        "max_debt_to_assets_pct": 25.0,         # TASIS
-        "max_noncompliant_income_pct": 3.0,     # TASIS
-        "max_cash_receivables_to_assets_pct": 90.0,  # TASIS
-        "noncompliant_investment_return_pct": 8.0,
+        "max_debt_to_assets_pct": 25.0,         # TASIS, fixed
+        "max_noncompliant_income_pct": 3.0,     # TASIS, fixed
+        "max_cash_receivables_to_assets_pct": 90.0,  # TASIS, fixed
+        "noncompliant_investment_return_pct": 8.0,   # TASIS, fixed
         "near_limit_pct": 90.0,         # display only: flag a ratio from this share of its limit up to it
         "held_recheck_days": 7,         # v0.2.4: re-screen a stock you hold when its screen is this old
         "exit_grace_days": 0,           # v0.2.4: wording only: days to sell a held stock that stopped passing
-        "parent_list_url": "https://niftyindices.com/IndexConstituent/ind_nifty500list.csv",
+        "parent_list_url": "https://niftyindices.com/IndexConstituent/ind_nifty500list.csv",   # fixed
     },
     # news
     "news": {
@@ -251,7 +262,7 @@ DEFAULT_CONFIG = {
         "rule": "close_below_200dma",   # or "sma50_below_sma200"
         "action": "no_new_swing",       # or "no_new_trades", "half_risk"
     },
-    "user_agent": "tayyib-trader/0.1 (+https://github.com/R12Wan-Pat3l/tayyib-trader)",
+    "user_agent": HONEST_UA,            # fixed (v0.2.7): never a browser user agent
 }
 
 
@@ -321,32 +332,27 @@ DEFAULT_CONFIG_DOCS = {
     "modes.delivery.target_r": _doc("Delivery: review level as a multiple of the risk", 1, 10, "R"),
     "modes.delivery.max_hold_days": _doc("Delivery: time stop, in trading sessions", 20, 750, "sessions",
                                          type="int"),
-    "broker": _doc("Broker whose charges are used", type="enum", choices=["zerodha", "groww", "custom"]),
+    "broker": _doc("Broker whose charges are used", type="enum", choices=["zerodha", "groww"]),
     "charges.stt_pct": _doc("STT on delivery, each side", 0, 1, "%"),
     "charges.exchange_txn_pct": _doc("Exchange transaction charge", 0, 0.1, "%"),
     "charges.sebi_fee_pct": _doc("SEBI turnover fee", 0, 0.01, "%"),
     "charges.ipft_pct": _doc("NSE investor protection fund charge", 0, 0.01, "%"),
     "charges.stamp_duty_buy_pct": _doc("Stamp duty on the buy", 0, 0.1, "%"),
     "charges.gst_pct": _doc("GST on brokerage + exchange + SEBI charges", 0, 30, "%"),
-    "halal.method": _doc("'tasis' (the NSE Shariah index method) or 'custom' (your own thresholds)",
-                         type="enum", choices=["tasis", "custom"]),
-    "halal.loosen_note": _doc("Your source or scholar. Required for any threshold looser than TASIS",
-                              type="string"),
+    "halal.method": _doc("The halal screen: TASIS (the NSE Shariah index method)", type="enum", choices=["tasis"]),
     "halal.require_compliant": _doc("Locked: only compliant stocks can pass (a hard rule)", type="locked",
                                     choices=[True]),
-    "halal.allow_review": _doc("Let 'review' stocks through with a WARN. Loosening: needs halal.loosen_note",
-                               type="bool"),
+    "halal.allow_review": _doc("'review' stocks are always blocked", type="bool"),
     "halal.list_max_age_days": _doc("Warn when the halal list is older than this", 7, 365, "days", type="int"),
     "halal.auto_rebuild_days": _doc("tayyib-daily rebuilds the halal list when older (0 = never)", 0, 365, "days",
                                     type="int"),
-    "halal.max_debt_to_assets_pct": _doc("Debt / total assets must be under this (TASIS 25; higher needs "
-                                         "loosen_note)", 1, 50, "%"),
-    "halal.max_noncompliant_income_pct": _doc("Non-compliant income / total income must be under this (TASIS 3; "
-                                              "higher needs loosen_note)", 0.1, 10, "%"),
+    "halal.max_debt_to_assets_pct": _doc("Debt / total assets must be under this (TASIS 25)", 1, 50, "%"),
+    "halal.max_noncompliant_income_pct": _doc("Non-compliant income / total income must be under this (TASIS 3)",
+                                              0.1, 10, "%"),
     "halal.max_cash_receivables_to_assets_pct": _doc("(Cash + receivables) / total assets must be under this "
-                                                     "(TASIS 90; higher needs loosen_note)", 10, 100, "%"),
+                                                     "(TASIS 90)", 10, 100, "%"),
     "halal.noncompliant_investment_return_pct": _doc("Return assumed on short-term investments for the income "
-                                                     "test (TASIS 8; lower needs loosen_note)", 0, 20, "%"),
+                                                     "test (TASIS 8)", 0, 20, "%"),
     "halal.near_limit_pct": _doc("Display only: flag a halal ratio from this % of its limit up to the limit "
                                  "(90 = within 10% under it; at or over the limit is 'over limit')", 50, 100, "%"),
     "halal.parent_list_url": _doc("The index list that is self-screened", type="string"),
@@ -386,7 +392,7 @@ DEFAULT_CONFIG_DOCS = {
                                            "after them (0 = always by expectancy, the default@1 order)", 0, 50,
                                            "trades", type="int"),
 }
-for _b in ("zerodha", "groww", "custom"):
+for _b in ("zerodha", "groww"):
     DEFAULT_CONFIG_DOCS.update({
         "brokers.%s.brokerage_pct" % _b: _doc("%s: brokerage as %% of each order" % _b, 0, 2, "%"),
         "brokers.%s.brokerage_min" % _b: _doc("%s: minimum brokerage per order" % _b, 0, 100, "Rs"),
@@ -453,6 +459,55 @@ for _s, _rows in _SETUP_DOCS.items():
                                                     "sessions", type="int")
     DEFAULT_CONFIG_DOCS[_pre + "min_score"] = _doc("ignore signals scoring under this", 0, 200, "score")
 
+# v0.2.7 (owner decision: simple settings). The Settings page shows only these keys. Every other documented key is
+# either FIXED (the code decides: any other value in config.json is ignored with a CONFIG line) or ADVANCED
+# (defaults only, no page field: still valid in config.json for developers, with the same validation).
+STRATEGIES = (                           # (setup, page label, one plain line), in page order
+    ("trend", "Trend (delivery)", "Strong long-term uptrend near its 52-week high, held for months."),
+    ("breakout", "Breakout (swing)", "In an uptrend and just under its 20-day high: buy if it breaks out."),
+    ("pullback", "Pullback (swing)", "In an uptrend and dipped to its 20-day average: buy the bounce."),
+    ("oversold", "Oversold (swing)", "Fell hard (low RSI) but still above its 200-day average: buy the rebound."),
+    ("squeeze", "Squeeze (swing)", "In an uptrend and trading in an unusually tight range: buy the move out of it."),
+)
+STRATEGY_KEYS = tuple("scanner.setups.%s.enabled" % s for s, _, _ in STRATEGIES)
+PAGE_KEYS = (("capital", "max_risk_per_trade_pct", "max_position_pct", "max_open_positions", "broker")
+             + STRATEGY_KEYS + ("holidays",))
+FIXED_KEYS = (("halal.method", "halal.allow_review", "halal.parent_list_url", "user_agent")
+              + tuple("halal." + k for k in TASIS_HALAL)
+              + tuple(k for k in DEFAULT_CONFIG_DOCS if k.startswith(("charges.", "brokers."))))
+for _k in PAGE_KEYS:
+    DEFAULT_CONFIG_DOCS[_k]["page"] = True
+for _k in FIXED_KEYS:
+    DEFAULT_CONFIG_DOCS[_k]["fixed"] = True
+for _s, _label, _line in STRATEGIES:
+    DEFAULT_CONFIG_DOCS["scanner.setups.%s.enabled" % _s].update(label=_label, hint=_line)
+STRATEGY_ERROR = ("CONFIG ERROR: scanner.setups.trend.enabled: at least one strategy must stay on (trend, breakout, "
+                  "pullback, oversold, squeeze): using the defaults, all on")
+FIXED_NOTE = "is fixed and can't be changed"
+# what the Settings page's Halal card says (read only)
+HALAL_RULES = (
+    "Debt under 25% of total assets",
+    "Non-compliant income under 3% of total income",
+    "Cash + receivables under 90% of total assets",
+    "An assumed 8% a year on short-term investments counts as non-compliant income",
+    "Review stocks are blocked, like excluded and unknown ones",
+)
+HALAL_FIXED_TEXT = "These rules can't be changed in the app."
+
+
+def is_page_key(key):
+    return key in PAGE_KEYS
+
+
+def is_fixed_key(key):
+    return bool((DEFAULT_CONFIG_DOCS.get(key) or {}).get("fixed"))
+
+
+def is_advanced_key(key):
+    """A documented key with no page field that a developer may still set in config.json."""
+    doc = DEFAULT_CONFIG_DOCS.get(key)
+    return doc is not None and key not in PAGE_KEYS and not doc.get("fixed") and doc["type"] != "locked"
+
 # words in an unknown key that ask for something the hard rules forbid: the warning says so
 _HARD_RULE_WORDS = {"intraday", "mis", "nrml", "short", "shorting", "shorts", "fno", "f&o", "futures", "future",
                     "options", "option", "derivative", "derivatives", "margin", "mtf", "leverage", "product",
@@ -474,7 +529,8 @@ def is_secret_key(key):
 
 
 # keys that existed once and were dropped: a config that still has one gets this note
-REMOVED_KEYS = {"halal.list_url": "it was never used"}
+REMOVED_KEYS = {"halal.list_url": "it was never used",
+                "halal.loosen_note": "the halal rules can't be changed since v0.2.7, so there is nothing to loosen"}
 
 
 def _fmt_val(v):
@@ -562,6 +618,11 @@ def _clean_user(user, defaults, prefix, notes):
             else:
                 notes.append("CONFIG: unknown key %s ignored" % key)
             continue
+        if doc.get("fixed"):                         # v0.2.7: the code decides; the same value is simply dropped
+            if not (v == dflt and type(v) == type(dflt)):
+                notes.append("CONFIG: %s = %s ignored: it %s (stays %s)"
+                             % (key, _fmt_val(v), FIXED_NOTE, _fmt_val(dflt)))
+            continue
         ok, cv = _check_value(doc, v)
         if ok:
             out[k] = cv
@@ -579,28 +640,19 @@ HALAL_METHOD_NOTE = "CONFIG: halal thresholds differ from TASIS"   # information
 
 
 def _halal_policy(cfg, notes):
-    """TASIS thresholds unless the user sets their own. Stricter: free. Looser (or allow_review):
-    only with a non-empty halal.loosen_note, otherwise an error and the TASIS value."""
-    h = cfg["halal"]
-    note = (h.get("loosen_note") or "").strip()
-    looser = [k for k, tv in TASIS_HALAL.items()
-              if (h[k] < tv if k == "noncompliant_investment_return_pct" else h[k] > tv)]
-    if h.get("allow_review"):
-        looser.append("allow_review")
-    if looser and not note:
-        for k in looser:
-            dv = DEFAULT_CONFIG["halal"][k]
-            notes.append("CONFIG ERROR: halal.%s = %s is looser than TASIS (%s) and needs halal.loosen_note "
-                         "(your source or scholar), using %s" % (k, _fmt_val(h[k]), _fmt_val(dv), _fmt_val(dv)))
-            h[k] = dv
-        looser = []
-    differs = [k for k in TASIS_HALAL if h[k] != TASIS_HALAL[k]]
-    if differs and h.get("method") == "tasis":
-        notes.append(HALAL_METHOD_NOTE + " (%s): halal.method is custom"
-                     % ", ".join("%s %s" % (k, _fmt_val(h[k])) for k in differs))
-        h["method"] = "custom"
-    cfg["_halal_loosened"] = note if looser else None
-    cfg["_halal_looser_keys"] = looser
+    """v0.2.7: the halal rules are fixed (TASIS, review blocked): nothing is ever loosened. The keys stay for the
+    scripts that read them."""
+    cfg["_halal_loosened"] = None
+    cfg["_halal_looser_keys"] = []
+
+
+def _strategy_policy(cfg, notes):
+    """At least one of the five strategies stays on (v0.2.7). All off -> an error and all five back to the defaults."""
+    setups = cfg["scanner"]["setups"]
+    if not any(setups[s]["enabled"] for s, _, _ in STRATEGIES):
+        notes.append(STRATEGY_ERROR)
+        for s, _, _ in STRATEGIES:
+            setups[s]["enabled"] = DEFAULT_CONFIG["scanner"]["setups"][s]["enabled"]
 
 
 def validate_config(user, defaults=None):
@@ -616,6 +668,7 @@ def validate_config(user, defaults=None):
         user = {}
     cfg = deep_merge(defaults, _clean_user(user, defaults, "", notes))
     _halal_policy(cfg, notes)
+    _strategy_policy(cfg, notes)
     cfg["_notes"] = notes
     return cfg, notes
 
@@ -675,7 +728,7 @@ def halal_banner(cfg, universe=None):
 # allows are recorded as values), halal.near_limit_pct (only marks ratios near their limit)
 # v0.2.4: halal.held_recheck_days and halal.exit_grace_days only concern stocks you already hold (alerts and
 # wording), never which stocks today's list shows or how they are sized.
-SETTINGS_EXCLUDE = ("user_agent", "halal.loosen_note", "halal.near_limit_pct", "email", "halal.held_recheck_days",
+SETTINGS_EXCLUDE = ("user_agent", "halal.near_limit_pct", "email", "halal.held_recheck_days",
                     "halal.exit_grace_days")
 
 
@@ -749,6 +802,21 @@ def same_as_label(differs):
         if mine == tuple(sorted(diffs)):
             return "default@%d" % v
     return None
+
+
+def advanced_changes(snap):
+    """v0.2.7: the keys in config.json changed from their defaults that have no page field (advanced, for
+    developers) -> [{key, value, default}]."""
+    return [d for d in snap["differs_from_default"] if not is_page_key(d["key"]) and not is_fixed_key(d["key"])]
+
+
+def advanced_note(snap):
+    """'Advanced settings changed in config.json: N (see TECHNICAL.md): key = value, ...' or None."""
+    adv = advanced_changes(snap)
+    if not adv:
+        return None
+    return "Advanced settings changed in config.json: %d (see TECHNICAL.md): %s" % (
+        len(adv), ", ".join("%s = %s" % (d["key"], _fmt_val(d["value"])) for d in adv))
 
 
 RISK_WARN_PCT = 2.0      # risk_preview warns in plain words above this risk per trade
@@ -1034,10 +1102,6 @@ def fetch_json(url, fixture=None, **kw):
         raise FetchError("%s did not return JSON" % url)
 
 
-# What we are, honestly. NSE and BSE get only this: no browser user agent, no browser-fingerprint headers,
-# no homepage cookie warm-up. If they refuse automated access, the check is UNKNOWN (v0.1.9 decision:
-# no bot-check circumvention anywhere in the project).
-HONEST_UA = "tayyib-trader/%s (+https://github.com/R12Wan-Pat3l/tayyib-trader)" % VERSION
 EXCHANGE_HEADERS = {"User-Agent": HONEST_UA, "Accept": "application/json"}
 # niftyindices.com (the Nifty 500 list) resets or stalls any request whose user agent contains a URL (found in
 # the v0.2.7 fresh-install check: every new user's first halal build failed). The same honest name, without the
@@ -1714,7 +1778,7 @@ def trade_outcome(bars, plan, cfg, today=None):
 def order_charges(side, price, qty, cfg):
     """Approximate charges for one CNC order leg. Verify with your broker."""
     ch = cfg["charges"]
-    br = cfg["brokers"].get(cfg.get("broker", "zerodha"), cfg["brokers"]["custom"])
+    br = cfg["brokers"].get(cfg.get("broker", "zerodha"), cfg["brokers"]["zerodha"])   # zerodha / groww only (v0.2.7)
     turnover = price * qty
     brokerage = 0.0
     if br.get("brokerage_pct"):
@@ -1915,11 +1979,7 @@ def risk_check_order(o, cfg, positions, uni, news, extra_heat=0.0, extra_count=0
         ok.append("halal: compliant (%s)" % h.get("source", ""))
         why.append(W("HALAL", "halal status at the risk check", "compliant", "compliant", "==", True, None,
                      h.get("source") or None))
-    elif h["status"] == "review" and cfg["halal"]["allow_review"]:
-        warn.append("halal: under review, allowed by config: %s" % "; ".join(h.get("reasons", [])[:2]))
-        why.append(W("HALAL", "halal status at the risk check", "review", "compliant", "==", False, None,
-                     "WARN: allowed by halal.allow_review (%s)" % (cfg.get("_halal_loosened") or "no note")))
-    else:
+    else:                                     # review, excluded, unknown: always BLOCK (allow_review is fixed off)
         # hard rule: anything not compliant is blocked; no config key switches this off
         block.append("halal: %s (%s)" % (h["status"], "; ".join(h.get("reasons", [])[:2])))
         why.append(W("HALAL", "halal status at the risk check", h["status"], "compliant", "==", False, None,
@@ -2411,17 +2471,13 @@ def _ratio_why(ratios, limits, when, near_pct=None):
 
 
 def halal_why(rec, universe=None, near_pct=None):
-    """HALAL items for one stock, from its halal-list record: status, your override, the ratios
+    """HALAL items for one stock, from its halal-list record: status, the ratios
     and the limits they were tested with when the list was built, and the date of the figures.
     Ratio items carry near_limit and over_limit (display only; halal.near_limit_pct, default 90)."""
     uni = universe or {}
     st = rec.get("status")
     w = [why_item("HALAL", "halal status", st, "compliant", "==", None if st is None else st == "compliant",
                   None, "; ".join((rec.get("reasons") or [])[:2]) or None)]
-    ov = rec.get("override")
-    if ov:
-        w.append(why_item("HALAL", "your override", ov.get("status"), None, None, True, None,
-                          "%s (set %s)" % (ov.get("note") or "no note", ov.get("date") or "UNKNOWN")))
     if rec.get("why"):
         w += [_flag_near(dict(x), near_pct) for x in rec["why"]]
     elif rec.get("ratios"):
@@ -2442,20 +2498,25 @@ def load_universe():
     return read_json("halal_universe.json", {"stocks": {}}) or {"stocks": {}}
 
 
+# v0.2.7 (owner decision): no per-stock overrides. The automatic TASIS screen decides; an old file is never read
+# (only noticed, for one note in the daily list).
+OVERRIDES_FILE = "halal_overrides.json"
+OVERRIDES_NOTE = "halal_overrides.json is no longer used (v0.2.7): the automatic TASIS screen decides."
+
+
+def old_overrides_note():
+    """OVERRIDES_NOTE when an old halal_overrides.json is in the data folder (it is never read), else None."""
+    return OVERRIDES_NOTE if os.path.exists(os.path.join(data_dir(), OVERRIDES_FILE)) else None
+
+
 def halal_status(sym, universe=None):
-    """Status for one symbol, with user overrides applied last.
+    """Status for one symbol from the halal list (known non-halal businesses always excluded).
     -> {"status", "reasons", "source", ...} (status 'unknown' if not listed)."""
     sym = normalize_symbol(sym)
     uni = universe if universe is not None else load_universe()
     rec = dict((uni.get("stocks") or {}).get(sym) or {"status": "unknown",
                                                        "reasons": ["not in the halal universe"]})
-    ov = (read_json("halal_overrides.json", {}) or {}).get(sym)
-    if ov and ov.get("status") in STATUSES:
-        rec["status"] = ov["status"]
-        rec["reasons"] = ["user override: %s" % ov.get("note", "no note")] + list(rec.get("reasons", []))
-        rec["source"] = "override"
-        rec["override"] = dict(ov)
-    if sym in KNOWN_EXCLUDED and rec.get("source") != "override":
+    if sym in KNOWN_EXCLUDED:
         rec["status"] = "excluded"
         rec["reasons"] = ["core business: %s" % KNOWN_EXCLUDED[sym]]
     rec["symbol"] = sym
@@ -2705,7 +2766,6 @@ BROKER_SELL_STEPS = {
         "After it fills, record it: ticket.py close {pid} --price <your fill> --reason halal",
     ],
 }
-BROKER_SELL_STEPS["custom"] = BROKER_SELL_STEPS["zerodha"]
 
 
 def sell_ticket(sym, qty, position_id, broker="zerodha", last=None, date=None, exchange="NSE"):
@@ -2775,7 +2835,6 @@ BROKER_STEPS = {
         "for {qty} shares (GTT/OCO where available, otherwise an alert and a manual sell).",
     ],
 }
-BROKER_STEPS["custom"] = BROKER_STEPS["zerodha"]
 
 
 def broker_steps(o, broker=None):

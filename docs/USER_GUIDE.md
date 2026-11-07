@@ -99,7 +99,7 @@ open it in Notepad first and read what it does.
 **B4. The Welcome screen.** The very first time (no `config.json` yet) the dashboard opens a **Welcome**
 screen: your capital, your broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you
 want, your email address. Press **Save settings** (even if you kept the suggested numbers): it says **Saved ✓**
-and your settings code (`default@4` if you kept the defaults). It saves them the same safe way as the Settings
+and your settings code (`default@5` if you kept the defaults). It saves them the same safe way as the Settings
 tab. There is no password field on purpose (see Part 3). **Not now** closes it; it comes back next time until
 you save.
 
@@ -231,8 +231,7 @@ On a phone the tabs are at the bottom of the screen.
   BLOCK or swing / delivery, and press **Why?** on any row: a panel opens with every check, ✓ (passed),
   ✗ (failed) or UNKNOWN (no data), and news headlines in full. "stop capped" means the chart's stop was
   further away than your maximum stop %, so the cap was used. "near halal limit" means a ratio is within
-  10% under its limit; "over limit" means it is at or over it (you will only see that on a stock you
-  marked compliant yourself, with an override). "This list was made with" shows the settings of that
+  10% under its limit. "This list was made with" shows the settings of that
   list; "Current settings" (top right) shows yours now.
 - **Results:** win rate, average R and total R ("no closed trades" until one closes), a ring counting
   closed trades towards 30 (until then: "still noise: don't judge yet"), the equity curve (your running
@@ -243,7 +242,7 @@ On a phone the tabs are at the bottom of the screen.
 - **Halal:** a ring of compliant / review / excluded / unknown, then the compliant stocks first (change
   the Status filter to see the rest). Each ratio is a small bar against its limit with the words "within
   limit", "near limit" or "over limit". Press **Ratios** for the details, reported interest next to the
-  assumed 8% part, your override with its note and date, and the reasons. Stocks excluded for their
+  assumed 8% part, and the reasons. Stocks excluded for their
   business say "not checked (business excluded)": their ratios were never needed. Review and excluded
   stocks are listed for their status only.
 - **Tickets:** PASS and WARN tickets you haven't placed yet, with **Copy** buttons for the Kite and Groww
@@ -289,8 +288,8 @@ Both are greyed in Results and the Excel file, kept for the record, and not coun
 (Without Claude Code, see [the commands](#without-claude-code-the-commands) for the data-folder rule.)
 
 The **pullback** setup is on by default (v0.2.6; v0.2.5 had switched it off, which made the whole strategy
-worse: see "Why one backtest number isn't enough" below). Settings, Selection, "Setup: pullback (swing)"
-switches it off, with a note under the switch that says why it is on.
+worse: see "Why one backtest number isn't enough" below). Settings, Strategies, "Pullback (swing)" switches
+it off.
 
 ### Import your holdings (Zerodha / Groww)
 The halal re-check works on the stocks you hold. Trades you record with "I bought X at ..." are already there;
@@ -326,7 +325,7 @@ compliant now (status at purchase unknown)"**, not "No longer compliant".
 ### When a stock you hold stops being halal
 Every daily run re-checks the stocks you hold (your open positions) with the same halal screen. A held
 stock is screened again when its screen is more than a week old (`halal.held_recheck_days`, 7); the rest
-of the list keeps its monthly rebuild. Your own overrides still win.
+of the list keeps its monthly rebuild.
 
 You get **one alert per change** (not a repeat every day; it stays listed as *open* until it is resolved):
 
@@ -394,7 +393,8 @@ How to read it:
 - With `--compare` there is one more table: the same years with the stocks ranked by setup score only, so
   you can see how much the time-machine ranking helped.
 
-Options: `--mode swing` or `delivery`, `--years 5`, `--capital 200000`, `--max-positions 4`, or
+Options: `--mode swing` or `delivery`, `--years 5`, `--capital 200000`, `--max-positions 4` (without it: your
+max open trades, 6 by default), or
 `--from 2023-01-01 --to 2025-12-31`, and `--no-late` to leave out stocks listed during those years.
 `py tayyib-backtest\backtest.py list` shows your saved runs.
 
@@ -438,7 +438,7 @@ The Today header shows the market's state every day: **Risk-on** when the Nifty 
 average, **Risk-off** when it closes below, with both numbers. With the filter off (the default) this is
 information only.
 
-You can switch on a filter in Settings, Regime: on a risk-off day it can stop new swing trades
+A developer can switch on a filter in `config.json` (`regime.enabled`, an advanced setting): on a risk-off day it can stop new swing trades
 (`no_new_swing`), stop all new trades (`no_new_trades`) or halve the risk per trade (`half_risk`). The rule
 can also be "the 50-day average is below the 200-day average". The index is only a thermometer, never a
 stock to buy. If the index data cannot be fetched, the regime is UNKNOWN, a banner says so, and the filter
@@ -509,18 +509,21 @@ without you running anything. Five steps, once:
 1. **Make a Gmail App Password.** In your Google account, open **Security**, switch on **2-Step
    Verification** (needed for app passwords), then open **App passwords**, make one called `tayyib` and copy
    the 16 letters. It is not your normal password, and you can delete it any time to switch the email off.
-   (Another mail provider: use its SMTP server and app password; set the server and port in Settings.)
+   (Another mail provider: set `email.smtp_host` and `email.smtp_port` in `config.json`.)
 2. **Store it on your computer, not in the tool.** Open a new Command Prompt and type (with your 16 letters):
    ```
    setx TAYYIB_SMTP_PASSWORD "abcdefghijklmnop"
    ```
    Then close that window and **close and reopen `start.bat`** (a running program does not see it). The
-   password is never written into `config.json`, never shown on the page and never logged. The Settings
-   tab only says **Password: set** or **Password: not set**.
-3. **Settings, Email** (in the dashboard): your email address in **Your email address**, leave **Send to**
-   empty to send it to yourself (at most 3 addresses, all your own), pick **When to send** (every trading
-   day, or only when there are picks), switch **Email today's list** on, then **Review & save**.
-4. **Send test email** (same section). A short test arrives in a few seconds; look in Spam the first time.
+   password is never written into `config.json`, never shown and never logged.
+3. **Switch it on in `config.json`** (email is an advanced setting since v0.2.7, so it is not on the
+   Settings page). Add, with your own address:
+   ```
+   "email": {"enabled": true, "from": "you@gmail.com"}
+   ```
+   Leave out `"to"` to send it to yourself (at most 3 addresses, all your own); `"send_when": "picks_only"`
+   sends only on days with picks.
+4. **Send a test email:** `py tayyib-email\email_report.py test`. A short test arrives in a few seconds; look in Spam the first time.
    If it fails, the exact error from the mail server is shown (a refused login almost always means the App
    Password is missing or mistyped).
 5. **Schedule it.** In Command Prompt, from the tool's folder:
@@ -536,7 +539,7 @@ without you running anything. Five steps, once:
 **Your PC must be on and you logged in at 4:20 PM.** A sleeping or shut laptop misses that day (Task
 Scheduler can "Run whether user is logged on or not": set that yourself in its window if you want).
 
-Screenshots: [the email](img/email-desktop.png), [on a phone](img/email-narrow.png), [a FAILED day](img/email-failed.png), [Settings, Email](img/settings-email.png).
+Screenshots: [the email](img/email-desktop.png), [on a phone](img/email-narrow.png), [a FAILED day](img/email-failed.png).
 
 What the email says, in order: anything wrong first (a failed run, or a stock you hold that is no longer
 compliant, in red), every warning of the list, the top PASS picks as cards (buy above, stop, target,
@@ -555,20 +558,30 @@ India may need SEBI Research Analyst registration. If a friend or your team want
 own copy on their own computer. See the [FAQ](FAQ.md#can-i-email-the-list-to-my-friends).
 
 On a holiday that is missing from your settings, the list repeats the previous day's prices and the email
-may say "data stale". Add NSE holidays to your config (`"holidays": ["YYYY-MM-DD", ...]`, or Settings, Data &
-calendar) so plan dates and the scheduled run skip them.
+may say "data stale". Add NSE holidays to your config (`"holidays": ["YYYY-MM-DD", ...]`, or Settings,
+Holidays) so plan dates and the scheduled run skip them.
 
 ---
 
 ## Changing your settings
 
-Your settings live in `tayyib-live\trader\config.json`. Anything you don't set keeps its default. There
-are two easy ways to change them:
+Your settings live in `tayyib-live\trader\config.json`. Anything you don't set keeps its default. Since
+v0.2.7 there are only a few things to change, and the page shows only those:
 
-**In the dashboard (Settings tab).** Every setting is listed by group (Risk, Plan, Selection, Broker &
-charges, Halal), with its default, its allowed range and its unit. Move a slider or type a number:
+| group | what you change | default | allowed |
+|---|---|---|---|
+| **Money & risk** | capital | ₹1,00,000 | your own amount |
+| | risk per trade | 1% | 0.25% to 3% |
+| | max in one stock | 20% | 5% to 40% |
+| | max open trades | 6 | 1 to 20 |
+| **Broker** | Zerodha or Groww | Zerodha | the charges come from the built-in table for your broker |
+| **Strategies** | Trend (delivery), Breakout, Pullback, Oversold, Squeeze (swing) | all on | on or off; at least one stays on |
+| **Holidays** | NSE trading holidays | none | dates, YYYY-MM-DD |
+
+**In the dashboard (Settings tab).** Move a slider, pick a broker, switch a strategy, add a holiday:
 - a changed value is marked **changed**, with **Reset** to go back to the default;
-- a value outside its range is marked in red at once, with the reason;
+- a value outside its range is marked in red at once, with the reason (switching all five strategies off
+  is refused: at least one must stay on);
 - on the right (below, on a phone), **What this means in rupees** shows your loss per trade and after 3, 5
   and 10 losses in a row, with a warning above 2% a trade;
 - **Review & save** lists every change (old → new) first. Nothing is saved until you press **Save
@@ -579,17 +592,20 @@ Every save keeps a copy of your old `config.json` in `trader\config_backups\` (t
 
 **Back to the defaults.** Each field has **Reset**, each group has **Reset this section**, and the top of
 the page has **Reset all to defaults**. "Reset all" keeps your capital and broker (they are facts about
-you, not strategy) unless you tick **Also reset capital and broker**. Resetting Halal puts back the TASIS
-limits, turns "review" stocks off and clears your source / scholar note. A reset only changes the form:
+you, not strategy) unless you tick **Also reset capital and broker**. A reset only changes the form:
 nothing is saved until you press **Review & save** and confirm, and the old settings are kept as a backup,
-so you can undo it from **Backups**. After a full reset your settings code is `default@4`, even if you kept
-your own capital and broker (the page tells you it kept them).
+so you can undo it from **Backups**.
+
+**Halal is not a setting.** The **Halal** card on the page shows the rules (debt under 25% of total
+assets, non-compliant income under 3%, cash + receivables under 90% of assets, an assumed 8% on short-term
+investments, and "review" stocks are blocked) with "These rules can't be changed in the app." The
+automatic screen decides; there is no per-stock override. See the [FAQ](FAQ.md#can-i-change-the-halal-rules).
 
 The rules that keep it halal and cash-only are shown under **Always on**: they are not settings, and the
 page cannot switch them off.
 
 **By asking Claude**, for example: **"set my risk per trade to 0.5%"** or **"turn off the squeeze
-setup"**.
+strategy"**.
 
 **Risk per trade is not the stop.** They are two different things:
 - The **stop** is how far the price may fall before you sell (for example 5% under your buy price).
@@ -613,36 +629,23 @@ So a wider stop means *fewer shares*, not a bigger loss. With 1% risk on Rs 1 la
 At 2% risk, 10 losses in a row cost 18.3%; at 3% (the highest allowed) 26.3%. Pick a risk you could
 live with after ten losses.
 
-**What you can change, and the safe ranges:**
-
-| setting | default | allowed |
-|---|---|---|
-| risk per trade | 1% | 0.25% to 3% |
-| max in one stock | 20% | 5% to 40% |
-| max open trades | 6 | 1 to 20 |
-| max total risk (heat) | 6% | 1% to 15% |
-| least reward:risk | 1.5 | 1 to 5 |
-| swing stop at most | 10% | 2% to 10% |
-| delivery stop at most | 15% | 3% to 15% |
-| least daily traded value | Rs 2 crore | at least Rs 50 lakh |
-| each setup | on | on or off, with its own thresholds |
-
 If a value is outside its range, or a name is misspelt, the tool uses the default for that one setting
 and tells you, in a line that starts with `CONFIG:` at the bottom of the daily list. Nothing changes
 silently.
 
-**What you cannot change:** delivery (CNC) only, no intraday, no F&O, no short selling, no margin, and
-only halal-compliant stocks. These are rules in the code, not settings.
+**What you cannot change:** delivery (CNC) only, no intraday, no F&O, no short selling, no margin, only
+halal-compliant stocks, the halal rules, the broker charges and the way the tool identifies itself when it
+fetches data. These are fixed in the code. If `config.json` tries to change one, the tool ignores it with
+a `CONFIG:` line saying it "is fixed and can't be changed".
 
-**Halal thresholds.** You may make them stricter (for example debt under 20%) at any time. To make them
-*looser* than TASIS, you must write down who says so (your scholar or the method you follow) in
-`loosen_note` (in the dashboard: the **Source / scholar** box); without it the tool refuses and keeps the
-TASIS limits, and the dashboard will not save. With it, every daily list starts
-with a line saying the thresholds are looser than TASIS, and why. See the [FAQ](FAQ.md#can-i-loosen-the-halal-thresholds).
+**Advanced settings** (the plan's stop and target, the setup thresholds, liquidity, ranking, email, the
+market-regime filter, news feeds) are not on the page. They keep their tested defaults; a developer can
+still set them in `config.json` (see [TECHNICAL.md](TECHNICAL.md)), and the Settings page then says
+"Advanced settings changed in config.json: N" and lists them.
 
-Every daily list records a short code for the settings it used: `default@4` when you changed nothing
-(your own capital and broker don't count; older lists say `default@2` or `default@3`, and default@4 makes
-exactly the same decisions as default@2),
+Every daily list records a short code for the settings it used: `default@5` when you changed nothing
+(your own capital and broker don't count; older lists say `default@2`, `default@3` or `default@4`, and
+default@4 and default@5 make exactly the same decisions as default@2),
 otherwise a code such as `b1d996bb` that stands for your changes. The Excel tracker's Summary sheet
 splits the results by that code, so after a change you can see whether the new
 settings did better or worse.
@@ -667,10 +670,10 @@ The time machine shows past odds; your own journal shows whether *you* can follo
 | "cannot listen on 127.0.0.1:8765 ... is the dashboard already running?" | It probably is: look for the other black window, or the open tab. Otherwise another program uses the port: in Command Prompt, `C:\tayyib-trader\start.bat --port 8800` (the browser then opens `http://127.0.0.1:8800/`) |
 | The tabs say "run tayyib-daily" (or "No tickets file") | No list has been made yet in this data folder: on the Today tab press **Run today's list** (after 3:30 PM IST). A new data folder starts empty |
 | The scheduled task didn't run (no email at 4:20 PM) | The PC was asleep, shut down or logged off at 4:20 PM: the task only runs while you are logged in. `py tools\schedule_windows.py status` (from `C:\tayyib-trader`) shows whether the task exists and its next run; `install --yes` makes it again |
-| Email: "password not set" | Type `setx TAYYIB_SMTP_PASSWORD "your16letters"` in Command Prompt, then **close the `start.bat` window and double-click `start.bat` again** (a running window never sees a new `setx`). Then press **Send test email** in Settings, Email |
+| Email: "password not set" | Type `setx TAYYIB_SMTP_PASSWORD "your16letters"` in Command Prompt, then **close the `start.bat` window and double-click `start.bat` again** (a running window never sees a new `setx`). Then run `py tayyib-email\email_report.py test` |
 | A command says `no order/position ...` or shows nothing | It is using another data folder: `set TAYYIB_DIR=%USERPROFILE%\tayyib-live\trader` first (see [the commands](#without-claude-code-the-commands)) |
 | "NSE did not answer" / HTTP 403 | NSE sometimes blocks scripts. Insider data shows UNKNOWN; everything else still works |
-| A stock you know is halal is blocked | See the [FAQ](FAQ.md): you can check it and record your ruling |
+| A stock you know is halal is blocked | The automatic screen is strict on purpose and can't be overridden: see the [FAQ](FAQ.md#a-stock-i-know-is-halal-is-blocked-what-do-i-do) |
 | Anything else | Open an issue: https://github.com/R12Wan-Pat3l/tayyib-trader/issues |
 
 Never post your broker login, API keys or account numbers anywhere.

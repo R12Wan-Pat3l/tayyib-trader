@@ -32,7 +32,7 @@ How to use the output:
 - **HALAL-WATCH: new debt**: a large borrowing can push debt over 25% of assets. Suggest
   `tayyib-results SYMBOL` to see the ratio trend, and a rebuild of the halal list after the next filing.
 - **HALAL-WATCH: impermissible business**: an acquisition or new line of business may make the stock
-  non-compliant. Suggest the user check it and record a ruling with `tayyib-halal override`.
+  non-compliant. Suggest a rebuild of the halal list after the next filing (`tayyib-halal build`).
 - `tayyib-risk` turns both kinds of flag into warnings on the order.
 
 Headlines are not verified facts; NSE announcements are the company's own filing.

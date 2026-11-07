@@ -41,19 +41,24 @@ class Safety(OfflineCase):
         for r in self.run_script(RI):
             self.assertEqual(r["status"], "BLOCK")
 
-    def test_halal_override_blocks_order(self):
-        self.run_script(H, "override", "CHRL", "--status", "excluded", "--note", "test", as_json=False)
+    def set_status(self, sym, status):
+        u = self.read("halal_universe.json")
+        u["stocks"][sym]["status"] = status
+        self.write("halal_universe.json", u)
+
+    def test_halal_excluded_blocks_order(self):
+        self.set_status("CHRL", "excluded")
         res = {r["symbol"]: r for r in self.run_script(RI)}
         self.assertEqual(res["CHRL"]["status"], "BLOCK")
         self.assertTrue(any(b.startswith("halal") for b in res["CHRL"]["block"]))
 
-    def test_review_needs_permission(self):
-        self.run_script(H, "override", "CHRL", "--status", "review", as_json=False)
+    def test_review_always_blocked(self):
+        """v0.2.7: allow_review is fixed off; no config can let a review stock through."""
+        self.set_status("CHRL", "review")
         self.assertEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
-        self.write("config.json", {"halal": {"allow_review": True}})          # loosening without a note: refused
-        self.assertEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
-        self.write("config.json", {"halal": {"allow_review": True, "loosen_note": "my scholar, 2026-11"}})
-        self.assertNotEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
+        for c in ({"halal": {"allow_review": True}}, {"halal": {"allow_review": True, "loosen_note": "my scholar"}}):
+            self.write("config.json", c)
+            self.assertEqual({r["symbol"]: r["status"] for r in self.run_script(RI)}["CHRL"], "BLOCK")
 
     def test_expired_plan_blocked(self):
         self.tamper(valid_until="2026-10-01")

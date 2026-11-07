@@ -3,7 +3,7 @@ name: tayyib-dashboard
 description: >-
   Local Dashboard. Opens a page in the user's browser on 127.0.0.1 over their trader/
   files: Today (the daily list, top picks, every row's Why with ✓ / ✗ / UNKNOWN), Results (the paper
-  tracker with price charts and an equity curve), Halal (ratios against the limits, overrides) and
+  tracker with price charts and an equity curve), Halal (ratios against the limits) and
   Tickets (Kite / Groww steps to copy, the positions journal) and Settings (edit config.json safely,
   with a risk preview and backups). A "Run today's list" button runs tayyib-daily. Places no order.
   Use when the user says "show my dashboard", "open the dashboard", "show it in the browser".
@@ -39,15 +39,16 @@ What each tab shows:
   by check, mode, setup and settings label, and the equity curve. Until 30 trades have closed it says
   "still noise: don't judge yet".
 - **Halal:** the universe (compliant first) with search and a status filter, ratio gauges against the
-  limits (within / near / over), reported vs assumed-8% income, "not checked (business excluded)", the user's overrides with note and date. Review and excluded
+  limits (within / near / over), reported vs assumed-8% income, "not checked (business excluded)". Review and excluded
   stocks are shown for their status only.
 - **Tickets:** PASS / WARN tickets first with the Kite / Groww steps (Copy buttons only), blocked ones
   folded under "Blocked (not tickets)", and the positions journal.
-- **Settings:** every editable setting grouped as Risk, Plan, Selection, Broker & charges, Halal (and
-  Data & calendar), each with its default, range and unit, a "changed" marker and Reset; a live risk
-  preview in rupees; a review of the changes before saving; restore from the last 20 backups in
-  `trader/config_backups/`. The hard rules are shown as "Always on", not as options. Loosening a halal
-  threshold needs a "Source / scholar" note.
+- **Settings (v0.2.7, simple):** Money & risk (capital, risk per trade, max position, max open trades),
+  Broker (Zerodha or Groww; charges from the built-in tables), Strategies (five switches, at least one on)
+  and Holidays, each with its default, range, a "changed" marker and Reset; a live risk preview in rupees;
+  a read-only Halal card ("These rules can't be changed in the app."); a review of the changes before
+  saving; restore from the last 20 backups in `trader/config_backups/`. The hard rules are shown as
+  "Always on". Advanced keys changed in config.json are listed, not editable.
 - **Run today's list** (Today tab): runs `tayyib-daily` on this computer with the same data folder, one run
   at a time, with its output live. Before 3:30 PM IST it asks first ("Prices aren't final yet").
   When it ends, the Today tab reloads; a failure shows the error and leaves the old list.

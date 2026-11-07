@@ -122,7 +122,7 @@ def _price_check(sym):
 
 
 def alert_preview(sym, uni, cfg):
-    """Halal status now (overrides applied) and the alert level the held-stock check would give an imported
+    """Halal status now and the alert level the held-stock check would give an imported
     holding (status at purchase unknown). Not in the list -> UNKNOWN until the held check screens it."""
     rec = tc.halal_status(sym, uni)
     st = rec.get("status")

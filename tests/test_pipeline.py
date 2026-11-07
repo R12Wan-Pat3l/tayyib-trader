@@ -28,12 +28,13 @@ class HalalUniverse(OfflineCase):
         self.assertEqual(out["counts"]["compliant"], 2)
         self.assertEqual(out["counts"]["excluded"], 1)
 
-    def test_override_wins(self):
+    def test_old_overrides_file_is_ignored(self):
+        """v0.2.7: no overrides; the screen decides even with an old halal_overrides.json."""
         self.build_universe()
-        self.run_script(H, "override", "ALFA", "--status", "excluded", "--note", "my scholar", as_json=False)
-        self.assertEqual(self.run_script(H, "check", "ALFA")["stocks"][0]["status"], "excluded")
-        self.run_script(H, "override", "ALFA", "--clear", as_json=False)
+        self.write("halal_overrides.json", {"ALFA": {"status": "excluded", "note": "my scholar"}})
         self.assertEqual(self.run_script(H, "check", "ALFA")["stocks"][0]["status"], "compliant")
+        p = self.run_script(H, "override", "ALFA", "--status", "excluded", ok=False)
+        self.assertEqual(p.returncode, 2)
 
 
 class Scanner(OfflineCase):

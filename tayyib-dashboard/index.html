@@ -350,6 +350,9 @@ details.blocked[open] > summary::before, details.more[open] > summary::before { 
 .sgroup > h2.section .link { font:600 14px var(--sans); }
 .reset-all { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; }
 label.check.slim { padding:8px 12px; min-height:44px; margin:0; align-items:center; font-size:14px; }
+.field-hint { margin:2px 0 6px; color:var(--muted); }
+.adv-note { margin-bottom:14px; }
+.halal-card ul.lock li { align-items:flex-start; }
 .sgroup > p.intro { margin:-8px 0 14px; color:var(--muted); font-size:14px; }
 .ssec { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow-1); margin-bottom:14px; overflow:clip; }
 .ssec > header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 18px; min-height:56px; background:var(--surface-2); }
@@ -1181,7 +1184,6 @@ function donutEl(dn) {
 function openRatios(s) {
   openDrawer(s.symbol, s.name + (s.industry ? " · " + s.industry : ""), function (b) {
     add(b, el("div", { cls:"chips", style:"margin-bottom:14px" }, badge(s.status),
-      s.override ? chip("your override: " + s.override.status, "info", s.override.note) : null,
       s.over_limit.length ? chip("over limit", "block") : null, s.near_limit.length ? chip("near limit", "warn") : null));
     if (s.not_checked) add(b, banner("Financial ratios not checked: the business screen excluded this company first. Shown for its status only.", "unknown"));
     else {
@@ -1189,7 +1191,6 @@ function openRatios(s) {
       add(b, el("p", { cls:"small muted", style:"margin-top:14px", text:"Reported interest vs the TASIS income test: reported " + s.ratios[1].value_text + ", plus the assumed 8% on short-term investments (" +
         s.assumed_return_text + ") = " + s.ratios[2].value_text + ". Figures as of " + s.as_of + (s.total_income_basis ? "; total income = " + s.total_income_basis : "") + "." }));
     }
-    if (s.override) add(b, el("div", { style:"margin-top:14px" }, banner(["Your override: ", el("b", { text:s.override.status }), " (set " + s.override.date + "): " + s.override.note], "info")));
     add(b, el("h3", { style:"margin:18px 0 6px", text:"Reasons" }), el("ul", { cls:"small" }, s.reasons.map(function (x) { return el("li", { text:x }); })));
   });
 }
@@ -1216,7 +1217,7 @@ function renderHalal(panel, d) {
     ["compliant", "review", "excluded", "unknown"].filter(function (k) { return d.counts[k]; }).map(function (k) { return el("option", { value:k, text:k + " (" + d.counts[k] + ")" }); }));
   fs.value = d.counts.compliant ? "compliant" : "";
   var fn = el("select", { id:"hn" }, el("option", { value:"", text:"Everything" }), el("option", { value:"near", text:"Near a limit" }),
-    el("option", { value:"over", text:"Over a limit" }), el("option", { value:"ov", text:"Your overrides" }));
+    el("option", { value:"over", text:"Over a limit" }));
   var holder = el("div");
   add(panel, el("h2", { cls:"section" }, "Stocks", el("small", { text:"compliant first; change the status filter to see the rest" })));
   add(panel, el("div", { cls:"controls" }, el("label", { "for":"hq" }, "Search", q), el("label", { "for":"hs" }, "Status", fs), el("label", { "for":"hn" }, "Show", fn)), holder);
@@ -1224,7 +1225,7 @@ function renderHalal(panel, d) {
   function draw() {
     var t = q.value.trim().toLowerCase();
     var rows = d.stocks.filter(function (s) {
-      return (!fs.value || s.status === fs.value) && (fn.value !== "near" || s.near_limit.length) && (fn.value !== "over" || s.over_limit.length) && (fn.value !== "ov" || s.override) &&
+      return (!fs.value || s.status === fs.value) && (fn.value !== "near" || s.near_limit.length) && (fn.value !== "over" || s.over_limit.length) &&
         (!t || (s.symbol + " " + s.name + " " + s.industry).toLowerCase().indexOf(t) >= 0); });
     rows.sort(function (a, b) { return (ORDER[a.status] - ORDER[b.status]) || (a.symbol < b.symbol ? -1 : 1); });
     holder.textContent = "";
@@ -1233,7 +1234,6 @@ function renderHalal(panel, d) {
       { key:"symbol", title:"Stock", w:"21%", td:"wide", sort:function (s) { return s.symbol; }, cell:function (s) { return [el("b", { text:s.symbol }), el("span", { cls:"sub", text:s.name + (s.industry ? " · " + s.industry : "") })]; } },
       { key:"status", title:"Status", w:"15%", sort:function (s) { return ORDER[s.status]; }, cell:function (s) {
           return [badge(s.status), el("div", null,
-            s.override ? el("span", { cls:"flag k-info", title:s.override.note + " (" + s.override.date + ")" }, icon("info", 12), "your override") : null,
             s.over_limit.length ? el("span", { cls:"flag k-block" }, icon("block", 12), "over limit") : null,
             s.near_limit.length ? el("span", { cls:"flag k-warn" }, icon("warn", 12), "near limit") : null)]; } },
       rc(0, "Debt"), rc(1, "Reported interest"), rc(2, "+ assumed 8%"), rc(3, "Cash + recv."),
@@ -1397,7 +1397,7 @@ function fieldEl(f, opts) {
     sw.id = id; add(fc, sw);
     get = function () { return sw.getAttribute("aria-checked") === "true"; }; put = function (v) { sw.setOn(v === true); };
   } else if (f.type === "enum") {
-    var se = el("select", { id:id }); (f.choices || []).forEach(function (c) { var o = el("option", { value:JSON.stringify(c), text:String(c) }); if (same(c, v0)) o.selected = true; se.appendChild(o); });
+    var se = el("select", { id:id }); (f.choices || []).forEach(function (c) { var o = el("option", { value:JSON.stringify(c), text:(f.choice_labels && f.choice_labels[c]) || String(c) }); if (same(c, v0)) o.selected = true; se.appendChild(o); });
     se.addEventListener("change", function () { editField(k, JSON.parse(se.value)); });
     add(fc, se); get = function () { return JSON.parse(se.value); }; put = function (v) { se.value = JSON.stringify(v); };
   } else if (f.type === "number" || f.type === "int") {
@@ -1438,7 +1438,8 @@ function fieldEl(f, opts) {
   var chg = chip("changed", "info", "differs from the default"), rst = el("button", { cls:"link slim", type:"button", text:"Reset", title:"Back to the default: " + f.default_text });
   rst.addEventListener("click", function () { resetField(k); });
   var err = el("div", { cls:"ferr", role:"alert", hidden:"hidden" }), dirt = el("div", { cls:"dirt", text:"Not saved yet", hidden:"hidden" });
-  add(box, el("div", { cls:"fh" }, el("label", { cls:"fl", "for":id, text:f.label }), el("div", { cls:"chips" }, chg, rst)), fc,
+  add(box, el("div", { cls:"fh" }, el("label", { cls:"fl", "for":id, text:f.label }), el("div", { cls:"chips" }, chg, rst)),
+    f.hint ? el("p", { cls:"small field-hint", text:f.hint }) : null, fc, f.note ? el("p", { cls:"small muted setup-note", text:f.note }) : null,
     el("div", { cls:"fm" }, "Default " + f.default_text + (f.range_text ? " · " + f.range_text : "") + (f.tasis_text ? " · " + f.tasis_text : "") + " · ", el("span", { cls:"mono", text:f.key })),
     err, dirt);
   SET.fields[k] = { f:f, box:box, err:err, chg:chg, rst:rst, dirt:dirt, get:get, put:put, section:opts.section || null, toggle:!!opts.toggle, eq:eq || null };
@@ -1507,7 +1508,6 @@ function runPreview() {
     });
     p.errors.forEach(function (e) {
       var keys = e.key ? [e.key] : [];
-      if (e.needs_note) keys.push("halal.loosen_note");
       keys.forEach(function (key) {
         var F = SET.fields[key]; if (!F) return;
         if (F.eq) F.eq.textContent = "";
@@ -1586,6 +1586,13 @@ function backupsEl(d) {
   });
   return box;
 }
+function halalCard(h) {
+  return el("div", { cls:"sgroup", id:"g-halal" }, el("h2", { cls:"section" }, el("span", { text:h.title }), el("span", { cls:"chip k-info" }, lockIcon(), " read only")),
+    el("p", { cls:"intro", text:h.intro }),
+    el("div", { cls:"panel lock halal-card" },
+      el("ul", { cls:"lock" }, h.rules.map(function (t) { return el("li", null, icon("pass", 14), el("span", { text:t })); })),
+      el("p", { cls:"small", style:"margin-top:10px" }, el("b", { text:h.fixed }))));
+}
 function renderSettings(panel, d) {
   panel.textContent = "";
   if (d.error || d.failed) { add(panel, banner("Could not read your settings: " + errText(d), "block")); return; }
@@ -1600,12 +1607,13 @@ function renderSettings(panel, d) {
   });
   add(panel.lastChild, el("div", { cls:"reset-all" }, all,
     el("label", { cls:"check slim", "for":"resetAccount" }, also, el("span", null, "Also reset capital and broker",
-      el("span", { cls:"small muted", style:"display:block", text:"Off: your capital, cash and broker & charges stay as they are." })))));
+      el("span", { cls:"small muted", style:"display:block", text:"Off: your capital and broker stay as they are." })))));
   if (d.account_note) add(panel, el("p", { cls:"small muted", style:"margin:-8px 0 14px", text:d.account_note }));
   d.notes.forEach(function (n) { add(panel, banner(n, "warn")); });
-  if (d.banner) add(panel, banner(d.banner, "warn"));
+  if (d.advanced && d.advanced.note) add(panel, el("div", { cls:"adv-note" }, banner(["Advanced settings changed in config.json: " + d.advanced.count + " (see TECHNICAL.md). ",
+    el("span", { cls:"mono small", text:d.advanced.keys.map(function (k) { return k.key + " = " + k.value + " (default " + k["default"] + ")"; }).join(" · ") })], "info")));
   var nav = el("div", { cls:"group-nav", role:"navigation", "aria-label":"Setting groups" });
-  d.groups.concat([{ id:"backups", title:"Backups" }]).forEach(function (g) {
+  d.groups.concat([{ id:"halal", title:"Halal" }, { id:"backups", title:"Backups" }]).forEach(function (g) {
     var n = 0; (g.sections || []).forEach(function (s) { n += s.changed; });
     var b = el("button", { type:"button" }, g.title, n ? el("span", { cls:"n", text:String(n) }) : null);
     b.addEventListener("click", function () { var t = document.getElementById("g-" + g.id); if (t) t.scrollIntoView({ block:"start", behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
@@ -1614,13 +1622,13 @@ function renderSettings(panel, d) {
   add(panel, nav);
   var main = el("div", { style:"min-width:0" });
   d.groups.forEach(function (g) {
-    var rs = el("button", { cls:"link slim", type:"button", text:"Reset this section", title:"Every " + g.title + " setting back to its default" + (g.id === "halal" ? " (TASIS, review off, no source note)" : "") + ". Nothing is saved until you review and save." });
+    var rs = el("button", { cls:"link slim", type:"button", text:"Reset this section", title:"Every " + g.title + " setting back to its default. Nothing is saved until you review and save." });
     rs.addEventListener("click", function () { resetKeys(g.keys, "Reset " + g.title); });
     var gb = el("div", { cls:"sgroup", id:"g-" + g.id }, el("h2", { cls:"section" }, el("span", { text:g.title }), rs), el("p", { cls:"intro", text:g.intro }));
-    if (g.id === "email" && d.email) gb.appendChild(emailBox(d.email));
     g.sections.forEach(function (sec) { gb.appendChild(sectionEl(sec, g)); });
     main.appendChild(gb);
   });
+  if (d.halal) main.appendChild(halalCard(d.halal));
   main.appendChild(backupsEl(d));
   var aside = el("aside", { cls:"set-aside", "aria-label":"Always on, and what your risk settings mean" },
     el("div", { cls:"panel lock" }, el("h3", null, lockIcon(), "Always on"),
@@ -1672,28 +1680,18 @@ function openSetup(su) {
       return box;
     }
     var cap = el("input", { cls:"numin", id:"suCap", type:"text", inputmode:"numeric", autocomplete:"off", value:String(su.capital) });
-    var from = el("input", { cls:"txt", id:"suFrom", type:"email", autocomplete:"email", spellcheck:"false", placeholder:"you@gmail.com" });
-    var to = el("textarea", { id:"suTo", rows:"2", spellcheck:"false", placeholder:"empty = to yourself (at most 3, your own)" });
-    var on = el("input", { type:"checkbox", id:"suOn" }), msg = el("div");
+    var msg = el("div");
     add(b, el("div", { cls:"fields setup-f" },
       el("div", { cls:"field" }, el("label", { cls:"fl", "for":"suCap", text:"Your trading capital (₹)" }), cap),
       el("div", { cls:"field" }, el("span", { cls:"fl", text:"Broker (for charges)" }), seg("broker", su.brokers)),
       el("div", { cls:"field" }, el("span", { cls:"fl", text:"Risk per trade" }), seg("risk", su.risk_presets),
         el("p", { cls:"small muted", text:"What you lose if one stop is hit, as % of capital. 1% is the default; presets only here, any value in Settings." })),
-      el("h3", { text:"Email (optional)" }),
-      el("div", { cls:"field" }, el("label", { cls:"fl", "for":"suFrom", text:"Your email address" }), from),
-      el("div", { cls:"field" }, el("label", { cls:"fl", "for":"suTo", text:"Send to" }), to),
-      el("label", { cls:"check", "for":"suOn" }, on, el("span", null, el("b", { text:"Email me the list every trading day" }),
-        el("span", { cls:"small muted", style:"display:block", text:"After the scheduled run. Needs the password below, set outside this page." })))),
-      el("p", { cls:"pw " + (su.email.password_set ? "ok" : "no") }, icon(su.email.password_set ? "pass" : "warn", 16), el("b", { text:su.email.password_text })),
-      su.email.password_set ? null : [el("p", { cls:"small", text:"There is no password field on purpose. " + su.email.setx_note }), setxEl(su.email)],
-      el("p", { cls:"small" }, icon("info", 14), el("span", { text:" " + su.email.personal_note })));
+      el("p", { cls:"small muted", text:"The halal screen is automatic and can't be changed. The strategies and holidays are in Settings." })));
     var go = el("button", { cls:"act", type:"button", text:"Save settings" }), later = el("button", { cls:"close", type:"button", text:"Not now" });
     later.addEventListener("click", function () { try { sessionStorage.setItem("tayyibSetupLater", "1"); } catch (x) {} closeDrawer(); });
     go.addEventListener("click", function () {
       msg.textContent = "";
-      var set = { capital:numVal(cap.value), broker:st.broker, max_risk_per_trade_pct:st.risk, "email.enabled":on.checked,
-                  "email.from":from.value.trim(), "email.to":to.value.split(/[\n,]+/).map(function (x) { return x.trim(); }).filter(Boolean) };
+      var set = { capital:numVal(cap.value), broker:st.broker, max_risk_per_trade_pct:st.risk };
       go.disabled = true;
       postJSON("/api/config", { version:su.version, set:set, reset:[] }).then(function (r) {
         go.disabled = false;

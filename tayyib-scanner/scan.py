@@ -15,11 +15,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tayyib_core as tc  # noqa: E402
 
 
-def universe_symbols(cfg, include_review):
+def universe_symbols(cfg):
     uni = tc.load_universe()
     if not uni.get("stocks"):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first")
-    ok = {"compliant"} | ({"review"} if include_review or cfg["halal"]["allow_review"] else set())
+    ok = {"compliant"}                         # v0.2.7: review is always blocked, no flag or setting
     syms = []
     for s in sorted(uni["stocks"]):
         if tc.halal_status(s, uni)["status"] in ok:
@@ -35,14 +35,13 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=0, help="scan at most N symbols")
     p.add_argument("--top", type=int, default=25, help="keep the best N candidates")
     p.add_argument("--min-score", type=float, default=0)
-    p.add_argument("--include-review", action="store_true")
     p.add_argument("--sleep", type=float, default=0.25)
     p.add_argument("--json", action="store_true")
     a = p.parse_args(argv)
     cfg = tc.load_config()
     tc.report_config(cfg)
 
-    allowed, uni = universe_symbols(cfg, a.include_review)
+    allowed, uni = universe_symbols(cfg)
     skipped = []
     if a.symbols:
         req = tc.parse_symbols(a.symbols)

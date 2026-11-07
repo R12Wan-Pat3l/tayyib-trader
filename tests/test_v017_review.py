@@ -97,8 +97,7 @@ class DashboardLabels(unittest.TestCase):
         self.assertEqual(D.halal_badge([over])["state"], "over")
         self.assertEqual(D.halal_badge([near])["state"], "near")
         self.assertEqual(D.halal_badge([ok])["state"], "ok")
-        ov = tc.why_item("HALAL", "your override", "compliant", None, None, True, None, "scholar")
-        self.assertIn("override", D.halal_badge([ov, over])["label"])
+        self.assertEqual(D.halal_badge([over])["label"], "halal: over limit")    # v0.2.7: no override wording
         self.assertEqual(D.halal_badge([])["state"], "unknown")
 
     def test_ladder(self):

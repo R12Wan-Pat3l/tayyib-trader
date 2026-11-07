@@ -89,8 +89,20 @@ def raw_config():
 
 
 def editable(key):
-    doc = tc.DEFAULT_CONFIG_DOCS.get(key)
-    return doc is not None and doc["type"] != "locked"
+    """v0.2.7: only the page's keys (money and risk, broker, the five strategies, holidays). The halal rules, charges
+    and user agent are fixed in code; the advanced keys are for config.json only."""
+    return tc.is_page_key(key)
+
+
+def why_not_editable(key):
+    doc = tc.DEFAULT_CONFIG_DOCS.get(key) or {}
+    if doc.get("type") == "locked":
+        return " (a hard rule)"
+    if doc.get("fixed"):
+        return " (" + tc.FIXED_NOTE + ")"
+    if doc:
+        return " (an advanced setting: config.json only, see TECHNICAL.md)"
+    return ""
 
 
 def _set(d, dotted, value):
@@ -100,6 +112,19 @@ def _set(d, dotted, value):
             d[k] = {}
         d = d[k]
     d[ks[-1]] = value
+
+
+def _prune(d, prefix=""):
+    """Drop sections left empty (a fixed key that was dropped can leave "halal": {}). A documented key whose value
+    is a map (news.feeds) is a setting, not a section: an empty one is kept."""
+    for k in [k for k, v in d.items() if isinstance(v, dict)]:
+        key = prefix + k
+        if key in tc.DEFAULT_CONFIG_DOCS:
+            continue
+        _prune(d[k], key + ".")
+        if d[k] == {}:
+            d.pop(k)
+    return d
 
 
 def _unset(d, dotted):
@@ -153,8 +178,7 @@ def plan_change(change):
         raise Refused(400, "set must be an object and reset a list")
     bad = [k for k in list(sets) + list(resets) if not isinstance(k, str) or not editable(k)]
     if bad:
-        raise Refused(400, ["%s is not a setting you can change here%s" % (k, " (a hard rule)" if (
-            tc.DEFAULT_CONFIG_DOCS.get(k) or {}).get("type") == "locked" else "") for k in bad])
+        raise Refused(400, ["%s is not a setting you can change here%s" % (k, why_not_editable(k)) for k in bad])
     raw, problem = raw_config()
     base, dropped = tc.clean_user_config(raw)
     if problem:
@@ -165,11 +189,9 @@ def plan_change(change):
         _unset(user, k)
     for k, v in sets.items():
         _set(user, k, v)
+    _prune(user)
     cfg, notes = tc.validate_config(user)
     errors = tc.config_errors(notes)
-    # the validator switches halal.method to "custom" when a threshold differs from TASIS: save what it decided
-    if not errors and cfg["halal"]["method"] != (user.get("halal") or {}).get("method", tc.DEFAULT_CONFIG["halal"]["method"]):
-        _set(user, "halal.method", cfg["halal"]["method"])
     before, after = _flat(old_cfg), _flat(cfg)
     diff = [{"key": k, "description": tc.DEFAULT_CONFIG_DOCS[k]["description"], "unit": tc.DEFAULT_CONFIG_DOCS[k]["unit"],
              "from": before.get(k), "to": after.get(k), "default": _flat(tc.DEFAULT_CONFIG).get(k),

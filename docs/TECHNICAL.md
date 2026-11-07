@@ -104,7 +104,7 @@ All state lives in `./trader/` (override with `TAYYIB_DIR`):
 
 | step | command | reads | writes |
 |---|---|---|---|
-| halal | `tayyib-halal/halal.py build \| check \| list \| compare \| override \| held` | Nifty 500 CSV, Yahoo fundamentals | `halal_universe.json`, `halal_overrides.json`; `held --write`: `held_halal.json`, halal alerts in `alerts.json`, `halal_at_buy` on positions |
+| halal | `tayyib-halal/halal.py build \| check \| list \| compare \| held` | Nifty 500 CSV, Yahoo fundamentals | `halal_universe.json`; `held --write`: `held_halal.json`, halal alerts in `alerts.json`, `halal_at_buy` on positions |
 | scan | `tayyib-scanner/scan.py --mode swing\|delivery\|all` | universe, Yahoo daily bars | `scan.json` |
 | news | `tayyib-news/news.py --symbols A,B` | RSS, Google News, NSE | `news.json` |
 | entry | `tayyib-entry/entry.py check SYM [--mode]` | scan, bars | `entries.json` (the exit planner uses a record only once TRIGGERED, or when the scan has no newer signal) |
@@ -174,9 +174,11 @@ link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank"
 
 ## Backtest (`tayyib-backtest`, v0.2.0, closer to live in v0.2.1, dashboard tab v0.2.2)
 
-`backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions 5] [--split]
+`backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions N] [--split]
 [--no-take-warn] [--no-late] [--compare] [--regime R] [--regime-compare] [--robust [N]] [--robust-compare A B]
-[--write] [--json]`, `list`, `show ID`.
+[--write] [--json]`, `list`, `show ID`. `--max-positions` defaults to config `max_open_positions` (6) since
+v0.2.7 (it was 5); `params.max_positions` and `params.max_positions_from` ("config max_open_positions" or
+"--max-positions") record it. `--robust` still runs 3 / 5 / 8.
 
 **Window end (v0.2.2):** without `--to`, `default_end(now, cfg)` picks the last completed session: today
 once it is 15:30 IST on a trading day (`tc.is_trading_day`: weekends and `holidays`), otherwise the
@@ -206,7 +208,7 @@ halal list's age and the news). With the defaults it is the live check, byte for
 
 | step | how |
 |---|---|
-| universe | `halal_universe.json` stocks whose `tc.halal_status` (overrides last) is `compliant`; never review |
+| universe | `halal_universe.json` stocks whose `tc.halal_status` is `compliant`; never review |
 | data | `get_daily_bars(sym, range)`, cut at `--to`. A stock joins on the first day it has 250 bars (`join_date`; no signals before), listed in `joined_late[]` when that is after the window start; one that never gets there by `--to` (or has no data) is in `skipped[]` with the reason; gaps stay gaps |
 | each close t | per stock: `tc.detect_at(bars, ind, i)` (indicators are causal: bar i uses bars 0..i), `tc.liquidity_ok(bars[:i+1])`, `tc.plan_trade`; best score first, the scanner's top `max(2 x daily.top, 25)`, held / waiting stocks dropped, `tc.choose_candidates` |
 | ranking | `tc.rank_key` + symbol (ties). Expectancy and past trades from `tm_history` / `tm_monte_carlo` (3000 runs, seed 7: tayyib-daily's) on the stock's last 2 years up to t, run only when the order can change what is bought: more picks than free slots, not enough cash for all of them, or one of them would be blocked (or WARNed with `--no-take-warn`) with all the others approved. Every limit only tightens with more approved orders, so otherwise no order changes the result. With `--no-take-warn` the Monte Carlo runs for every pick (its negative-expectancy WARN then matters); `daily.min_expectancy_r` applies |
@@ -247,6 +249,17 @@ impossible when the ETF is UNKNOWN, and "The Nifty 50 (not halal-screened, price
 its CAGR is higher (reference only, not a halal option).
 
 MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
+
+## Simple settings (v0.2.7, default@5)
+
+Owner decision: the Settings page has only money & risk, broker, the five strategies and holidays; the halal
+rules, charges and user agent are fixed in code; halal overrides are removed (see "Fixed keys, page keys,
+advanced keys" under Config). `DEFAULTS_VERSION` 5, `DEFAULTS_SAME_AS[5] = 2`. Removed default values:
+`brokers.custom.*` and `halal.loosen_note`; every other value equals default@4
+(`tests/fixtures/defaults_versions.json`). `tests/fixtures/baseline_default5.json.gz` is the fixture pipeline
+under default@5 and is byte-identical to the default@2 snapshot (`test_v027.DefaultsV5`): with the same halal
+list, every decision equals default@4 (= default@2). Write a snapshot with `py tests/baseline.py
+--write-default N` (refuses if it exists).
 
 ## Pullback back on (v0.2.6, default@4); default@3 is historic
 
@@ -333,7 +346,7 @@ shown again. Tracker rows keep their stored labels (default@2, default@3).
   (`get_daily_bars`). A symbol whose ISIN disagrees with the list is refused. Never by company name.
 - `plan_import` (pure): rows of the same symbol merged (weighted average); shares that are an open journal trade
   are subtracted (`journal_qty`); action add / update / leave; open holdings not in this file -> "mark not in
-  latest import"; `alert_preview` gives the status now (overrides applied) and `tc.held_title` for an imported
+  latest import"; `alert_preview` gives the status now and `tc.held_title` for an imported
   holding. `apply_import`: backup `positions.backup-YYYYmmdd-HHMMSS.json`, then holdings `{id: "HOLD-SYM",
   kind: "holding", symbol, qty, avg_price, isin, name, status: open | not_in_latest_import, source:
   "import:<broker>:<date>", imported, last_import, matched_by, journal_qty, product: CNC, halal_at_buy: {status:
@@ -357,9 +370,9 @@ shown again. Tracker rows keep their stored labels (default@2, default@3).
 banner, never a stopped list):
 
 - Held = open positions in `positions.json`. Each has `halal_at_buy` {status, ratios, as_of, date, source,
-  backfilled}: written by `ticket.py placed`, or backfilled from the list record (not the override) and
+  backfilled}: written by `ticket.py placed`, or backfilled from the list record and
   marked `backfilled: true`.
-- Screen: an override wins (`halal_overrides.json`), then `KNOWN_EXCLUDED`; otherwise the last screen kept in
+- Screen: `KNOWN_EXCLUDED` first (no overrides since v0.2.7); otherwise the last screen kept in
   `held_halal.json` (or the list record) when it is younger than `halal.held_recheck_days`, else
   `screen_live()`: `business_screen` + `fetch_fundamentals` + `financial_screen`, the same screen as `build`.
   The universe file is not changed.
@@ -387,7 +400,7 @@ unknown)" with `HELD_WORDING_UNKNOWN_BUY`.
 
 `regime` {enabled false, index `^NSEI` | `SHARIABEES.NS`, rule `close_below_200dma` | `sma50_below_sma200`,
 action `no_new_swing` | `no_new_trades` | `half_risk`}. In the settings hash (a decision once on); the defaults
-keep default@4 (= default@2 in decisions).
+keep the default label (default@4, now default@5; both = default@2 in decisions).
 
 - `tc.regime_state(bars, date, rule, index)`: only bars dated <= date; UNKNOWN without a bar on that date or
   under 200 bars. `tc.regime_effect(state, cfg)`: active only when enabled AND risk-off -> `block_modes`,
@@ -433,7 +446,7 @@ keep default@4 (= default@2 in decisions).
 `ssl.create_default_context()`), `from` (type `email`), `to` (type `emails`, at most `tc.MAX_EMAIL_TO` = 3;
 empty means `[from]`), `send_when` (`always` | `picks_only`), `attach_md` (true). `tc.EMAIL_RE` refuses
 spaces, CR/LF, commas and angle brackets (no header injection). `email` is in `SETTINGS_EXCLUDE`: it is
-not part of the settings snapshot or hash (still default@4). Invalid email values are reported as
+not part of the settings snapshot or hash (the default label does not change). Invalid email values are reported as
 "(not shown)" so addresses stay out of daily notes.
 
 **The password** is read only from `TAYYIB_SMTP_PASSWORD` (`email_report.password()`). Any config key that
@@ -494,8 +507,8 @@ creates it, `cd`s to its parent and `exec`s `tayyib-dashboard/dashboard.py "$@"`
 - SELL never more than held
 - no derivatives
 - no margin or MTF
-- halal `compliant` only. `review` stocks pass with a WARN only when `halal.allow_review` is true
-  *and* `halal.loosen_note` is set; `excluded` and `unknown` are always blocked.
+- halal `compliant` only. `review`, `excluded` and `unknown` are always blocked (`halal.allow_review` is
+  fixed off since v0.2.7).
   `halal.require_compliant` is locked to true (any other value is reported and ignored).
 
 No config key can switch any of these off: `validate_config` ignores unknown keys (with a warning
@@ -518,13 +531,12 @@ test fails if one appears. The MCP server has no order tool.
 | `min_price`, `min_turnover_rs` | 20, 2 crore | liquidity filter |
 | `modes.swing` | stop cap 10%, 2R target, 20 sessions | |
 | `modes.delivery` | stop cap 15%, 3R review, 250 sessions | |
-| `broker` | zerodha | `zerodha`, `groww`, `custom` (see `brokers`) |
-| `charges` | 2026 NSE delivery rates | STT 0.1%, txn 0.00297% + IPFT 0.0001%, SEBI, stamp 0.015%, GST 18% |
-| `halal.max_debt_to_assets_pct` / `max_noncompliant_income_pct` / `max_cash_receivables_to_assets_pct` | 25 / 3 / 90 | TASIS |
-| `halal.noncompliant_investment_return_pct` | 8 | assumed return on short-term investments |
-| `halal.allow_review` | false | let `review` stocks through with a WARN (loosening: needs `loosen_note`) |
-| `halal.method` | tasis | `tasis` or `custom`; reported as `custom` whenever a threshold differs from TASIS |
-| `halal.loosen_note` | "" | your source or scholar; required for any threshold looser than TASIS |
+| `broker` | zerodha | `zerodha` or `groww` (v0.2.7: `custom` removed) |
+| `charges`, `brokers` | 2026 NSE delivery rates | **fixed**: STT 0.1%, txn 0.00297% + IPFT 0.0001%, SEBI, stamp 0.015%, GST 18%; brokerage and DP charge per broker |
+| `halal.max_debt_to_assets_pct` / `max_noncompliant_income_pct` / `max_cash_receivables_to_assets_pct` | 25 / 3 / 90 | **fixed** (TASIS) |
+| `halal.noncompliant_investment_return_pct` | 8 | **fixed**: assumed return on short-term investments |
+| `halal.allow_review`, `halal.method`, `halal.parent_list_url` | false, tasis, the niftyindices CSV | **fixed** |
+| `user_agent` | `tayyib-trader/<version> (+repo URL)` | **fixed**: the honest user agent |
 | `halal.auto_rebuild_days` | 30 | `daily` rebuilds when older (0 = never) |
 | `holidays` | [] | NSE holidays, `YYYY-MM-DD` (used for plan dates) |
 | `daily.top` / `daily.picks` | 10 / 3 | stocks planned / PASS stocks highlighted; `--top` / `--picks` override |
@@ -572,20 +584,34 @@ reported as `CONFIG: <key> = <value> invalid (range a–b), using default <d>`. 
 its notes (`.md` and `--json`), `scan.py` and `halal.py` add `config_notes` to their JSON, and every
 script prints them to stderr (never stdout, so `--json` stays clean).
 
-### Halal thresholds: TASIS, stricter, looser
+### Fixed keys, page keys, advanced keys (v0.2.7)
 
-- Defaults are TASIS: debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%,
-  assumed 8% return on short-term investments.
-- **Stricter** values (lower limits, higher assumed return) apply freely; `halal.method` is then
-  reported as `custom`.
-- **Looser** values (debt > 25, income > 3, cash > 90, assumed return < 8, or `allow_review: true`)
-  need a non-empty `halal.loosen_note`. Without it each is reported as
-  `CONFIG ERROR: halal.<key> = <v> is looser than TASIS ...` and the TASIS value is used.
-- With the note, every daily `.md` and `.json` and every `halal.py` output starts with
-  `Halal thresholds are looser than TASIS (your setting): <note>`. In JSON it is a first `banner`
-  key. `halal.py list` and `check --json` always return `{"banner": null | "<text>", "stocks": [...]}`
-  (`banner` is null when nothing is loosened; before v0.1.5 they returned a bare list). The list records `method`, all four `thresholds` and `loosened` when it is built, so the
-  banner stays until a rebuild even if the config is reset.
+- **Page keys** (`tc.PAGE_KEYS`, docs flag `page`): `capital`, `max_risk_per_trade_pct` (0.25–3),
+  `max_position_pct` (5–40), `max_open_positions` (1–20), `broker` (zerodha / groww), the five
+  `scanner.setups.<name>.enabled` (`tc.STRATEGIES`: label and one-line hint each) and `holidays`. Only these
+  have a field on the Settings page; `actions.editable` refuses every other key.
+- **At least one strategy:** all five off gives `tc.STRATEGY_ERROR` and the defaults (all on) for the five.
+- **Fixed keys** (`tc.FIXED_KEYS`, docs flag `fixed`): every halal threshold (TASIS: debt < 25% of assets,
+  non-compliant income < 3%, cash + receivables < 90%, assumed 8% return on short-term investments),
+  `halal.method` (tasis), `halal.allow_review` (false), `halal.parent_list_url`, every `charges.*` and
+  `brokers.*` key, and `user_agent` (`tc.HONEST_UA`). `tc.clean_user_config` drops one silently when it
+  equals the code's value; any other value is ignored with
+  `CONFIG: <key> = <v> ignored: it is fixed and can't be changed (stays <d>)` (counted by `config_errors`, so
+  the page and `POST /api/config` refuse it). The same applies from config.json, the CLI and MCP.
+- **Advanced keys** (`tc.is_advanced_key`): everything else that is documented: `modes.*`, the setup
+  thresholds, `min_price`, `min_turnover_rs`, heat and industry limits, `min_reward_risk`, `daily.*`,
+  `email.*`, `regime.*`, `news.*` and the halal freshness keys (`list_max_age_days`, `auto_rebuild_days`,
+  `near_limit_pct`, `held_recheck_days`, `exit_grace_days`). They keep the same validation in config.json.
+  `tc.advanced_changes(snap)` / `tc.advanced_note(snap)` give the page's "Advanced settings changed in
+  config.json: N (see TECHNICAL.md): key = value, ..." (only decision keys in `differs_from_default`, so
+  `email.*` is not counted).
+- **Overrides removed:** `halal_overrides.json` is never read or written by any script, the dashboard or
+  MCP; `halal.py override` and `compare --accept-income-reviews` are gone (`compare` is read-only).
+  `tc.old_overrides_note()` returns `tc.OVERRIDES_NOTE` ("halal_overrides.json is no longer used (v0.2.7):
+  the automatic TASIS screen decides.") when an old file exists: once in `halal.py build` notes and once in
+  the daily notes.
+- `halal.loosen_note` is a removed key (`CONFIG: halal.loosen_note removed: ...`). `tc.halal_banner(cfg)`
+  stays and returns None; `halal.py list` and `check --json` still return `{"banner": null, "stocks": [...]}`.
 - **AAOIFI** is not offered: it tests debt and interest-bearing deposits against market value, and the
   data we fetch has no share count or market value. We do not approximate it.
 
@@ -598,7 +624,7 @@ its items when it decides, and `daily` only puts them together:
 
 | group | recorded by | contents |
 |---|---|---|
-| HALAL | scanner (from the halal list) + risk check | status, your override, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check. Ratio items carry `near_limit` (from `halal.near_limit_pct`, 90%, of the limit up to it) and `over_limit` (at or over it) |
+| HALAL | scanner (from the halal list) + risk check | status, the three ratios with reported interest and the assumed-return part, the limits the list was built with, the date of the figures; status again at the risk check. Ratio items carry `near_limit` (from `halal.near_limit_pct`, 90%, of the limit up to it) and `over_limit` (at or over it) |
 | LIQUIDITY | scanner (`tc.liquidity_check`) | last price vs `min_price`, average traded value vs `min_turnover_rs` |
 | SETUP | `tc.detect` | every condition the setup tested, the measured value and its threshold, the score; two context items with `op: "info"`, `ok: true` (no limit, not conditions): % above the 200-day average and the 126-day return |
 | NEWS | risk check | `HALAL-WATCH news` and `results news in the window`: the same `trader/news.json` headlines (Google News India, NSE corporate announcements incl. board-meeting notices, RSS feeds; tagged by news.py, inside its `--hours` window, default 72) that raise the risk check's WARNs. A headline: `ok: false`. None: `ok: true`. `ok: null` / UNKNOWN only when news was not fetched for the stock or its Google News or NSE source failed |
@@ -615,14 +641,13 @@ carry their own `why[]` too.
 
 `tc.settings_snapshot(cfg) -> {hash, label, defaults_version, values, differs_from_default[], account_differs[]}`.
 `differs_from_default` lists every decision-affecting setting whose value is not the default. Only
-three keys are left out: `user_agent` (an HTTP header), `halal.loosen_note` (the banner text; the
-looser thresholds it allows are recorded as values, and without it they fall back to TASIS) and
-`halal.near_limit_pct` (display only). `halal.list_url` was removed in v0.1.7 (it was never read); a
+two keys are left out: `user_agent` (an HTTP header, fixed since v0.2.7) and `halal.near_limit_pct` (display
+only); `halal.loosen_note` was removed in v0.2.7. `halal.list_url` was removed in v0.1.7 (it was never read); a
 config that still has it gets `CONFIG: halal.list_url removed: it was never used`. `halal.parent_list_url` (which stocks
 are screened) and each `news.feeds.<name>` (which headlines can raise a WARN) are included. `hash` is the first 8 hex characters of the sha1 of the canonical JSON (sorted keys, no
 spaces) of `{"defaults_version": DEFAULTS_VERSION, "differs": [[key, value], ...]}`: it depends only on
 what you changed, so adding a key whose default keeps the old behaviour does not change it. `label` is
-`default@<DEFAULTS_VERSION>` (now `default@4`) when nothing differs, otherwise the hash. **Account facts
+`default@<DEFAULTS_VERSION>` (now `default@5`) when nothing differs, otherwise the hash. **Account facts
 (v0.1.8 review):** `capital`, `cash_available`, `broker`, `exchange`, `charges.*` and `brokers.*`
 (`tc.ACCOUNT_KEYS`, `tc.is_account_key`) are facts about the user, not strategy: they stay in the hash
 (they change quantities and charges, so a re-run with another capital is a different run), but a config
@@ -688,15 +713,15 @@ issues same-origin GETs to `/api/...`.
 
 | endpoint | returns |
 |---|---|
-| `/api/meta` | version, data folder, settings label and header ("Current settings: default@4"), the latest list's `banners[]`, the halal banner, config notes |
+| `/api/meta` | version, data folder, settings label and header ("Current settings: default@5"), the latest list's `banners[]`, the halal banner, config notes |
 | `/api/dates` | the dates of every `daily/DATE.json`, newest first |
 | `/api/today?date=` | that day's list (default the newest): rows with `display` strings, `why_view` (groups with ✓ / ✗ / UNKNOWN), `stop_capped`, `near_limit`, `ranked_by`, `expectancy_use`; top picks; `staleness {stale, reasons[]}` (not today's list, or `asof` before 15:30 IST) |
 | `/api/tracker` | rows with a labelled `verdict` (TARGET = right, STOP = wrong, NOT TRIGGERED = no trade, TIME EXIT by the sign of R, OPEN / WAITING = pending, BREAKEVEN), `summary` from `tracker.summary()` (the function the Excel Summary sheet uses, so the numbers match), `settings_split`, the equity curve (cumulative R by exit date), and `noise_banner` until 30 closed trades |
-| `/api/halal` | every stock with its current status (overrides applied), ratio bars against the limits in config, reported vs assumed-8% income, `near_limit[]`, override note and date, reasons; counts; the loosened-thresholds banner |
+| `/api/halal` | every stock with its current status, ratio bars against the (fixed) limits, reported vs assumed-8% income, `near_limit[]`, reasons; counts |
 | `/api/tickets` | unplaced orders with status, expiry and the Kite and Groww steps from `tc.broker_steps` (the text `ticket.py show` prints); open and closed trades with totals; (v0.2.5) imported `holdings` and `unmatched_holdings` apart |
 | `/api/import` | (v0.2.5) the Import holdings section: steps, `trader/import/`, its files and whether each was previewed |
-| `/api/settings` | every editable key from `DEFAULT_CONFIG_DOCS` grouped as Risk, Plan, Selection, Broker & charges, Halal, Data & calendar: value, default, range, unit, `changed`, the per-key `CONFIG:` errors; `always_on` (the hard rules, not options); the halal loosened banner; the risk preview; `version` (sha1 of config.json) and the backups |
-| `/api/risk-preview?change=` | `tc.risk_preview` for the config with the pending change (`{"set": {key: value}, "reset": [key]}`) applied, plus that change's `diff`, `errors` by key, the new settings label and the loosened banner. Writes nothing |
+| `/api/settings` | (v0.2.7) `groups` money, broker, strategies, holidays with only `tc.PAGE_KEYS` (value, default, range, unit, `changed`, `hint` for a strategy, the per-key `CONFIG:` errors); `halal {rules, fixed}` (read-only card, `tc.HALAL_RULES`, "These rules can't be changed in the app."); `advanced {note, count, keys}`; `always_on` (the hard rules plus halal-only, fixed rules, honest UA); `reset_all` / `account_keys`; backups; the risk `preview`; `banner` always null |
+| `/api/risk-preview?change=` | `tc.risk_preview` for the config with the pending change (`{"set": {key: value}, "reset": [key]}`) applied, plus that change's `diff`, `errors` by key and the new settings label. Writes nothing |
 | `/api/config/backups`, `/api/config/backup-diff?name=` | the backups (newest first), and what restoring one would change |
 | `/api/run/status` | `state` (idle / running / ok / failed), start time, elapsed, the last ~200 output lines, the exit code or error, and the before-15:30 `advice` |
 | `/api/backtests` | the saved runs in `trader/backtest/` whose file names a backtest writes (`DATE_MODE_DATE_hex6`), newest first by `run_at` (file time for older runs): id, run time, window, mode, settings label, trades, CAGR, max DD and a `label` for the picker. No folder: `{"missing": "backtest", "hint": "run a backtest"}` |
@@ -707,8 +732,7 @@ issues same-origin GETs to `/api/...`.
 **Labels (v0.1.7 review):** today's response has `made_with` ("This list was made with: default@1") next to
 the header's current settings, `older_list` and `rank_note` ("Older list: ranked by expectancy only (made before
 the thin-evidence rule)" for lists without `daily.min_past_trades_for_rank`; their rows never say "ranked (n
-trades)"), `counts`, `date_long`, and per row `halal_badge` (within / near / over limit, or "compliant by your
-override, ratio over limit"), `ladder` (stop / entry / target positions with R multiples) and, for top picks, a
+trades)"), `counts`, `date_long`, and per row `halal_badge` (within / near / over limit), `ladder` (stop / entry / target positions with R multiples) and, for top picks, a
 60-day `sparkline` from the price cache (no network). Large money is `₹523.7 cr` / `₹12.5 lakh` (`inr_short`). The
 tracker sends `kpis`, `ring` (closed of 30) and `result_counts`; with no closed trades every rate, R and P&L is
 "no closed trades", and pending rows say "not yet" / "not closed". The halal response has `donut`, per stock
@@ -717,11 +741,12 @@ Tickets come as `ready` (PASS, then WARN) and `blocked` ("Blocked (not tickets)"
 NEWS headlines are shown in full (older lists that stored them cut short are completed from `news.json`).
 
 **Settings (`POST /api/config`, `actions.save_config`):** the body is `{"version", "set": {dotted key: value},
-"reset": [dotted key], "loosen_note"?}` or `{"version", "restore": "<backup name>"}`. The base is the valid
+"reset": [dotted key]}` or `{"version", "restore": "<backup name>"}`. The base is the valid
 part of the current `config.json`; the change is applied, then **`tc.validate_config` is the only judge**
 (through `tc.clean_user_config` / `tc.config_errors`): any error refuses the whole save (400, the messages
-keyed by setting) and nothing is written. Halal values looser than TASIS need `halal.loosen_note`, or
-they are refused. A stale `version` (config.json changed since the page loaded) is 409. On success the
+keyed by setting) and nothing is written. Only `tc.PAGE_KEYS` can be sent (`actions.editable`); any other key
+is refused with 400 "... is not a setting you can change here (a hard rule | is fixed and can't be changed |
+an advanced setting: config.json only, see TECHNICAL.md)". A stale `version` (config.json changed since the page loaded) is 409. On success the
 current file is copied to `trader/config_backups/config-YYYYmmdd-HHMMSS.json` (the newest 20 kept), the
 new file is written atomically (`tc.write_json`: temp file + `os.replace`) under a lock, and the response
 has the new settings label and "Changes apply from the next run." Restoring a backup goes through the same
@@ -731,12 +756,10 @@ path. The hard rules are code, not keys: the page lists them as "Always on".
 (`reset_all` from `/api/settings`: every editable key except the account facts; with "Also reset capital
 and broker", `account_keys` too) only change the form. They are sent as `{"reset": [...]}` through the same
 review, `POST /api/config`, validation, backup and atomic write as any edit, so they can be undone from
-Backups. A Halal reset restores TASIS, turns `allow_review` off and clears the source note. A reset that
-would leave looser thresholds without the note (resetting only the note) is refused like any other save.
+Backups. Resets cover the page keys only; advanced keys in config.json are kept.
 
-**Wording:** the page never shows internal key names for the source note ("your source / scholar note")
-and never the validator's fallback ("using 25"). The server adds `text` (under the field) and `full` (with
-the setting's name) to each error, `needs_note` for a halal loosening, and `problems` to a refused save;
+**Wording:** the page never shows the validator's fallback ("using 25"). The server adds `text` (under the field) and `full` (with
+the setting's name) to each error, and `problems` to a refused save;
 the validator's own `message` / `errors` are unchanged (the CLI and daily notes keep them). The key name
 stays only in the small code line under each field.
 
@@ -770,8 +793,7 @@ otherwise `failed` with the error text (daily.py writes the list at the end, so 
 previous list). Before 15:30 IST on a weekday, or on a configured holiday, the page asks first ("Prices
 aren't final yet, levels may change") and never blocks. When the run ends the Today tab reloads.
 
-**Compliance cross-check:** every today row and every ticket is checked against the **current** universe
-plus overrides. A stock that is no longer `compliant` is replaced by `{"halal_changed": true, "message":
+**Compliance cross-check:** every today row and every ticket is checked against the **current** universe. A stock that is no longer `compliant` is replaced by `{"halal_changed": true, "message":
 "halal status changed since this list: re-check", "halal_now": <status>}` with no levels and no steps.
 
 Tests: `tests/test_v018.py` (each POST rejection reason, no other path or method accepts POST, GETs

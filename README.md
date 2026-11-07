@@ -24,7 +24,8 @@ market closes. You decide, and you place the order yourself.
   code and cannot be switched on.
 - **Not financial advice.** Most retail traders lose money. Paper trade first.
 - **Not a fatwa.** The halal screen is an automated version of a published method (TASIS, used by
-  NSE's Shariah indices). Ask your scholar for rulings, and record them in the tool.
+  NSE's Shariah indices), strict and automatic: its rules can't be changed and there are no per-stock
+  overrides. Ask your scholar if you are unsure about a stock.
 
 ## Start here
 

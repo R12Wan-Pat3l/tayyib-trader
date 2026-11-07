@@ -458,7 +458,9 @@ class Server(OfflineCase):
         sym = today["top_picks"][0]["symbol"]
         tickets = {t["symbol"] for t in self.get("/api/tickets")["tickets"]}
         self.assertIn(sym, tickets)
-        self.write("halal_overrides.json", {sym: {"status": "excluded", "note": "new debt", "date": "2026-10-31"}})
+        u = self.read("halal_universe.json")                     # the list rebuilt: the stock is excluded now
+        u["stocks"][sym]["status"] = "excluded"
+        self.write("halal_universe.json", u)
         today = self.get("/api/today")
         row = [r for r in today["rows"] if r["symbol"] == sym][0]
         self.assertEqual(row["message"], "halal status changed since this list: re-check")

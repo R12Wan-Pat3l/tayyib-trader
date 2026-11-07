@@ -7,7 +7,7 @@ description: >-
   expectancy in R, CAGR, max drawdown, in-sample vs out-of-sample and buy-and-hold of the Shariah ETF and
   Nifty 50. Writes trader/backtest/. Use when the user says "backtest", "test my strategy", "how did this
   strategy do", "past performance".
-argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions 5] [--no-take-warn] [--compare] [--robust [N]] [--robust-compare A B] [--write] | list | show ID"
+argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions N] [--no-take-warn] [--compare] [--robust [N]] [--robust-compare A B] [--write] | list | show ID"
 ---
 
 # tayyib-backtest
@@ -31,7 +31,7 @@ days of scanning. It needs the halal list (`tayyib-halal build`) first. `--split
 out-of-sample date (default: the start of the last third of the window).
 
 What it does, in order, every trading day of the window:
-1. Scans every compliant stock (your overrides win; review / excluded are never traded) on its bars up to
+1. Scans every compliant stock (review / excluded are never traded) on its bars up to
    that day only, with the live liquidity filter and exit plan.
 2. Picks and ranks the day's stocks exactly like tayyib-daily (one setup per stock, swing and delivery
    alternated in `--mode all`, time-machine expectancy for stocks with enough past trades, else score).

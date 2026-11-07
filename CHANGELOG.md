@@ -2,9 +2,39 @@
 
 ## v0.2.7 (2026-11-07)
 
-Install and run from the docs alone: with or without Claude Code, on Windows, Mac or Linux. Docs, launchers and
-tests only, plus three fixes found by a real fresh install: no decision changes (still default@4, which equals
-default@2).
+Install and run from the docs alone: with or without Claude Code, on Windows, Mac or Linux. Then an owner
+decision: **simple settings, and halal can't be changed**. Settings label **default@5**: with the same halal
+list every decision equals default@4 (= default@2), proved by a new baseline snapshot.
+
+### Changed: simple settings (owner decision)
+
+- **The Settings page shows only:** Money & risk (capital, risk per trade 0.25–3%, max in one stock 5–40%, max
+  open trades 1–20, with the rupee preview), Broker (Zerodha or Groww; the charges come from the built-in tables
+  and can't be edited), Strategies (five switches with a line each: Trend (delivery), Breakout, Pullback,
+  Oversold, Squeeze (swing); all on; at least one must stay on) and Holidays. Plus a read-only **Halal** card
+  (the TASIS limits, "review stocks are blocked", "These rules can't be changed in the app.") and **Always on**.
+  Plan, setup thresholds, liquidity, ranking, charges, halal fields, email, regime and data are gone from the page.
+  Reset, backups and Review & save work as before for these fields. The Welcome screen asks only capital, broker
+  and risk.
+- **Fixed in code:** every halal threshold, `halal.method`, `halal.allow_review` (always off),
+  `halal.parent_list_url`, every charge rate and broker table, and `user_agent`. A change from the page,
+  `config.json`, the CLI or MCP is ignored with `CONFIG: <key> = <v> ignored: it is fixed and can't be changed`
+  (the same value as the code is dropped silently). `halal.loosen_note` is removed. The broker `custom` is removed
+  (`size.py --broker` too).
+- **No halal overrides.** `halal_overrides.json` is never read or written (halal build, daily, risk, dashboard,
+  MCP, tracker, backtest); `halal.py override`, `compare --accept-income-reviews` and the dashboard's override
+  labels and filter are gone; `halal compare` stays, read-only. An old file gives one note: "halal_overrides.json
+  is no longer used (v0.2.7): the automatic TASIS screen decides."
+- **Advanced settings** (plan / stop / target / hold, setup thresholds, liquidity, ranking, `email.*`, `regime.*`,
+  `news.*`) keep their defaults and stay valid in `config.json` with the same validation. The Settings page says
+  "Advanced settings changed in config.json: N (see TECHNICAL.md)" and lists them. Email stays off by default;
+  the CLI and the scheduled task still send it.
+- **Backtest:** `--max-positions` defaults to `max_open_positions` (6), not 5, and the run records where it came
+  from (`params.max_positions_from`).
+- Tests: `tests/test_v027.py` `SettingsPage`, `LockedKeys`, `NoOverrides`, `BacktestMaxPositions`, `DefaultsV5`;
+  `tests/fixtures/baseline_default5.json.gz`.
+- Docs: user guide "Changing your settings", FAQ (the screen is automatic and strict: about 81% agreement with two
+  Shariah funds, every difference on the strict side), technical guide, project brief, AGENTS.md, skill pages.
 
 ### Fixed (found by installing from scratch with the user guide, on 2026-11-07)
 

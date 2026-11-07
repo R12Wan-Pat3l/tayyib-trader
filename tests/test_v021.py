@@ -68,9 +68,21 @@ class RiskInReplay(Patched):
         d = [b["date"] for b in bars["AAA"]]
         picks = {d[10]: [(plan_for("AAA", d[10], 101.0, 95.0, 113.0, d[13]), 70),
                          (plan_for("BBB", d[10], 101.0, 95.0, 103.0, d[13]), 60),     # net R:R under 1.5: BLOCK
-                         (plan_for("CCC", d[10], 101.0, 95.0, 113.0, d[13]), 50)]}    # review, allowed: WARN
-        uni = uni_of({"AAA": ("compliant", "A"), "BBB": ("compliant", "B"), "CCC": ("review", "C")})
-        cfg = tc.validate_config({"halal": {"allow_review": True, "loosen_note": "test only"}})[0]
+                         (plan_for("CCC", d[10], 101.0, 95.0, 113.0, d[13]), 50)]}    # a WARN (below)
+        # v0.2.7: "review" can no longer be allowed, so CCC gets its WARN from a wrapped risk check (as news would)
+        uni = uni_of({"AAA": ("compliant", "A"), "BBB": ("compliant", "B"), "CCC": ("compliant", "C")})
+        cfg = tc.validate_config({})[0]
+        real = tc.risk_check_order
+
+        def with_warn(o, *a, **k):
+            r = real(o, *a, **k)
+            if o["symbol"] == "CCC" and r["status"] == "PASS":
+                r = dict(r, status="WARN", warn=r["warn"] + ["test warning"])
+            return r
+        from unittest import mock
+        patch = mock.patch.object(bt.tc, "risk_check_order", with_warn)
+        patch.start()
+        self.addCleanup(patch.stop)
         res = self.sim(bars, picks, d[5], d[-1], cfg=cfg, uni=uni, take_warn=True)
         self.assertEqual(sorted(t["symbol"] for t in res["trades"]), ["AAA", "CCC"])
         self.assertEqual({t["symbol"]: t["risk"] for t in res["trades"]}, {"AAA": "PASS", "CCC": "WARN"})

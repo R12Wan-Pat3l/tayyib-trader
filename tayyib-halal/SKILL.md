@@ -4,10 +4,10 @@ description: >-
   Halal Screener. Builds and queries the Shariah-screened stock universe that every other
   tayyib skill depends on: self-screens the Nifty 500 (business screen + TASIS-style ratios: debt under
   25% of assets, non-compliant income under 3%, cash + receivables under 90% of assets) or loads an
-  official Shariah list, and keeps user overrides. Use when the user asks "is X halal", "Shariah compliant
+  official Shariah list. Automatic and strict: the rules are fixed in code, no per-stock overrides. Use when the user asks "is X halal", "Shariah compliant
   stocks", "build the halal list", "which stocks can I buy", "check if TCS is halal", or before the first
   scan, and monthly or after results season to refresh.
-argument-hint: "[build | check SYMBOLS | list | override SYMBOL]"
+argument-hint: "[build | check SYMBOLS | list | compare FILE | held]"
 ---
 
 # tayyib-halal
@@ -28,9 +28,7 @@ python3 "${CLAUDE_SKILL_DIR}/halal.py" build --official list.csv     # trust an 
 python3 "${CLAUDE_SKILL_DIR}/halal.py" check TCS,INFY                # status + reasons + ratios
 python3 "${CLAUDE_SKILL_DIR}/halal.py" check XYZ --live              # screen a stock not in the universe (not saved)
 python3 "${CLAUDE_SKILL_DIR}/halal.py" list --status compliant
-python3 "${CLAUDE_SKILL_DIR}/halal.py" compare trusted.csv               # agreement with a trusted Shariah list
-python3 "${CLAUDE_SKILL_DIR}/halal.py" compare trusted.csv --accept-income-reviews   # see below
-python3 "${CLAUDE_SKILL_DIR}/halal.py" override ABC --status excluded --note "scholar: hotel income"
+python3 "${CLAUDE_SKILL_DIR}/halal.py" compare trusted.csv               # agreement with a trusted Shariah list (read-only)
 ```
 
 The Nifty 500 list is downloaded from niftyindices.com with the tool's own honest user agent (never a
@@ -42,14 +40,17 @@ says how to download it. Tell the user exactly that message; never build from a 
 
 1. **Business screen.** Excluded: interest-based finance (the Nifty "Financial Services" industry:
    banks, NBFCs, insurers), known alcohol / tobacco / casino companies, and names containing words such
-   as bank, insurance, breweries, distillers, tobacco. **Review** (blocked unless the user allows it):
+   as bank, insurance, breweries, distillers, tobacco. **Review** (always blocked):
    media and entertainment, and names with finance, capital, hotel, gaming and similar words.
 2. **Financial screen** (TASIS-style, the methodology NSE's Shariah indices use), from the latest annual
    numbers on Yahoo: debt / total assets < 25%; (interest income + 8% of interest-bearing investments) /
-   total income < 3%; (cash + receivables) / total assets < 90%. Thresholds are in config.
-3. **Overrides** in `trader/halal_overrides.json` win over everything (the user's or their scholar's ruling).
+   total income < 3%; (cash + receivables) / total assets < 90%. These limits are fixed in code (v0.2.7):
+   a change in config.json is ignored with "... is fixed and can't be changed".
 
-Statuses: `compliant`, `review`, `excluded`, `unknown` (data missing). Only `compliant` trades by default.
+There are no overrides (v0.2.7): `trader/halal_overrides.json` is never read or written; an old file gives one
+note, "halal_overrides.json is no longer used (v0.2.7): the automatic TASIS screen decides."
+
+Statuses: `compliant`, `review`, `excluded`, `unknown` (data missing). Only `compliant` ever trades.
 
 The income test shows two figures: **reported interest** (what the company declared) and **+ assumed
 8%** on its short-term investments (the TASIS-style estimate of returns on interest-bearing funds). When
@@ -59,12 +60,11 @@ treasury investments). In the first live check, 9 of 9 such stocks were under 3%
 
 ## Comparing with a trusted list
 
-`compare` sorts disagreements into: (1) we say compliant, they do not (fix these first, usually with
-`override --status excluded`); (2) they say compliant, we block (the safe side); (3) not in our universe.
-Free data tends to overstate interest income, so many group-2 stocks fail only the 3% income test.
-`--accept-income-reviews` overrides exactly those to compliant, with the source recorded. It never
-touches stocks that failed the debt or cash test. Only suggest it when the user trusts the list, for example
-a Shariah fund's holdings.
+`compare` is read-only. It sorts disagreements into: (1) we say compliant, they do not (report these: they
+would point to a screen bug); (2) they say compliant, we block (the safe side); (3) not in our universe.
+Free data tends to overstate interest income, so many group-2 stocks fail only the 3% income test. In the
+November 2026 check against two Shariah funds the screen agreed on about 81%, and every difference was in
+group 2.
 
 ## What to tell the user
 
@@ -73,7 +73,7 @@ a Shariah fund's holdings.
   from a TASIS-based screener) is better when they have one: `build --official`.
 - Rebuild monthly and after each results season; `tayyib-risk` warns when the list is over 120 days old.
 - Scholars differ on thresholds and on businesses such as media or hotels. Point them to their own
-  scholar or a recognised Shariah board for a ruling; use `override` to record it.
+  scholar or a recognised Shariah board. The tool itself never trades a stock its screen does not pass.
 
 ## Rules this skill never bends
 
@@ -87,7 +87,7 @@ python3 "${CLAUDE_SKILL_DIR}/halal.py" held            # re-check your open posi
 python3 "${CLAUDE_SKILL_DIR}/halal.py" held --write    # what the daily list runs: saves the alerts
 ```
 
-Each held stock is screened again when its screen is older than `halal.held_recheck_days` (7); overrides win.
+Each held stock is screened again when its screen is older than `halal.held_recheck_days` (7).
 Per stock: the status at buy, now, the ratios then and now, the data date and source, and an alert level:
 **No longer compliant** (excluded or review, and recorded compliant when bought; for a backfilled
 position or an imported holding: **Not compliant now (status at purchase unknown)**. Say it first; offer the SELL ticket and the purification

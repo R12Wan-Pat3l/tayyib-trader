@@ -75,7 +75,7 @@ def evaluate(sig, bars, live=None, chase_pct=4.0):
 
 def check(sym, setup, cfg, live_ok=True, mode=None):
     rec = tc.halal_status(sym)
-    if rec["status"] != "compliant" and not (rec["status"] == "review" and cfg["halal"]["allow_review"]):
+    if rec["status"] != "compliant":
         return {"symbol": sym, "status": "BLOCKED", "why": "not halal-compliant (%s)" % rec["status"]}
     bars, _ = tc.get_daily_bars(sym, use_cache=False)
     sig = find_signal(sym, bars, setup, cfg, mode=mode)

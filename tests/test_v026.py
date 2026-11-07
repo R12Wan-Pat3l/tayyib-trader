@@ -33,13 +33,13 @@ PARAMS = {"mode": "all", "setups": None, "from": "2025-10-30", "to": "2026-10-30
 
 class DefaultsV4(unittest.TestCase):
     def test_version_label_and_values(self):
-        self.assertEqual(tc.DEFAULTS_VERSION, 4)
+        self.assertGreaterEqual(tc.DEFAULTS_VERSION, 4)                         # v0.2.7: 5 (same decisions)
         snap = tc.settings_snapshot(CFG)
-        self.assertEqual((snap["label"], snap["same_as"]), ("default@4", "default@2"))
+        self.assertEqual((snap["label"], snap["same_as"]), ("default@%d" % tc.DEFAULTS_VERSION, "default@2"))
         self.assertTrue(CFG["scanner"]["setups"]["pullback"]["enabled"])
         self.assertIn("pullback", tc.enabled_setups(CFG, tc.SWING_SETUPS))
         hist = baseline.load_defaults()
-        self.assertEqual(hist["4"], tc.default_values())
+        self.assertIn("4", hist)                         # the current values: test_v027.DefaultsV5
         self.assertEqual({k: hist["4"][k] for k in hist["2"]}, hist["2"])          # every default@2 value, unchanged
         extra = sorted(set(hist["4"]) - set(hist["2"]))
         self.assertEqual(extra, ["regime.action", "regime.enabled", "regime.index", "regime.rule"])
@@ -55,7 +55,7 @@ class DefaultsV4(unittest.TestCase):
         other = tc.settings_snapshot(tc.validate_config({"scanner": {"setups": {"squeeze": {"enabled": False}}}})[0])
         self.assertIsNone(other["same_as"])
         acct = tc.settings_snapshot(tc.validate_config({"capital": 250000})[0])
-        self.assertEqual((acct["label"], acct["same_as"]), ("default@4", "default@2"))
+        self.assertEqual((acct["label"], acct["same_as"]), ("default@%d" % tc.DEFAULTS_VERSION, "default@2"))
         sys.path.insert(0, os.path.join(ROOT, "tayyib-tracker"))
         import tracker
         store = {"settings": {"a1": {"label": "default@3"}, "b2": {"label": "default@4"}}}
@@ -100,9 +100,9 @@ class Migration(OfflineCase):
         self.assertEqual(self.raw(), before)                                   # config.json never written
         self.assertFalse(os.path.exists(os.path.join(self.dir, "config_backups")))
         self.assertTrue(tc.load_config()["scanner"]["setups"]["pullback"]["enabled"])
-        self.assertIn("default@4", rec["result"])
+        self.assertIn("default@4", rec["result"])                     # the v0.2.6 migration note (historic)
         cfg = tc.validate_config({"capital": 200000})[0]
-        self.assertEqual(tc.settings_snapshot(cfg)["label"], "default@4")
+        self.assertEqual(tc.settings_snapshot(cfg)["label"], "default@%d" % tc.DEFAULTS_VERSION)
 
     def test_no_config_follows_the_default(self):
         self.earlier()
@@ -155,7 +155,7 @@ class Migration(OfflineCase):
         md = open(os.path.join(self.dir, "daily", "2026-10-30.md"), encoding="utf-8").read()
         self.assertIn("Pullback is back on by default (v0.2.6)", md)
         self.assertNotIn("Pullback is now off", md)
-        self.assertEqual(out["settings"]["label"], "default@4")
+        self.assertEqual(out["settings"]["label"], "default@%d" % tc.DEFAULTS_VERSION)
         again = self.run_script("tayyib-daily/daily.py", "--no-news", "--runs", "200")
         self.assertNotIn(BANNER, again["banners"])
         self.assertEqual(self.read("notices.json")[tc.PULLBACK_NOTICE]["shown"], "2026-10-30")
@@ -340,7 +340,7 @@ class RobustCli(OfflineCase):
         self.assertIn("robust", d["order"])
         self.assertLess(d["order"].index("banners"), d["order"].index("robust"))
         rb = d["robust"]
-        self.assertEqual([s["title"] for s in rb["sides"]], ["Your settings: default@4", "A: pullback=on", "B: pullback=off"])
+        self.assertEqual([s["title"] for s in rb["sides"]], ["Your settings: " + "default@%d" % tc.DEFAULTS_VERSION, "A: pullback=on", "B: pullback=off"])
         self.assertEqual(rb["compare"]["verdict_text"], bt.NO_CLEAR + ".")
         for m in rb["sides"][0]["metrics"] + rb["compare"]["metrics"]:
             self.assertTrue(m["text"].startswith(m["label"]))

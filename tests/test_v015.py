@@ -253,7 +253,9 @@ class HardRules(OfflineCase):
         self.write("orders.json", o)
         self.assertTrue(all(r["status"] == "BLOCK" for r in self.run_script(RI)))
         # a stock that is not compliant stays blocked whatever the config says
-        self.run_script(H, "override", "CHRL", "--status", "unknown", "--note", "t", as_json=False)
+        u = self.read("halal_universe.json")
+        u["stocks"]["CHRL"]["status"] = "unknown"
+        self.write("halal_universe.json", u)
         for x in o["orders"]:
             x["product"] = "CNC"
         self.write("orders.json", o)
@@ -269,63 +271,36 @@ class HardRules(OfflineCase):
 
 
 class HalalLoosening(OfflineCase):
-    def test_refused_without_a_note(self):
+    """v0.2.7: the halal rules are fixed. Looser, stricter, with or without a note: ignored, TASIS stays."""
+
+    def test_looser_ignored_even_with_a_note(self):
         for k, v in (("max_debt_to_assets_pct", 30), ("max_noncompliant_income_pct", 5),
                      ("max_cash_receivables_to_assets_pct", 95), ("noncompliant_investment_return_pct", 5),
                      ("allow_review", True)):
-            cfg, notes = V({"halal": {k: v, "loosen_note": "  "}})
-            self.assertEqual(cfg["halal"][k], tc.DEFAULT_CONFIG["halal"][k], k)
-            self.assertTrue(any(n.startswith("CONFIG ERROR: halal.%s" % k) and "loosen_note" in n for n in notes), k)
-            self.assertIsNone(cfg["_halal_loosened"])
+            for note in ("  ", "my scholar"):
+                cfg, notes = V({"halal": {k: v, "loosen_note": note}})
+                self.assertEqual(cfg["halal"][k], tc.DEFAULT_CONFIG["halal"][k], k)
+                self.assertTrue(any(n.startswith("CONFIG: halal.%s" % k) and tc.FIXED_NOTE in n for n in notes), k)
+                self.assertIsNone(cfg["_halal_loosened"])
+                self.assertIsNone(tc.halal_banner(cfg))
 
-    def test_stricter_needs_no_note(self):
+    def test_stricter_ignored_too(self):
         cfg, notes = V({"halal": {"max_debt_to_assets_pct": 20, "max_noncompliant_income_pct": 2,
                                   "max_cash_receivables_to_assets_pct": 70, "noncompliant_investment_return_pct": 10}})
-        self.assertFalse([n for n in notes if "ERROR" in n])
-        self.assertEqual(cfg["halal"]["max_debt_to_assets_pct"], 20)
-        self.assertEqual(cfg["halal"]["method"], "custom")
-        self.assertIsNone(cfg["_halal_loosened"])
-        self.assertIsNone(tc.halal_banner(cfg))
+        self.assertEqual(len([n for n in notes if tc.FIXED_NOTE in n]), 4)
+        self.assertEqual(cfg["halal"]["max_debt_to_assets_pct"], 25)
+        self.assertEqual(cfg["halal"]["method"], "tasis")
 
-    def test_stricter_screen_excludes_more(self):
+    def test_screen_unchanged_by_config(self):
         out = self.build_universe()
-        self.write("config.json", {"halal": {"method": "custom", "max_debt_to_assets_pct": 5}})
-        strict = self.build_universe()
-        self.assertLess(strict["counts"]["compliant"], out["counts"]["compliant"])
-        self.assertNotIn("banner", strict)
-        self.assertEqual(self.read("halal_universe.json")["method"], "custom")
-
-    def test_with_a_note_it_applies_and_the_banner_shows(self):
-        note = "Mufti X, fatwa 12/2026"
-        self.write("config.json", {"halal": {"method": "custom", "max_debt_to_assets_pct": 45,
-                                             "loosen_note": note}})
-        b = self.build_universe()
-        banner = "Halal thresholds are looser than TASIS (your setting): " + note
-        self.assertEqual(list(b)[0], "banner")
-        self.assertEqual(b["banner"], banner)
-        st = {r["symbol"]: r["status"] for r in self.run_script(H, "list")["stocks"]}
-        self.assertEqual(st["DLTA"], "compliant")                       # debt 40% passes a 45% limit
-        self.assertEqual(self.run_script(H, "list")["banner"], banner)
-        self.assertEqual(self.run_script(H, "check", "DLTA")["banner"], banner)
-        self.assertTrue(self.run_script(H, "list", as_json=False).startswith(banner))
-        out = self.run_script(DAILY, "--no-news", "--no-rebuild")
-        self.assertEqual(list(out)[0], "banner")
-        self.assertEqual(out["banner"], banner)
-        md = open(os.path.join(self.dir, "daily", "2026-10-30.md"), encoding="utf-8").read()
-        self.assertTrue(md.startswith(banner + "\n"))
-        saved = self.read(os.path.join("daily", "2026-10-30.json"))
-        self.assertEqual(list(saved)[0], "banner")
-        # the list was built loosened: the banner stays until it is rebuilt, even if the config is reset
-        self.write("config.json", {})
-        self.assertIn("rebuild it", self.run_script(H, "list")["banner"])
-        self.build_universe()
-        self.assertIsNone(self.run_script(H, "list")["banner"])
-
-    def test_allow_review_with_note(self):
-        self.build_universe()
-        self.write("config.json", {"halal": {"allow_review": True, "loosen_note": "my scholar"}})
-        self.assertTrue(V({"halal": {"allow_review": True, "loosen_note": "my scholar"}})[0]["_halal_loosened"])
-        self.assertTrue(self.run_script(DAILY, "--no-news", "--no-rebuild")["banner"].endswith("my scholar"))
+        self.write("config.json", {"halal": {"method": "custom", "max_debt_to_assets_pct": 45, "loosen_note": "x"}})
+        again = self.build_universe()
+        self.assertEqual(again["counts"], out["counts"])
+        self.assertNotIn("banner", again)
+        uni = self.read("halal_universe.json")
+        self.assertEqual((uni["method"], uni["thresholds"]), ("TASIS-style", tc.TASIS_HALAL))
+        self.assertNotIn("loosened", uni)
+        self.assertNotIn("banner", self.run_script(DAILY, "--no-news", "--no-rebuild"))
 
     def test_no_banner_by_default(self):
         self.build_universe()
@@ -466,15 +441,14 @@ class Why(OfflineCase):
         none = tc.halal_why({"status": "compliant", "source": "official list: x.csv"}, {})
         self.assertTrue(any(x["check"] == "financial ratios" and x["ok"] is None for x in none))
 
-    def test_override_shown(self):
+    def test_no_override_item(self):
+        """v0.2.7: overrides are gone; an old file never adds a "your override" Why item."""
         self.build_universe()
-        self.run_script(H, "override", "ALFA", "--status", "compliant", "--note", "annual report FY26",
-                        as_json=False)
+        self.write("halal_overrides.json", {"ALFA": {"status": "compliant", "note": "annual report FY26"}})
         out = self.run_script(DAILY, "--no-news", "--no-rebuild")
         alfa = [r for r in out["rows"] if r["symbol"] == "ALFA"][0]
-        ov = [w for w in alfa["why"] if w["check"] == "your override"][0]
-        self.assertEqual(ov["value"], "compliant")
-        self.assertIn("annual report FY26", ov["note"])
+        self.assertFalse([w for w in alfa["why"] if "override" in w["check"]])
+        self.assertEqual(out["notes"].count(tc.OVERRIDES_NOTE), 1)
 
     def test_filtered_and_not_sized_rows_have_every_group(self):
         self.build_universe()
@@ -559,9 +533,10 @@ class Settings(OfflineCase):
         self.assertNotEqual(s["hash"], d["hash"])
         self.assertEqual(tc.settings_snapshot(V({"user_agent": "me"})[0])["hash"], d["hash"])   # no decision
         self.assertEqual(tc.settings_snapshot(V({"halal": {"loosen_note": "my scholar"}})[0])["hash"], d["hash"])
-        # data sources change which stocks and headlines reach the decisions
+        # data sources change which stocks and headlines reach the decisions; the Nifty 500 list URL is fixed
+        # since v0.2.7, so a change to it is ignored and the label stays the default
         u = tc.settings_snapshot(V({"halal": {"parent_list_url": "https://example.org/nifty200.csv"}})[0])
-        self.assertEqual([x["key"] for x in u["differs_from_default"]], ["halal.parent_list_url"])
+        self.assertEqual(u["differs_from_default"], [])
         f = tc.settings_snapshot(V({"news": {"feeds": {"et_markets": "https://example.org/et.xml"}}})[0])
         self.assertNotEqual(f["hash"], d["hash"])
         self.assertIn("news.feeds.et_markets", [x["key"] for x in f["differs_from_default"]])

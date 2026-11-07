@@ -161,21 +161,14 @@ def cmd_build(a, cfg):
             if not a.json and (n + 1) % 50 == 0:
                 sys.stderr.write("  screened %d/%d\n" % (n + 1, len(rows)))
     h = cfg["halal"]
-    uni = {"updated": tc.today_ist().isoformat(), "source": source,
-           "method": "TASIS-style" if h["method"] == "tasis" else "custom",
-           "thresholds": {k: h[k] for k in tc.TASIS_HALAL},
-           "loosened": cfg.get("_halal_loosened"), "stocks": stocks}
+    uni = {"updated": tc.today_ist().isoformat(), "source": source, "method": "TASIS-style",
+           "thresholds": {k: h[k] for k in tc.TASIS_HALAL}, "stocks": stocks}
     if not a.official:
         uni["parent_list"] = parent
     tc.write_json("halal_universe.json", uni)
     counts = {s: sum(1 for x in stocks.values() if x["status"] == s) for s in tc.STATUSES}
-    eff = {s: 0 for s in tc.STATUSES}                 # what every other skill uses: overrides applied
-    for sym in stocks:
-        eff[tc.halal_status(sym, uni)["status"]] += 1
-    n_ov = len([k for k in (tc.read_json("halal_overrides.json", {}) or {}) if k in stocks])
-    out = {"written": "trader/halal_universe.json", "source": source, "counts": counts,
-           "counts_with_overrides": eff, "overrides": n_ov, "fetch_errors": errors,
-           "notes": [parent["note"]] if not a.official else []}
+    out = {"written": "trader/halal_universe.json", "source": source, "counts": counts, "fetch_errors": errors,
+           "notes": ([parent["note"]] if not a.official else []) + [n for n in [tc.old_overrides_note()] if n]}
     banner = tc.halal_banner(cfg, uni)
     if banner:
         out = dict({"banner": banner}, **out)
@@ -188,11 +181,8 @@ def cmd_build(a, cfg):
     print("Halal universe built: %d stocks from %s" % (len(stocks), source))
     for n in out["notes"]:
         print("  " + n)
-    print("  %-10s %8s %18s" % ("", "screen", "after overrides"))
     for s in tc.STATUSES:
-        print("  %-10s %8d %18d" % (s, counts[s], eff[s]))
-    if n_ov:
-        print("  (%d of your overrides applied; they are kept across rebuilds in trader/halal_overrides.json)" % n_ov)
+        print("  %-10s %8d" % (s, counts[s]))
     if errors:
         print("  financials unavailable for %d (marked unknown): %s" % (len(errors), ", ".join(errors[:15])))
     print("Only 'compliant' stocks reach the scanner. " + tc.DISCLAIMER)
@@ -333,23 +323,8 @@ def cmd_compare(a, cfg):
     if not_in_ours:
         print("\n3. ON THEIR LIST, NOT IN OUR UNIVERSE (%d): outside the Nifty 500 or not built yet: %s"
               % (len(not_in_ours), ", ".join(x["symbol"] for x in not_in_ours[:30])))
-    income_only = [r for r in we_stricter if r["ours"] == "review"
-                   and any(("only the assumed 8%" in x) or ("reported interest is over the limit by under 2x" in x)
-                           or ("only the income test failed" in x) for x in r["reasons"])]
-    if a.accept_income_reviews and income_only:
-        ov = tc.read_json("halal_overrides.json", {}) or {}
-        for r in income_only:
-            ov[r["symbol"]] = {"status": "compliant", "date": tc.today_ist().isoformat(),
-                               "note": "trusted list %s says compliant; ours failed only the income test"
-                                       % os.path.basename(a.file)}
-        tc.write_json("halal_overrides.json", ov)
-        print("\nAccepted %d income-test reviews as compliant (overrides, source noted): %s"
-              % (len(income_only), ", ".join(r["symbol"] for r in income_only)))
-    elif income_only:
-        print("\n%d of group 2 failed only the income test (%s). If you trust this list, accept them with:"
-              % (len(income_only), ", ".join(r["symbol"] for r in income_only)))
-        print("   halal.py compare %s --accept-income-reviews" % a.file)
-    print("\nRecord any other ruling: halal.py override SYMBOL --status excluded|compliant --note \"source\"")
+    print("\nRead only: nothing is changed. The automatic TASIS screen decides (v0.2.7: no per-stock overrides); "
+          "group 2 is the strict side by design.")
 
 
 HELD_FILE = "held_halal.json"
@@ -407,7 +382,6 @@ def held_view(cfg, write=False):
     al = tc.read_json("alerts.json", {"alerts": []}) or {"alerts": []}
     store = tc.read_json(HELD_FILE, {"symbols": {}}) or {"symbols": {}}
     store.setdefault("symbols", {})
-    overrides = tc.read_json("halal_overrides.json", {}) or {}
     open_pos = [x for x in pos.get("positions", []) if x.get("status") == "open"]
     backfilled = []
     for x in open_pos:                                  # the status at buy time (v0.2.4); older positions backfilled
@@ -425,17 +399,11 @@ def held_view(cfg, write=False):
         first = min(mine, key=lambda x: x.get("opened") or x.get("imported") or "")
         since_held = first.get("opened") or first.get("imported")     # an imported holding: held since at least then
         at_buy = first.get("halal_at_buy") or {}
-        rec = tc.halal_status(sym, uni)                 # the list record, overrides applied
+        rec = tc.halal_status(sym, uni)                 # the list record
         mem = store["symbols"].get(sym) or {}
-        ov = overrides.get(sym) if (overrides.get(sym) or {}).get("status") in tc.STATUSES else None
         screen = mem.get("screen")
         rechecked = False
-        if ov:
-            screen = {"status": ov["status"], "ratios": (screen or {}).get("ratios") or rec.get("ratios") or {},
-                      "as_of": (screen or {}).get("as_of") or rec.get("as_of"), "near_limit": [], "over_limit": [],
-                      "reasons": ["your override: %s" % (ov.get("note") or "no note")], "screened": today,
-                      "source": "your override (set %s)" % (ov.get("date") or "UNKNOWN"), "error": None}
-        elif sym in tc.KNOWN_EXCLUDED:
+        if sym in tc.KNOWN_EXCLUDED:
             screen = {"status": "excluded", "ratios": {}, "as_of": None, "near_limit": [], "over_limit": [],
                       "reasons": ["core business: %s" % tc.KNOWN_EXCLUDED[sym]], "screened": today,
                       "source": "known exclusion", "error": None}
@@ -507,7 +475,7 @@ def held_view(cfg, write=False):
             item["purify"] = tc.purify_estimate(sym, qty, since_held, since, (alert or {}).get("since_price"),
                                                 last, ratio, divs)
         items.append(item)
-        mem = dict(mem, screen=screen if rechecked or ov or not mem.get("screen") else mem.get("screen"),
+        mem = dict(mem, screen=screen if rechecked or not mem.get("screen") else mem.get("screen"),
                    last_checked=today)
         if level != "UNKNOWN":
             mem["last_status"] = status_now
@@ -559,19 +527,6 @@ def cmd_held(a, cfg):
     print(tc.DISCLAIMER)
 
 
-def cmd_override(a, cfg):
-    if a.status not in tc.STATUSES:
-        tc.die("status must be one of %s" % ", ".join(tc.STATUSES))
-    ov = tc.read_json("halal_overrides.json", {}) or {}
-    sym = tc.normalize_symbol(a.symbol)
-    if a.clear:
-        ov.pop(sym, None)
-    else:
-        ov[sym] = {"status": a.status, "note": a.note or "", "date": tc.today_ist().isoformat()}
-    tc.write_json("halal_overrides.json", ov)
-    print("%s override for %s" % ("cleared" if a.clear else "set %s" % a.status, sym))
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--json", action="store_true")
@@ -587,24 +542,16 @@ def main(argv=None):
     c.add_argument("--live", action="store_true", help="screen symbols not in the universe now")
     l_ = sub.add_parser("list")
     l_.add_argument("--status", choices=tc.STATUSES)
-    cp = sub.add_parser("compare", help="compare with a trusted Shariah list (CSV with a Symbol column)")
+    cp = sub.add_parser("compare", help="compare with a trusted Shariah list (CSV with a Symbol column): read only")
     cp.add_argument("file")
-    cp.add_argument("--accept-income-reviews", action="store_true",
-                    help="override to compliant the stocks this list calls compliant where our only objection "
-                         "is the income test (never debt or cash failures)")
-    o = sub.add_parser("override", help="your own (or your scholar's) ruling on one stock")
-    o.add_argument("symbol")
-    o.add_argument("--status", default="excluded")
-    o.add_argument("--note")
-    o.add_argument("--clear", action="store_true")
     hd = sub.add_parser("held", help="re-check the stocks you hold (v0.2.4); alerts once per status change")
     hd.add_argument("--write", action="store_true", help="save held_halal.json, alerts.json and positions' status at buy")
-    for sp in (b, c, l_, o, cp, hd):
+    for sp in (b, c, l_, cp, hd):
         sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     a = p.parse_args(argv)
     cfg = tc.load_config()
     tc.report_config(cfg)
-    {"build": cmd_build, "check": cmd_check, "list": cmd_list, "override": cmd_override,
+    {"build": cmd_build, "check": cmd_check, "list": cmd_list,
      "compare": cmd_compare, "held": cmd_held}[a.cmd](a, cfg)
 
 

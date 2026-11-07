@@ -126,15 +126,15 @@ class Held(OfflineCase):
         self.assertNotIn("sell_ticket", x)                     # never read as non-compliant...
         self.assertIsNone(self.read("held_halal.json")["symbols"]["GOLF"].get("last_status"))   # ...nor compliant
 
-    def test_overrides_win(self):
+    def test_old_overrides_file_is_ignored(self):
         self.uni_age()
         self.write("positions.json", {"positions": [position("ECHO"), position("ALFA")]})
         self.write("halal_overrides.json", {"ECHO": {"status": "compliant", "note": "my scholar", "date": "2026-10-20"},
                                             "ALFA": {"status": "excluded", "note": "my scholar", "date": "2026-10-20"}})
         out = self.held()
         lv = {x["symbol"]: x["level"] for x in out["held"]}
-        self.assertEqual(lv, {"ALFA": "BLOCK", "ECHO": None})
-        self.assertIn("override", [x for x in out["held"] if x["symbol"] == "ALFA"][0]["source"])
+        self.assertEqual(lv, {"ALFA": None, "ECHO": "BLOCK"})                # v0.2.7: the screen decides
+        self.assertFalse([x for x in out["held"] if "override" in (x.get("source") or "")])
 
     def test_backfill_and_no_write_without_flag(self):
         self.write("positions.json", {"positions": [position("ALFA", at_buy=None)]})

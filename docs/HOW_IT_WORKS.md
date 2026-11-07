@@ -55,7 +55,7 @@ Every step is a small Python script (standard library only) in its own folder, `
 to each other through JSON files in a `trader/` folder in your working directory:
 
 ```
-tayyib-halal      -> trader/halal_universe.json   (+ your trader/halal_overrides.json)
+tayyib-halal      -> trader/halal_universe.json   (automatic, no overrides since v0.2.7)
 tayyib-scanner    -> trader/scan.json
 tayyib-news       -> trader/news.json
 tayyib-exit       -> trader/plan.json

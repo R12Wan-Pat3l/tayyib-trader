@@ -143,9 +143,9 @@ class SecondRun(OfflineCase):
         self.run_script("tayyib-scanner/scan.py", "--mode", "swing")          # default follows the scan
         self.assertEqual(self.run_script("tayyib-exit/exit.py", "plan", "ALFA")[0]["mode"], "swing")
 
-    def test_accept_income_reviews(self):
+    def test_compare_is_read_only(self):
+        """v0.2.7: --accept-income-reviews and overrides are gone; compare changes nothing."""
         self.build_universe()
-        self.run_script("tayyib-halal/halal.py", "override", "BRVO", "--status", "review", as_json=False)
         u = self.read("halal_universe.json")
         u["stocks"]["CHRL"]["status"] = "review"
         u["stocks"]["CHRL"]["reasons"] = ["non-compliant income is 4.00%", "only the income test failed, by under 2x the limit"]
@@ -153,11 +153,10 @@ class SecondRun(OfflineCase):
         p = os.path.join(self.dir, "t.csv")
         with open(p, "w") as f:
             f.write("Symbol\nCHRL\nDLTA\n")
-        self.run_script("tayyib-halal/halal.py", "compare", p, "--accept-income-reviews", as_json=False)
-        ov = self.read("halal_overrides.json")
-        self.assertEqual(ov["CHRL"]["status"], "compliant")
-        self.assertNotIn("DLTA", ov)                     # debt failure is never auto-accepted
-        self.assertEqual(ov["BRVO"]["status"], "review")
+        before = self.read("halal_universe.json")
+        self.run_script("tayyib-halal/halal.py", "compare", p, as_json=False)
+        self.assertEqual(self.read("halal_universe.json"), before)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "halal_overrides.json")))
 
 
 class Dedupe(OfflineCase):
@@ -305,10 +304,11 @@ class NinthRun(OfflineCase):
         self.assertEqual(r["ratios"]["interest_income_pct"], 1.54)          # fallback: revenue + interest
         self.assertIn("not reported", r["ratios"]["total_income_basis"])
 
-    def test_build_summary_counts_overrides(self):
+    def test_build_summary_ignores_an_old_overrides_file(self):
+        """v0.2.7: the counts are the screen's; an old overrides file changes nothing and gives one note."""
         self.write("halal_overrides.json", {"ECHO": {"status": "compliant", "note": "test"}})
         out = self.build_universe()
         self.assertEqual(out["counts"]["review"], 1)
-        self.assertEqual(out["counts_with_overrides"]["review"], 0)
-        self.assertEqual(out["counts_with_overrides"]["compliant"], out["counts"]["compliant"] + 1)
-        self.assertEqual(out["overrides"], 1)
+        self.assertNotIn("counts_with_overrides", out)
+        self.assertNotIn("overrides", out)
+        self.assertEqual(out["notes"].count(tc.OVERRIDES_NOTE), 1)

@@ -491,16 +491,16 @@ class EmailAction(ServerCase):
         for path in ("/api/settings", "/api/meta", "/api/run/status", "/api/today"):
             r, out = self.req(path)
             self.assertNotIn(SECRET, json.dumps(out), path)
-        st = self.get("/api/settings")["email"]
+        st = D.email_status()                                   # still used by the CLI-facing parts
         self.assertEqual((st["password_set"], st["password_text"]), (True, "Password: set"))
         os.environ.pop(A.PW_ENV)
-        st = self.get("/api/settings")["email"]
+        st = D.email_status()
         self.assertEqual((st["password_set"], st["password_text"]), (False, "Password: not set"))
         self.assertIn('setx TAYYIB_SMTP_PASSWORD', st["setx"])
-        g = [x for x in self.get("/api/settings")["groups"] if x["id"] == "email"][0]
-        keys = [f["key"] for sec in g["sections"] for f in sec["fields"]]
-        self.assertEqual(sorted(keys), sorted(k for k in tc.DEFAULT_CONFIG_DOCS if k.startswith("email.")))
-        self.assertFalse([k for k in keys if tc.is_secret_key(k)])
+        # v0.2.7: email is an advanced setting (config.json only): no Email group on the Settings page
+        s = self.get("/api/settings")
+        self.assertNotIn("email", s)
+        self.assertFalse([g for g in s["groups"] if g["id"] == "email"])
 
     def test_host_check_and_methods(self):
         r, _ = self.req("/api/settings", host="evil.example")
@@ -516,25 +516,23 @@ class FirstRun(ServerCase):
         m = self.get("/api/meta")
         self.assertTrue(m["first_run"])
         su = m["setup"]
-        self.assertEqual(su["keys"], ["capital", "broker", "max_risk_per_trade_pct", "email.enabled", "email.from", "email.to"])
+        self.assertEqual(su["keys"], ["capital", "broker", "max_risk_per_trade_pct"])        # v0.2.7: no email
         self.assertEqual([p["value"] for p in su["risk_presets"]], [0.5, 1.0, 1.5, 2.0])
+        self.assertNotIn("email", su)
         with mock.patch.dict(os.environ, {A.PW_ENV: SECRET}):
             m2 = self.get("/api/meta")
-        self.assertTrue(m2["setup"]["email"]["password_set"])
-        self.assertNotIn(SECRET, json.dumps(m2))                          # yes / no only, never the value
-        for bad in ({"capital": 5}, {"max_risk_per_trade_pct": 9}, {"broker": "robinhood"},
-                    {"email.from": "not an address"}, {"email.password": SECRET}, {"email.to": ["a@x.com"] * 4},
+        self.assertNotIn(SECRET, json.dumps(m2))                          # never the value
+        for bad in ({"capital": 5}, {"max_risk_per_trade_pct": 9}, {"broker": "robinhood"}, {"broker": "custom"},
+                    {"email.from": "me@example.com"}, {"email.password": SECRET}, {"email.enabled": True},
                     {"product": "MIS"}):
             body = {"version": su["version"], "set": dict({"capital": 200000}, **bad), "reset": []}
             r, out = self.post("/api/config", body)
             self.assertEqual(r.status, 400, bad)
             self.assertFalse(os.path.exists(os.path.join(self.dir, "config.json")), bad)
         r, out = self.post("/api/config", {"version": su["version"], "reset": [], "set": {
-            "capital": 250000, "broker": "groww", "max_risk_per_trade_pct": 0.5, "email.enabled": False,
-            "email.from": "me@example.com", "email.to": []}})
+            "capital": 250000, "broker": "groww", "max_risk_per_trade_pct": 0.5}})
         self.assertEqual(r.status, 200, out)
-        self.assertEqual(self.read("config.json"), {"capital": 250000, "broker": "groww", "max_risk_per_trade_pct": 0.5,
-                                                    "email": {"enabled": False, "from": "me@example.com", "to": []}})
+        self.assertEqual(self.read("config.json"), {"capital": 250000, "broker": "groww", "max_risk_per_trade_pct": 0.5})
         self.assertFalse(self.get("/api/meta")["first_run"])
 
     def test_page(self):

@@ -40,7 +40,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | tayyib-dashboard | local web page over the `trader/` files (127.0.0.1): Today, Results, Halal, Tickets, Backtest, Settings; GET only except `POST /api/config` and `POST /api/run` (today's list, a backtest, or (v0.2.3) a test email); first-run setup when `config.json` is missing |
 | tayyib-email | today's list to the user's own inbox (personal use only; at most 3 addresses): banners first, PASS cards, other rows, tracker, held-but-not-compliant in red; FAILED / stale email instead of old picks; nothing on market-closed days; password only from `TAYYIB_SMTP_PASSWORD`; `trader/email/` (v0.2.3) |
 | tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json` |
-| tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), plus user overrides; `compare` against a trusted fund list; `held`: re-checks the stocks you hold (v0.2.4) |
+| tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), automatic, no overrides (v0.2.7); `compare` (read-only) against a trusted fund list; `held`: re-checks the stocks you hold (v0.2.4) |
 | tayyib-scanner | swing setups (breakout, pullback, oversold, squeeze) and delivery (trend) |
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
 | tayyib-entry / tayyib-exit | trigger status; stop (swing max 10%, delivery max 15%), target (2R / 3R), time stop |
@@ -54,12 +54,12 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 
 | file | contents |
 |---|---|
-| `daily/YYYY-MM-DD.json` | `banner` (first key, only when halal thresholds are looser than TASIS), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (list-level warnings; v0.1.9 wording: "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy."), `settings{hash, label ("default@4" when nothing differs, = default@2 in decisions; "default@2" / "default@3" on older lists; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
+| `daily/YYYY-MM-DD.json` | `banner` (first key; always null since v0.2.7, when the halal rules became fixed), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (list-level warnings; v0.1.9 wording: "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy."), `settings{hash, label ("default@4" when nothing differs, = default@2 in decisions; "default@2" / "default@3" on older lists; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
 | `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result`. v0.1.7 flags: HALAL ratio items `near_limit` (at or above `halal.near_limit_pct` = 90% of the limit), PLAN `stop capped` item with `stop_capped: true`, SETUP context items with `op: "info"` (% above the 200-day average, 126-day return) |
 | `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
-| `halal_universe.json` | `updated, source, method` ("TASIS-style" or "custom"), `thresholds{4 limits}`, `loosened` (the note, or null), `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys from 90% of their limit up to it), over_limit[] (at or over it); v0.1.7}}` |
+| `halal_universe.json` | `updated, source, method` ("TASIS-style"), `thresholds{4 limits}`, `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys from 90% of their limit up to it), over_limit[] (at or over it); v0.1.7}}` |
 | settings for a UI | `tc.DEFAULT_CONFIG_DOCS`: `key -> {description, min, max, unit, type, ...}` for every setting; `tc.validate_config(user) -> (cfg, notes)`; `tc.risk_preview(cfg)` (also `daily.py --risk-preview --json`) |
-| `halal_overrides.json` | `{SYM: {status, note, date}}`: the user's rulings, which always win |
+| `halal_overrides.json` | no longer used (v0.2.7): never read or written; an old file gives one daily note |
 | `orders.json`, `positions.json` | tickets (status SIZED/PASS/WARN/BLOCK/PLACED) and the trade journal |
 | `scan.json`, `plan.json`, `sim.json`, `news.json`, `alerts.json`, `config.json` | intermediate results and settings |
 | `backtest/<id>.json` (+ `.md`) | v0.2.0: `params, settings{label, hash}, window{from, to, split}, universe{compliant, tested, skipped}, skipped[{symbol, reason}], banners[]` (3 always + conditional), `metrics{overall, by_setup, by_mode}` (trades, win rate, avg / expectancy R, profit factor, return, CAGR, max drawdown with peak/trough dates, losing streak, exposure, charges), `split{in_sample, out_of_sample}`, `benchmarks{SHARIABEES.NS, ^NSEI}` (UNKNOWN + reason when not fetched), `trades[]`, `equity_curve[]`. See TECHNICAL.md |
@@ -74,8 +74,8 @@ over MCP (stdio), none of which place orders.
   `review` (blocked by default).
 - **Validated** against Nippon India ETF Shariah BeES and Tata Ethical Fund holdings (Sep 2026):
   - The automatic screen agreed on 81%, and every difference was on the strict side.
-  - Agreement rose to 94.8% after 8 overrides checked against FY26 annual reports: SUNPHARMA, CIPLA,
-    BHEL, BSOFT, CUMMINSIND, SONACOMS, SWIGGY, SYNGENE.
+  - (Until v0.2.6, 8 overrides from FY26 annual reports raised that to 94.8%: SUNPHARMA, CIPLA, BHEL,
+    BSOFT, CUMMINSIND, SONACOMS, SWIGGY, SYNGENE. v0.2.7 removed overrides: the automatic screen decides.)
   - ALKEM stays in review (strict ratio 2.91–2.98%).
   - HINDALCO and INDUSTOWER stay excluded (debt over 25%).
 - **Charges** match Zerodha's published delivery rates to the paisa.
@@ -88,11 +88,17 @@ over MCP (stdio), none of which place orders.
   (`tests/baseline.py`, `tests/fixtures/baseline_v0.1.4.json.gz`). Every value is validated against
   `DEFAULT_CONFIG_DOCS`; an invalid one falls back to its default for that key only and is reported as
   `CONFIG: ...`. No key can enable intraday, F&O, shorting, margin/MTF or non-compliant stocks.
-- **Halal loosening policy:** stricter than TASIS is always allowed. Looser (debt > 25, income > 3,
-  cash + receivables > 90, assumed return < 8, or `allow_review`) needs a written `halal.loosen_note`
-  (the user's scholar or source); without it the tool reports an error and keeps TASIS. With it, every
-  daily list and halal list output starts with "Halal thresholds are looser than TASIS (your
-  setting): <note>". **No AAOIFI preset:** it needs market value, and we fetch no share count; we do
+- **Simple settings, halal locked (v0.2.7, owner decision, default@5):** the Settings page shows only
+  money & risk (capital, risk per trade 0.25–3%, max position 5–40%, max open 1–20), broker (zerodha /
+  groww; "custom" removed), five strategy switches (at least one on) and holidays, plus a read-only Halal
+  card and "Always on". Fixed in code (`tc.FIXED_KEYS`; `validate_config` ignores a change with "... is
+  fixed and can't be changed", an equal value silently): every halal threshold, `halal.method`,
+  `allow_review` (off), `parent_list_url`, all charges and broker tables, `user_agent`. `halal.loosen_note`
+  removed. No per-stock overrides. Everything else (plan, setup thresholds, liquidity, ranking, email,
+  regime, news) is advanced: valid in config.json, same validation, listed on the page as "Advanced
+  settings changed in config.json: N". The halal freshness keys (`list_max_age_days`, `auto_rebuild_days`,
+  `near_limit_pct`, `held_recheck_days`, `exit_grace_days`) are advanced, not fixed. (Until v0.2.6 a looser
+  threshold needed a `halal.loosen_note`.) **No AAOIFI preset:** it needs market value, and we fetch no share count; we do
   not approximate it.
 - **Pullback on by default (v0.2.6, default@4):** v0.2.5 switched it off (default@3) from its own trades (5 y: 46,
   -0.21R); the whole-strategy backtest was worse without it on both windows (5 y CAGR 8.0% -> 4.1%, 3 y 7.9% -> 7.0%),
@@ -120,12 +126,12 @@ over MCP (stdio), none of which place orders.
   a stock compliant on its own.
 - **Dashboard (v0.1.7):** read-only, `127.0.0.1` only, GET / HEAD only (others 405), Host header checked
   (403), no CORS, whitelisted files, no write call. Python does every calculation; the page only draws.
-  Every row and ticket is re-checked against the current halal universe + overrides; a changed stock
+  Every row and ticket is re-checked against the current halal universe; a changed stock
   shows "halal status changed since this list: re-check" and no levels. Designed with UI/UX Pro Max:
   `design-system/tayyib/MASTER.md` (plain CSS, offline, system fonts, light + dark, status by label +
   shape, colour-blind-safe Okabe-Ito hues, en-IN numbers).
 - **Near vs over limit (v0.1.7 review):** `near_limit` means near_limit_pct% ≤ value < limit; value ≥ limit is
-  `over_limit`, a separate flag and label. A compliant stock can show "over limit" only through your override.
+  `over_limit`, a separate flag and label. A compliant stock can't be over a limit (overrides are gone since v0.2.7).
 - **Exit planner and entries.json (v0.1.7 review):** an entry record replaces today's scan signal only once the
   setup has TRIGGERED, or when the scan has nothing newer. Before, a WAITING record from an earlier day won, which
   kept WELSPUNLIV on its 2026-11-04 signal and ticket id on the 2026-11-05 list (a stale ticket, not a kept id by
@@ -157,8 +163,7 @@ over MCP (stdio), none of which place orders.
   baseline unchanged). On day t only bars[0..t] are used; fills from t+1. The risk check runs on the
   simulated book (held + waiting + approved that day); BLOCK never placed, WARN placed unless
   `--no-take-warn`; news and halal-list age can't be replayed (skipped, counted, banner). Ranking uses the
-  time machine only when the order can change what is bought. Universe = today's compliant list
-  (overrides win); a stock joins on its 250th bar (`joined_late[]`). Sale proceeds pay for fills from the
+  time machine only when the order can change what is bought. Universe = today's compliant list; a stock joins on its 250th bar (`joined_late[]`). Sale proceeds pay for fills from the
   next day. Groups under 30 trades are `too_few`. Banners: today's halal list, survivorship bias, "past
   results" and "news can't be replayed" always; Nifty 50 did better (reference only, not halal).
   v0.2.2: the window ends on the last completed session (`end_rule`); the late joiners' share of P&L is
@@ -225,7 +230,11 @@ over MCP (stdio), none of which place orders.
   the Backtest tab.
 - **v0.2.7** (this release): install from the docs alone. `start.sh` (Mac / Linux), `tools/smoke_fresh.py`
   (fresh-install smoke test, in CI), README three quick starts, the no-Claude command for every journal step in
-  the user guide, troubleshooting rows, a developer quick start. No decision changes (default@4).
+  the user guide, troubleshooting rows, a developer quick start. Then the owner decision **simple settings**:
+  only money/risk, broker, strategies and holidays on the page; halal rules, charges and user agent fixed in
+  code; halal overrides removed; backtest `--max-positions` follows `max_open_positions` (6). default@5:
+  with the same halal list every decision equals default@4 (= default@2), proved by
+  `tests/fixtures/baseline_default5.json.gz`.
 - **Next:** switch the regime filter on only with a robust-compare verdict of 80%+ on 3 and 5 years.
 
 Later:

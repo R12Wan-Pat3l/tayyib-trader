@@ -11,13 +11,14 @@ outcome rules and Zerodha delivery charges):
   next days    a plan fills when price trades through its entry (by its valid-until date), then exits at
                the stop, the target, breakeven or the time stop exactly like the paper tracker
   one account  one cash balance (never negative, no margin; sale proceeds usable from the next day), one
-               position per stock, at most --max-positions open or waiting, charges on every buy and sell
+               position per stock, at most --max-positions open or waiting (default: max_open_positions in
+               your settings, v0.2.7), charges on every buy and sell
 
 Writes trader/backtest/<id>.json and .md with --write, and nothing else (prices go to the usual cache).
 A replay of the past with today's halal list: read the banners. Places no order.
 
   backtest.py run [--mode swing|delivery|all] [--setups breakout,pullback] [--years 3]
-                  [--from YYYY-MM-DD --to YYYY-MM-DD] [--capital N] [--max-positions 5]
+                  [--from YYYY-MM-DD --to YYYY-MM-DD] [--capital N] [--max-positions N]
                   [--split YYYY-MM-DD] [--no-take-warn] [--no-late] [--compare] [--write] [--json]
 
 Without --to the window ends on the last completed session: today after 15:30 IST on a trading day,
@@ -84,8 +85,8 @@ def reason_name(text):
 # ---------------------------------------------------------------------------
 
 def halal_universe(uni):
-    """Compliant stocks after your overrides (tc.halal_status applies halal_overrides.json last, so overrides
-    win). review, excluded and unknown are never traded, whatever halal.allow_review says.
+    """Compliant stocks of the halal list (the automatic TASIS screen; v0.2.7: no per-stock overrides). review,
+    excluded and unknown are never traded.
     -> (sorted symbols, {status: count})."""
     syms, counts = [], {}
     for s in sorted((uni or {}).get("stocks") or {}):
@@ -1662,7 +1663,8 @@ def main(argv=None):
     r.add_argument("--from", dest="from_", help="YYYY-MM-DD (default: --years before --to)")
     r.add_argument("--to", help="YYYY-MM-DD (default: today)")
     r.add_argument("--capital", type=float, help="default: capital in config")
-    r.add_argument("--max-positions", type=int, default=5)
+    r.add_argument("--max-positions", type=int, default=None,
+                   help="default: max_open_positions in your settings (6 unless you changed it; v0.2.7)")
     r.add_argument("--split", help="in-sample / out-of-sample date (default: the start of the last third)")
     r.add_argument("--take-warn", dest="take_warn", action="store_true", default=True,
                    help="place plans the risk check WARNs about, as you can live (default)")
@@ -1731,6 +1733,9 @@ def main(argv=None):
         if a.capital <= 0:
             tc.die("--capital must be positive")
         cfg["capital"] = a.capital
+    mp_from = "--max-positions" if a.max_positions is not None else "config max_open_positions"
+    if a.max_positions is None:                           # v0.2.7: the user's own setting, not a fixed 5
+        a.max_positions = cfg["max_open_positions"]
     if a.max_positions < 1:
         tc.die("--max-positions must be at least 1")
     setups = None
@@ -1763,7 +1768,7 @@ def main(argv=None):
     if not uni.get("stocks"):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first")
     params = {"mode": a.mode, "setups": setups, "from": start, "to": end, "split": split,
-              "max_positions": a.max_positions, "top": cfg["daily"]["top"], "warmup_bars": WARMUP_BARS,
+              "max_positions": a.max_positions, "max_positions_from": mp_from, "top": cfg["daily"]["top"], "warmup_bars": WARMUP_BARS,
               "tm_runs": TM_RUNS, "tm_seed": TM_SEED, "take_warn": a.take_warn, "compare": a.compare,
               "late": a.late, "end_rule": end_rule}
     if a.regime != "off" or a.regime_compare:              # v0.2.4 (left out when off, so earlier ids stay the same)

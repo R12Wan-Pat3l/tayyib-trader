@@ -5,8 +5,8 @@
   py tayyib-dashboard/dashboard.py --port 8800 --no-browser
 
 Six tabs: Today (the daily list, top picks, each row's Why, a "Run today's list" button), Results (the
-paper tracker, price charts, equity curve), Halal (the screened universe, ratios against the limits, your
-overrides), Tickets (unplaced tickets with the Kite / Groww steps to copy, your positions journal),
+paper tracker, price charts, equity curve), Halal (the screened universe, ratios against the limits,
+the automatic TASIS screen), Tickets (unplaced tickets with the Kite / Groww steps to copy, your positions journal),
 Backtest (saved tayyib-backtest runs, a "Run backtest" button) and Settings (config.json, validated, with a
 risk preview and backups).
 
@@ -220,7 +220,7 @@ def daily_dates():
 
 
 def current(cfg=None):
-    """The current halal universe with overrides (what every check uses now)."""
+    """The current halal universe (what every check uses now)."""
     uni = tc.load_universe()
     return uni, (lambda sym: tc.halal_status(sym, uni))
 
@@ -340,9 +340,7 @@ def halal_badge(why):
     over = [x["check"] for x in items if over_of(x)]
     near = [x["check"] for x in items if near_of(x)]
     if over:
-        ov = any(x.get("check") == "your override" for x in why if x.get("group") == "HALAL")
-        return {"state": "over", "label": "halal: compliant by your override, ratio over limit" if ov
-                else "halal: over limit", "detail": ", ".join(over)}
+        return {"state": "over", "label": "halal: over limit", "detail": ", ".join(over)}
     if near:
         return {"state": "near", "label": "halal: near limit", "detail": ", ".join(near)}
     if not items or all(x.get("value") is None for x in items):
@@ -670,7 +668,6 @@ def api_halal(q):
     h = cfg["halal"]
     limits = {k: h[k] for k in tc.TASIS_HALAL}
     near = h.get("near_limit_pct", 90)
-    overrides = tc.read_json("halal_overrides.json", {}) or {}
     stocks, counts = [], {}
     for sym in sorted((uni.get("stocks") or {})):
         rec = tc.halal_status(sym, uni)
@@ -693,15 +690,12 @@ def api_halal(q):
                          "over" if over else "near" if nl else "ok",
                          "state_text": NOT_CHECKED if not_checked else UNKNOWN if v is None else
                          "over limit" if over else "near limit" if nl else "within limit"})
-        ov = overrides.get(sym)
         stocks.append({"symbol": sym, "name": rec.get("name", ""), "industry": rec.get("industry", ""),
                        "status": st, "reasons": rec.get("reasons") or [], "as_of": text(rec.get("as_of")),
                        "assumed_return_text": num(ratios.get("assumed_return_pct"), 2, "%"),
                        "total_income_basis": ratios.get("total_income_basis"),
                        "ratios": bars, "near_limit": [b["key"] for b in bars if b["near_limit"]],
-                       "over_limit": [b["key"] for b in bars if b["over"]], "not_checked": not_checked,
-                       "override": {"status": ov.get("status"), "note": text(ov.get("note")),
-                                    "date": text(ov.get("date"))} if ov else None})
+                       "over_limit": [b["key"] for b in bars if b["over"]], "not_checked": not_checked})
     return {"updated": text(uni.get("updated")), "source": text(uni.get("source")), "method": text(uni.get("method")),
             "limits": limits, "list_thresholds": uni.get("thresholds"), "near_limit_pct": near,
             "banner": tc.halal_banner(cfg, uni), "counts": counts, "stocks": stocks, "donut": donut(counts),
@@ -1369,72 +1363,38 @@ def bt_chart(q):
                           t["exit_reason"], t["exit_date"], signed_r(t["r"]))}
 
 
-# --- Settings (v0.1.8): every documented key, grouped. Validation is tc.validate_config, via actions.py ------
+# --- Settings (v0.2.7: simple). Only tc.PAGE_KEYS have a field. Everything else is fixed in code (halal, charges,
+# user agent) or advanced (config.json only, for developers). Validation is tc.validate_config, via actions.py ------
 
 def _group_of(key):
-    if key in ("capital", "max_risk_per_trade_pct", "max_risk_per_trade_rs", "max_position_pct", "max_open_positions",
-               "max_portfolio_heat_pct", "max_positions_per_industry", "min_reward_risk", "cash_available"):
-        return "risk", "Money and limits"
-    if key.startswith("modes.swing."):
-        return "plan", "Swing trades"
-    if key.startswith("modes.delivery."):
-        return "plan", "Delivery trades"
-    if key == "tick_size":
-        return "plan", "Prices"
-    if key.startswith("scanner.setups."):
-        name = key.split(".")[2]
-        return "selection", "Setup: %s (%s)" % (name, "delivery" if name in tc.DELIVERY_SETUPS else "swing")
-    if key in ("min_price", "min_turnover_rs") or key in ("scanner.warmup_bars", "scanner.min_history_bars",
-                                                           "scanner.liquidity_days"):
-        return "selection", "Liquidity and history"
-    if key.startswith("daily."):
-        return "selection", "The daily list"
-    if key.startswith("email."):
-        return "email", "Your inbox"
-    if key.startswith("regime."):
-        return "regime", "Market regime filter"
-    if key in ("halal.held_recheck_days", "halal.exit_grace_days"):
-        return "halal", "Stocks you hold"
-    if key in ("broker", "exchange") or key.startswith("charges."):
-        return "broker", "Broker and charges"
-    if key.startswith("brokers."):
-        return "broker", "Brokerage: %s" % key.split(".")[1]
-    if key.startswith("halal."):
-        return "halal", ("Your source" if key in ("halal.loosen_note", "halal.allow_review") else
-                         "Thresholds" if key.startswith("halal.max_") or key.endswith("_return_pct") or key == "halal.method"
-                         else "The halal list")
-    return "data", "Data and calendar"
+    if key in ("capital", "max_risk_per_trade_pct", "max_position_pct", "max_open_positions"):
+        return "money", "Your money and limits"
+    if key == "broker":
+        return "broker", "Your broker"
+    if key in tc.STRATEGY_KEYS:
+        return "strategies", "Five strategies"
+    if key == "holidays":
+        return "holidays", "Market holidays"
+    return None, None
 
 
 SETTING_GROUPS = (
-    ("risk", "Risk", "What you can lose: per trade, per stock and in total. The preview on the right shows it in rupees."),
-    ("plan", "Plan", "Where the stop and the target go, and how long a trade may stay open, per mode."),
-    ("selection", "Selection", "Which setups are looked for, the liquidity filter and how the daily list is ranked."),
-    ("broker", "Broker & charges", "The charges every quantity and every result in R is computed after."),
-    ("halal", "Halal", "Stricter than TASIS saves freely. Looser needs your source or scholar, and every list then says so."),
-    ("email", "Email", "Today's list by email to your own inbox, sent from this computer after the scheduled run. "
-              "The password is never stored here: it is read only from the environment variable TAYYIB_SMTP_PASSWORD."),
-    ("regime", "Regime", "Optional, OFF by default: change new trades when the market index is in a downtrend. "
-                         "Test it in the Backtest tab first (--regime-compare). The index is a thermometer, never a "
-                         "stock to buy."),
-    ("data", "Data & calendar", "Holidays, news sources and the request header."),
+    ("money", "Money & risk", "What you can lose: per trade and per stock, and how many trades at once. The preview "
+                              "shows it in rupees."),
+    ("broker", "Broker", "Zerodha or Groww. The charges (brokerage, STT, stamp duty, exchange, SEBI, GST and the DP "
+                         "charge) come from the built-in tables for your broker and can't be edited."),
+    ("strategies", "Strategies", "Which kinds of setup the daily list looks for. All five are on by default; at least "
+                                 "one must stay on."),
+    ("holidays", "Holidays", "NSE trading holidays, one date a line (YYYY-MM-DD). Plan dates and the scheduled run "
+                             "skip them."),
 )
-SECTION_ORDER = {"plan": ("Swing trades", "Delivery trades", "Prices"),
-                 "selection": ("The daily list", "Liquidity and history"),
-                 "halal": ("Thresholds", "Your source", "The halal list", "Stocks you hold")}
-TASIS_LOOSER = {"max_debt_to_assets_pct": "above", "max_noncompliant_income_pct": "above",
-                "max_cash_receivables_to_assets_pct": "above", "noncompliant_investment_return_pct": "below"}
-
-
-NOTE_WORDS = "your source / scholar note"
 
 
 def plain(text):
-    """User-facing text: no internal key names for the source note, ₹ for Rs."""
+    """User-facing text: ₹ for Rs."""
     if not text:
         return text
-    return (text.replace("halal.loosen_note", NOTE_WORDS).replace("loosen_note", NOTE_WORDS)
-            .replace("Rs ", "₹"))
+    return text.replace("Rs ", "₹")
 
 
 def field_name(key):
@@ -1442,14 +1402,9 @@ def field_name(key):
     doc = tc.DEFAULT_CONFIG_DOCS.get(key)
     if doc is None:
         return key
-    if key == "halal.loosen_note":
-        return "Your source / scholar note"
+    if doc.get("label"):
+        return doc["label"]
     return plain(re.sub(r"\s*\(null = [^)]*\)", "", doc["description"]))
-
-
-def _with_unit(v, key):
-    doc = tc.DEFAULT_CONFIG_DOCS.get(key) or {}
-    return v + ("%" if doc.get("unit") == "%" else "")
 
 
 def friendly(err):
@@ -1457,34 +1412,29 @@ def friendly(err):
     The validator's own message stays in `message` (CLI and daily notes keep it); only the page rewords."""
     m, key = err["message"], err.get("key")
     out = dict(err, needs_note=False)
-    x = re.match(r"CONFIG ERROR: halal\.(\w+) = (\S+) is looser than TASIS \(([^)]*)\)", m)
-    if x:
-        out["needs_note"] = True
-        if x.group(1) == "allow_review":
-            text = ("Letting 'review' stocks through is looser than TASIS. Add your source / scholar note below "
-                    "to save this, or turn it off.")
-        else:
-            text = ("%s is looser than TASIS (%s). Add your source / scholar note below to save this, or reset "
-                    "to %s." % (_with_unit(x.group(2), key), _with_unit(x.group(3), key), _with_unit(x.group(3), key)))
+    x = re.match(r"CONFIG: [\w.]+ = (.*) invalid \((.*)\), using (?:default|the defaults).*$", m)
+    y = re.match(r"CONFIG: [\w.]+ = (.*) ignored: it is a hard rule and stays (.*)$", m)
+    z = re.match(r"CONFIG: [\w.]+ = (.*) ignored: it " + re.escape(tc.FIXED_NOTE) + r" \(stays (.*)\)$", m)
+    if m == tc.STRATEGY_ERROR:
+        text = "At least one strategy must stay on."
+    elif x and key:
+        text = "%s is not allowed (%s)." % (x.group(1), x.group(2).replace("range ", "allowed: "))
+    elif y and key:
+        text = "This is a hard rule: it stays %s." % y.group(2)
+    elif z:
+        text = "Fixed in the code: it stays %s." % z.group(2)
     else:
-        x = re.match(r"CONFIG: [\w.]+ = (.*) invalid \((.*)\), using (?:default|the defaults).*$", m)
-        y = re.match(r"CONFIG: [\w.]+ = (.*) ignored: it is a hard rule and stays (.*)$", m)
-        if x and key:
-            text = "%s is not allowed (%s)." % (x.group(1), x.group(2).replace("range ", "allowed: "))
-        elif y and key:
-            text = "This is a hard rule: it stays %s." % y.group(2)
-        else:
-            text = plain(re.sub(r"^CONFIG(?: ERROR)?: ", "", m))
-            text = text[:1].upper() + text[1:]
+        text = plain(re.sub(r"^CONFIG(?: ERROR)?: ", "", m))
+        text = text[:1].upper() + text[1:]
     out["text"] = text
     short = re.sub(r"\s*\([^)]*\)$", "", re.split(r"\.\s+(?=[A-Z])", field_name(key))[0]) if key else ""
+    if m == tc.STRATEGY_ERROR:
+        short = "Strategies"
     out["full"] = "%s: %s" % (short, text) if key else text
     return out
 
 
 def friendly_info(n):
-    if n.startswith(tc.HALAL_METHOD_NOTE):
-        return "Your halal thresholds differ from TASIS, so the halal method is saved as 'custom'."
     t = plain(re.sub(r"^CONFIG(?: ERROR)?: ", "", n))
     return t[:1].upper() + t[1:]
 
@@ -1494,8 +1444,8 @@ def friendly_errors(errors):
 
 
 def account_note(snap):
-    """'Kept your own capital ₹2,00,000 and broker groww: they are not part of the label.' or None."""
-    acc = snap.get("account_differs") or []
+    """'Your own capital ₹2,00,000 and broker groww are kept: they are not part of the settings label.' or None."""
+    acc = [d for d in (snap.get("account_differs") or []) if not tc.is_fixed_key(d["key"])]
     if not acc or not str(snap.get("label") or "").startswith("default@"):
         return None                           # with other changes the label is the hash, which includes them
     order = ("capital", "cash_available", "broker", "exchange")
@@ -1556,29 +1506,26 @@ def setting_field(key, cur, saved, raw_has):
          "default_text": _value_text(dflt, doc), "value_text": _value_text(v, doc), "range_text": _range_text(doc),
          "slider": doc["type"] in ("number", "int") and doc.get("min") is not None and doc.get("unit") != "Rs"
                    and (doc["max"] - doc["min"]) <= 1000, "step": _step(doc) if doc["type"] in ("number", "int") else None}
-    short = key.split(".")[-1]
-    if key.startswith("halal.") and short in TASIS_LOOSER:
-        f["tasis"] = tc.TASIS_HALAL[short]
-        f["looser"] = TASIS_LOOSER[short]
-        f["tasis_text"] = "TASIS %s%%: %s it is looser and needs your source" % (
-            tc._fmt_val(tc.TASIS_HALAL[short]), "higher" if TASIS_LOOSER[short] == "above" else "lower")
-    if key == "halal.allow_review":
-        f["tasis_text"] = "on is looser than TASIS and needs your source"
-    if key == "halal.loosen_note":
-        f["label"] = "Your source / scholar note: who allowed thresholds looser than TASIS"
-        f["multiline"] = True
-    if key.startswith("scanner.setups.") and short == "enabled":
-        f["toggle_section"] = True
+    if key == "broker":
+        f["choice_labels"] = dict(BROKER_CHOICES)
+    if doc.get("hint"):
+        f["hint"] = doc["hint"]
     if doc.get("note"):
         f["note"] = doc["note"]
     return f
 
 
 def reset_keys(account=False):
-    """The keys "Reset all to defaults" sends as {"reset": [...]}: every editable setting, without the account
-    facts (capital, cash, broker and charges) unless `account`. Only the form changes; a save writes it."""
-    return [k for k, doc in tc.DEFAULT_CONFIG_DOCS.items()
-            if doc["type"] != "locked" and (account or not tc.is_account_key(k))]
+    """The keys "Reset all to defaults" sends as {"reset": [...]}: every page setting, without the account facts
+    (capital and broker) unless `account`. Only the form changes; a save writes it."""
+    return [k for k in tc.PAGE_KEYS if account or not tc.is_account_key(k)]
+
+
+ALWAYS_ON = tuple(tc.HARD_RULES) + (
+    "only halal-compliant stocks can pass: review, excluded and unknown never do",
+    "the halal rules (the TASIS limits), the broker charges and the Nifty 500 list are fixed in the code",
+    "every data request says honestly what it is (tayyib-trader), never a browser",
+)
 
 
 def api_settings(q):
@@ -1587,42 +1534,35 @@ def api_settings(q):
     cfg, notes = tc.validate_config(base)
     cur, saved = A._flat(cfg), A._flat(base)
     groups = {g: {"id": g, "title": t, "intro": i, "sections": []} for g, t, i in SETTING_GROUPS}
-    for key, doc in tc.DEFAULT_CONFIG_DOCS.items():
-        if doc["type"] == "locked":
-            continue                                        # hard rules: in the "Always on" card, not an option
+    for key in tc.PAGE_KEYS:
         g, sec = _group_of(key)
         secs = groups[g]["sections"]
         if not secs or secs[-1]["title"] != sec:
-            found = [x for x in secs if x["title"] == sec]
-            if found:
-                secs.append(secs.pop(secs.index(found[0])))
-            else:
-                secs.append({"title": sec, "fields": []})
-        f = setting_field(key, cur, saved, key in saved)
-        if f.get("toggle_section"):
-            secs[-1]["toggle"] = f
-        else:
-            secs[-1]["fields"].append(f)
+            secs.append({"title": sec, "fields": []})
+        secs[-1]["fields"].append(setting_field(key, cur, saved, key in saved))
     for g in groups.values():
-        order = SECTION_ORDER.get(g["id"], ())
-        g["sections"].sort(key=lambda x: order.index(x["title"]) if x["title"] in order else len(order))
         g["keys"] = []                                # what "Reset this section" puts back to the defaults
         for sec in g["sections"]:
-            fs = sec["fields"] + ([sec["toggle"]] if sec.get("toggle") else [])
-            sec["changed"] = sum(1 for f in fs if f["changed"])
-            g["keys"] += [f["key"] for f in fs]
+            sec["changed"] = sum(1 for f in sec["fields"] if f["changed"])
+            g["keys"] += [f["key"] for f in sec["fields"]]
     snap = tc.settings_snapshot(cfg)
+    adv = tc.advanced_changes(snap)
     return {"groups": [groups[g] for g, _, _ in SETTING_GROUPS], "version": A.config_version(),
             "label": snap["label"], "changed": len(snap["differs_from_default"]),
-            "always_on": list(tc.HARD_RULES) + ["only halal-compliant stocks can pass (review needs your source; "
-                                                "excluded and unknown never pass)"],
+            "always_on": list(ALWAYS_ON),
+            "halal": {"title": "Halal", "rules": list(tc.HALAL_RULES), "fixed": tc.HALAL_FIXED_TEXT,
+                      "intro": "The automatic TASIS screen (the method of the NSE Shariah indices) decides which stocks "
+                               "are compliant. It errs on the strict side."},
+            "advanced": {"note": tc.advanced_note(snap), "count": len(adv),
+                         "keys": [{"key": d["key"], "value": tc._fmt_val(d["value"]), "default": tc._fmt_val(d["default"])}
+                                  for d in adv]},
             "notes": [friendly_info(n) for n in ([problem] if problem else []) + dropped]
                      + [e["full"] for e in friendly_errors(A._errors_by_key(tc.config_errors(notes)))],
             "account_note": account_note(snap),
             "reset_all": reset_keys(False), "account_keys": [k for k in reset_keys(True) if tc.is_account_key(k)],
-            "banner": tc.halal_banner(cfg), "backups": A.list_backups(), "keep_backups": A.KEEP_BACKUPS,
+            "banner": None, "backups": A.list_backups(), "keep_backups": A.KEEP_BACKUPS,
             "apply_note": A.APPLY_NOTE, "data_dir": tc.data_dir(),
-            "preview": preview_view(tc.risk_preview(cfg)), "email": email_status(cfg)}
+            "preview": preview_view(tc.risk_preview(cfg))}
 
 
 PERSONAL_NOTE = ("For your own inbox only. Sending the list to other people can count as publishing stock "
@@ -1663,8 +1603,8 @@ def setup_view():
             "brokers": [{"value": v, "label": l} for v, l in BROKER_CHOICES],
             "risk_presets": [{"value": v, "label": "%s%%" % tc._fmt_val(v),
                               "rupees": inr(d["capital"] * v / 100, 0)} for v in RISK_PRESETS],
-            "risk": d["max_risk_per_trade_pct"], "email": email_status(),
-            "keys": ["capital", "broker", "max_risk_per_trade_pct", "email.enabled", "email.from", "email.to"]}
+            "risk": d["max_risk_per_trade_pct"],
+            "keys": ["capital", "broker", "max_risk_per_trade_pct"]}
 
 
 def preview_view(rp):

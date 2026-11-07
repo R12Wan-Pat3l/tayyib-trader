@@ -124,7 +124,7 @@ def main(argv=None):
             sys.stderr.write("Rebuilding the halal list (%s): about 5 minutes...\n" % why)
         try:
             b = run("tayyib-halal", "halal.py", "build")
-            c = b.get("counts_with_overrides") or b["counts"]
+            c = b["counts"]
             notes.append("rebuilt the halal list (%s): %d compliant, %d review, %d excluded, %d unknown"
                          % (why, c["compliant"], c["review"], c["excluded"], c["unknown"]))
             notes += b.get("notes") or []                # where the Nifty 500 list came from (and its age)
@@ -283,6 +283,9 @@ def main(argv=None):
     rows.sort(key=lambda x: (order.get(x["risk"], 4),) + tc.rank_key(x["expectancy_r"], x["past_trades"],
                                                                      x["score"], K))
 
+    ov_note = tc.old_overrides_note()                      # v0.2.7: an old overrides file is never read
+    if ov_note and ov_note not in notes:
+        notes.append(ov_note)
     banner = tc.halal_banner(cfg, uni)
     out = {"banner": banner} if banner else {}
     out["banners"] = banners

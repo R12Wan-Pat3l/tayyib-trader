@@ -228,16 +228,16 @@ class Account(Patched):
 
 
 class Universe(OfflineCase):
-    def test_only_compliant_and_overrides_win(self):
+    def test_only_compliant_and_an_old_overrides_file_is_ignored(self):
         uni = {"stocks": {"AAA": {"status": "compliant"}, "BBB": {"status": "review"},
                           "CCC": {"status": "excluded"}, "DDD": {"status": "compliant"},
                           "EEE": {"status": "unknown"}, "ITC": {"status": "compliant"}}}
         self.write("halal_overrides.json", {"DDD": {"status": "excluded", "note": "my scholar"},
                                             "BBB": {"status": "compliant", "note": "annual report checked"}})
         syms, counts = bt.halal_universe(uni)
-        self.assertEqual(syms, ["AAA", "BBB"])
+        self.assertEqual(syms, ["AAA", "DDD"])                            # v0.2.7: the screen decides
         self.assertEqual(counts["compliant"], 2)                          # ITC: known excluded, whatever the list says
-        self.assertEqual(counts.get("review", 0), 0)
+        self.assertEqual(counts.get("review", 0), 1)                     # BBB stays review (no override)
 
     def test_trades_only_compliant_stocks(self):
         self.build_universe()

@@ -29,11 +29,13 @@
 ## Halal screen
 
 ### What makes a stock "halal" in this tool?
-Three checks, in order:
+Two checks, in order, both automatic:
 1. **Business screen:** is the company's main business permissible?
 2. **Financial screen:** three ratios from its latest annual accounts (TASIS method, the same one
    NSE uses for its Nifty Shariah indices).
-3. **Your overrides:** your own (or your scholar's) ruling on any stock, which always wins.
+
+There is no per-stock override (since v0.2.7): the automatic screen decides, and it errs on the strict
+side.
 
 Only stocks marked **compliant** reach the scanner, and the risk check blocks orders for anything
 else. This is an automated approximation, not a fatwa.
@@ -90,30 +92,25 @@ Nippon India ETF Shariah BeES and Tata Ethical Fund:
    - **They say compliant, we block:** the safe side, usually the assumed-8% income test.
    - **Not in our universe:** outside the Nifty 500.
 
-In November 2026 the automatic screen agreed on 81% of stocks, and every difference was on the strict
-side. That rose to 94.8% after checking 8 of the differences in their annual reports.
+In November 2026 the automatic screen agreed with those two Shariah funds on about 81% of stocks, and
+every difference was on the strict side: stocks they hold that we block, never the other way round.
+Comparing is read-only: it changes nothing.
 
 ### A stock I know is halal is blocked. What do I do?
-1. Ask "is SYMBOL halal?" to see which test it fails, and by how much.
-2. Check the annual report, a Shariah fund's holdings, or ask your scholar.
-3. If you agree it is compliant, record it: **"override SYMBOL as compliant, note: <your source>"**.
+1. Ask "is SYMBOL halal?" to see which test it fails, and by how much. Usually it is the assumed 8% on
+   short-term investments, which the annual report would settle.
+2. The tool will still not trade it. The screen is automatic and strict on purpose, and since v0.2.7 there
+   is no override: the about 19% of differences with Shariah funds are all stocks we block that they hold,
+   never stocks we pass that they don't. Missing a few halal stocks costs little; trading a non-compliant
+   one is the mistake this tool exists to avoid.
+3. If you are sure, and your scholar agrees, you can still buy it yourself, outside the tool.
 
-Overrides are kept when the list is rebuilt. To undo one: "clear the override for SYMBOL". It works
-the other way too: you can exclude a stock that the screen passes.
-
-### Can I loosen the halal thresholds?
-Only with a named source. The defaults are TASIS (the method behind the NSE Shariah indices):
-- **Stricter** limits (for example debt under 20%) are always allowed. No note is needed.
-- **Looser** limits are anything above TASIS: debt over 25%, non-compliant income over 3%, cash and
-  receivables over 90%, an assumed return under 8%, or letting `review` stocks through. These need a
-  `loosen_note` in your config saying who allows it: your scholar, or the published method you follow.
-- **Without the note**, the tool refuses: it reports an error and keeps the TASIS limit.
-- **With the note**, it uses your limits. Every daily list and every halal list output then starts with
-  "Halal thresholds are looser than TASIS (your setting): <your note>". That line stays until the
-  list is rebuilt with TASIS limits, so you can never forget the list was made with your limits.
-
-This is not the tool's ruling either way: it keeps the decision, and the responsibility for it, with
-you and your scholar, in writing.
+### Can I change the halal rules?
+No. The TASIS limits (debt under 25% of total assets, non-compliant income under 3%, cash + receivables
+under 90% of assets, an assumed 8% on short-term investments), the rule that "review" stocks are blocked,
+and the Nifty 500 list are fixed in the code since v0.2.7. The Settings page shows them as a read-only
+card. If `config.json` tries to change one, the tool ignores it with a `CONFIG:` line saying it "is fixed
+and can't be changed". An old `halal_overrides.json` is no longer read; the daily list says so once.
 
 ### How often is the halal list updated?
 Company accounts change only once a quarter, so a daily rebuild would add nothing. The daily list
@@ -238,7 +235,7 @@ tracker, so you can compare them with the older `default@1` lists.
 ### Why was this stock picked?
 Every row of the daily list carries its reasons, recorded at the moment each check was made, with the
 number measured and the limit it was compared with:
-- **HALAL:** status, any override of yours, the three ratios (debt, reported interest and the assumed
+- **HALAL:** status, the three ratios (debt, reported interest and the assumed
   8% part, cash + receivables) against their limits, and the date of the accounts.
 - **LIQUIDITY:** the price and the average daily traded value.
 - **SETUP:** each chart condition, for example "1.2% under the 20-day high (limit 3%)".
@@ -408,8 +405,8 @@ Yes. It is built so that only you, on your computer, can do it, and only within 
 - Each change must come from the dashboard page itself: the server checks the address, where the request
   came from and a secret code that is new every time the dashboard starts. Another website open in your
   browser cannot send one.
-- Every value goes through the same check as everywhere else (allowed ranges, halal loosening needs your
-  source). Anything invalid is refused and nothing is partly saved.
+- Every value goes through the same check as everywhere else (allowed ranges, at least one strategy
+  on). The halal rules, charges and the rest of the advanced settings can't be changed from the page. Anything invalid is refused and nothing is partly saved.
 - Before saving it shows you every change, it keeps a backup of your old settings (the last 20), and you
   can restore any of them.
 - The rules that keep it halal and cash-only (CNC only, no short selling, no F&O, no margin, compliant
@@ -418,7 +415,8 @@ Yes. It is built so that only you, on your computer, can do it, and only within 
 ### How accurate are the charges?
 For Zerodha delivery, they match Zerodha's published rates to the paisa: STT, NSE transaction charge,
 SEBI fee, stamp duty, GST and DP charge. For Groww, the brokerage is set to 0.1% (minimum Rs 5, maximum
-Rs 20 per order). Rates change, so check your broker's charges page now and then.
+Rs 20 per order). Rates change, so check your broker's charges page now and then. The charges are fixed in the code (they
+are not settings since v0.2.7); a new release updates them when the rates change.
 
 ### When should I run it?
 After 3:30 PM IST on a trading day, once the day's prices are final. If you run it during market hours it

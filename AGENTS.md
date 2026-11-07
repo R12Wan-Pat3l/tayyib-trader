@@ -23,10 +23,13 @@ analyses, plans and checks. It never places an order.
 7. Settings are validated (`tc.validate_config`). Read out every `CONFIG: ...` note: an invalid or
    unknown setting was ignored and its default used. Never add a config key, flag or code path that
    enables intraday, F&O, short selling, margin/MTF, non-compliant stocks or order placement.
-8. Halal thresholds: stricter than TASIS is fine. Looser (debt > 25%, non-compliant income > 3%,
-   cash + receivables > 90%, assumed return < 8%, or `allow_review`) only with a `halal.loosen_note`
-   naming the user's scholar or source; never fill that note in yourself. If an output starts with
-   "Halal thresholds are looser than TASIS (your setting): ...", say that line first.
+8. Halal rules are fixed in code (v0.2.7): the TASIS limits, `halal.method`, `allow_review` (always off),
+   the Nifty 500 list URL, every charge rate and broker table, and the user agent. `validate_config`
+   ignores any change to them ("... is fixed and can't be changed"). There are no per-stock overrides:
+   `halal_overrides.json` is never read or written. Never add a way to loosen the screen or mark a stock
+   compliant by hand; a stricter rule is a code change with tests. The Settings page has only money and
+   risk, broker (zerodha / groww), the five strategies (at least one on) and holidays; everything else is
+   an advanced config.json key.
 9. "Why was X picked?": answer from the row's `why[]` in `trader/daily/DATE.json`, quoting the values
    and limits it recorded. Say UNKNOWN where it says UNKNOWN. Never invent reasons, and never show a
    missing value as 0.

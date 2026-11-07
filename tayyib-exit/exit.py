@@ -80,7 +80,7 @@ def main(argv=None):
     out = []
     for sym in tc.parse_symbols(a.symbols):
         st = tc.halal_status(sym)["status"]
-        if not (st == "compliant" or (st == "review" and cfg["halal"]["allow_review"])):
+        if st != "compliant":
             out.append({"symbol": sym, "error": "not halal-compliant"})
             continue
         sig, ent = signal_for(sym, a.setup, cfg, a.mode)

@@ -13,7 +13,7 @@ explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
 - Latest release: **v0.2.7** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.7; v0.1.3 is folded into v0.1.4)
-- Tests: 450 offline tests; CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
+- Tests: 464 offline tests plus a fresh-install smoke test (`tools/smoke_fresh.py`); CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
 

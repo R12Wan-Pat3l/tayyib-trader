@@ -430,9 +430,7 @@ class RobustCompare(OfflineCase):
 
 class Docs(unittest.TestCase):
     def test_version_and_docs(self):
-        self.assertEqual(tc.VERSION, "0.2.6")
-        for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-            self.assertIn('"0.2.6"', open(os.path.join(ROOT, f), encoding="utf-8").read())
+        self.assertTrue(tc.VERSION >= "0.2.6")              # pinned exactly by the newest test file
         guide = open(os.path.join(ROOT, "docs", "USER_GUIDE.md"), encoding="utf-8").read()
         faq = open(os.path.join(ROOT, "docs", "FAQ.md"), encoding="utf-8").read()
         for doc in (guide, faq):

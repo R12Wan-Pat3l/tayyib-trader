@@ -455,7 +455,7 @@ class Docs(unittest.TestCase):
         readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
         self.assertIn("Import your holdings (Zerodha / Groww)", guide)
         self.assertLess(guide.index("Start without Claude Code"), guide.index("## Part 2"))   # an option in Part 1
-        self.assertIn("Quick start without Claude Code", readme)
+        self.assertIn("Windows, without Claude Code", readme)          # v0.2.7: the three quick starts
         for img in ("email-held-example.png", "today-regime-held.png", "tickets-held.png"):
             for doc in (guide, readme):
                 for line in doc.splitlines():

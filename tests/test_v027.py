@@ -151,6 +151,15 @@ class DocsCurrentDefault(unittest.TestCase):
         self.assertIsNone(self.HISTORIC.search("Your settings are the defaults, default@2."))
 
 
+class Release(unittest.TestCase):
+    def test_version(self):
+        self.assertEqual(tc.VERSION, "0.2.7")
+        self.assertEqual(tc.DEFAULTS_VERSION, 4)                       # docs and launchers only: no decision change
+        for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
+            with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
+                self.assertIn('"0.2.7"', fh.read())
+
+
 class McpHelp(unittest.TestCase):
     def test_help_and_version(self):
         server = os.path.join(ROOT, "mcp", "server.py")
@@ -161,6 +170,102 @@ class McpHelp(unittest.TestCase):
         p = subprocess.run([sys.executable, server, "--version"], capture_output=True, text=True, timeout=30,
                            stdin=subprocess.DEVNULL)
         self.assertEqual(p.stdout.strip(), tc.VERSION)
+
+
+class WelcomeSaveDefaults(unittest.TestCase):
+    """Fresh-install walkthrough: the Welcome screen's Save with the default values wrote no config.json, so the
+    Welcome screen came back after "Saved ✓". On the first run it now writes the file."""
+
+    def setUp(self):
+        import importlib.util
+        self.dir = tempfile.mkdtemp(prefix="tayyib-test-")
+        self.old = os.environ.get("TAYYIB_DIR")
+        os.environ["TAYYIB_DIR"] = self.dir
+        spec = importlib.util.spec_from_file_location("tayyib_actions_v027",
+                                                      os.path.join(ROOT, "tayyib-dashboard", "actions.py"))
+        self.A = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.A)
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("TAYYIB_DIR", None)
+        else:
+            os.environ["TAYYIB_DIR"] = self.old
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_first_save_with_defaults_writes_config(self):
+        A = self.A
+        self.assertFalse(os.path.exists(A.config_path()))
+        r = A.save_config({"version": A.config_version(), "set": {"capital": 100000}, "reset": []})
+        self.assertTrue(r["saved"], r)
+        self.assertTrue(os.path.exists(A.config_path()))
+        self.assertEqual(tc.settings_snapshot(tc.load_config())["label"], "default@%d" % tc.DEFAULTS_VERSION)
+        # once the file exists, the same save again changes nothing and writes nothing
+        before = A.config_bytes()
+        r = A.save_config({"version": A.config_version(), "set": {"capital": 100000}, "reset": []})
+        self.assertFalse(r["saved"])
+        self.assertEqual(A.config_bytes(), before)
+
+
+class WeekendNotStale(unittest.TestCase):
+    """Fresh-install walkthrough: a list made on a Saturday at 13:29 said "before the 3:30 PM close: levels can
+    move". On a weekend (or a holiday in the settings) the last close is final."""
+
+    def test_weekend_morning_is_not_before_the_close(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("tayyib_dashboard_v027",
+                                                      os.path.join(ROOT, "tayyib-dashboard", "dashboard.py"))
+        D = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(D)
+        import datetime as dt
+        with mock.patch.object(D.tc, "today_ist", lambda: dt.date(2026, 11, 7)), \
+                mock.patch.object(D.tc, "load_config", lambda *a, **k: {"holidays": ["2026-11-09"]}):
+            sat = D.staleness({"date": "2026-11-07", "asof": "2026-11-07T13:29+05:30"})
+            self.assertFalse(sat["stale"], sat)
+            fri = D.staleness({"date": "2026-11-07", "asof": "2026-11-06T13:29+05:30"})
+            self.assertTrue(any("before the 3:30 PM close" in r for r in fri["reasons"]), fri)
+            hol = D.staleness({"date": "2026-11-07", "asof": "2026-11-09T10:00+05:30"})
+            self.assertFalse(any("before the 3:30 PM close" in r for r in hol["reasons"]), hol)
+
+
+class NiftyIndicesUserAgent(unittest.TestCase):
+    """Fresh-install walkthrough: niftyindices.com reset every request whose user agent had a URL in it, so a new
+    user's first halal build always failed. The Nifty 500 download now sends the honest name without the link."""
+
+    def test_index_download_sends_name_without_link(self):
+        import importlib.util
+        import io
+        import urllib.error
+        import urllib.request
+        from unittest import mock
+        self.assertEqual(tc.INDEX_HEADERS["User-Agent"], "tayyib-trader/" + tc.VERSION)
+        sent = []
+
+        def urlopen(req, timeout=None):
+            sent.append(req)
+            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b""))
+        spec = importlib.util.spec_from_file_location("tayyib_halal_v027", os.path.join(ROOT, "tayyib-halal", "halal.py"))
+        H = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(H)
+        tmp = tempfile.mkdtemp(prefix="tayyib-test-")
+        old = os.environ.get("TAYYIB_DIR")
+        os.environ["TAYYIB_DIR"] = tmp
+        try:
+            with mock.patch.object(H.tc, "fixtures_dir", lambda: None), \
+                    mock.patch.object(urllib.request, "urlopen", urlopen):
+                with self.assertRaises(H.NoParentList):
+                    H.load_parent("https://niftyindices.com/IndexConstituent/ind_nifty500list.csv", "index/nifty500.csv")
+        finally:
+            if old is None:
+                os.environ.pop("TAYYIB_DIR", None)
+            else:
+                os.environ["TAYYIB_DIR"] = old
+            shutil.rmtree(tmp, ignore_errors=True)
+        ua = dict((k.lower(), v) for k, v in sent[0].header_items())["user-agent"]
+        self.assertEqual(ua, "tayyib-trader/" + tc.VERSION)
+        self.assertNotIn("http", ua)
+        self.assertNotIn("Mozilla", ua)
 
 
 class SmokeTool(unittest.TestCase):

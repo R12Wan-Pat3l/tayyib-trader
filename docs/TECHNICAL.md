@@ -17,7 +17,7 @@ For developers and anyone who wants to run the scripts directly. For the plain-w
 | BSE | nothing fetches BSE | (links only, opened by the user) |
 | Yahoo Finance charts and fundamentals | `tc.fetch` | `User-Agent: tayyib-trader/0.1 (+https://github.com/...)` (the default `user_agent`), `Accept: */*`, `Accept-Encoding: gzip` |
 | Google News RSS, Moneycontrol / ET / Livemint RSS | `tc.fetch` | the same as Yahoo |
-| niftyindices.com Nifty 500 list | tayyib-halal `build` | `tc.fetch`'s honest default (since the v0.1.9 review; `BROWSER_UA` is gone from the code) |
+| niftyindices.com Nifty 500 list | tayyib-halal `build` | `tc.INDEX_HEADERS`: `User-Agent: tayyib-trader/<VERSION>`, `Accept: */*` (v0.2.7: the site resets any user agent that contains a URL, so the link is left out; still no browser user agent. `BROWSER_UA` is gone from the code since v0.1.9) |
 
 **Nifty 500 list fallbacks (`halal.load_parent`):** a successful download (a CSV with a Symbol column and
 rows, every row with a symbol) is kept as `trader/cache/parent_list.csv` with `parent_list.json`

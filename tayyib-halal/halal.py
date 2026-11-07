@@ -31,7 +31,7 @@ def load_rows(src, fixture):
     if src and os.path.exists(src):
         with open(src, "r", encoding="utf-8-sig") as f:
             return tc.read_index_csv(f.read())
-    body = tc.fetch(src, fixture=fixture)                       # the honest user agent, like every fetch
+    body = tc.fetch(src, fixture=fixture, headers=tc.INDEX_HEADERS)   # honest name, no link (v0.2.7)
     return tc.read_index_csv(body.decode("utf-8-sig", "replace"))
 
 
@@ -72,7 +72,7 @@ def load_parent(src, fixture):
                       "note": "Nifty 500 list from your file %s" % os.path.basename(src)}
     why = None
     try:
-        body = tc.fetch(src, fixture=fixture)
+        body = tc.fetch(src, fixture=fixture, headers=tc.INDEX_HEADERS)   # honest name, no link (v0.2.7)
         text = body.decode("utf-8-sig", "replace")
         rows = _rows_or_none(text)
         if rows is not None:

@@ -256,7 +256,9 @@ def save_config(body):
         plan = plan_change(change)
         if not plan["ok"]:
             raise Refused(400, [e["message"] for e in plan["errors"]])
-        if not plan["diff"] and not plan["dropped"]:
+        # v0.2.7: on the first run (no config.json) the Welcome screen's save writes the file even with the
+        # default values, or the Welcome screen would come back every time after "Saved"
+        if not plan["diff"] and not plan["dropped"] and os.path.exists(config_path()):
             return {"saved": False, "label": plan["label"], "message": "Nothing changed.", "diff": []}
         backup = _backup_now()
         tc.write_json(config_path(), plan["user"])          # temp file + os.replace: never half written

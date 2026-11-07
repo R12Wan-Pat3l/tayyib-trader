@@ -281,7 +281,9 @@ def staleness(d):
         try:
             t = dt.datetime.fromisoformat(asof)
             t = t.astimezone(tc.IST) if t.tzinfo else t.replace(tzinfo=tc.IST)
-            if (t.hour, t.minute) < (15, 30):
+            # v0.2.7: on a weekend or a holiday in the settings the last close is final (found in the fresh-install
+            # check: a Saturday list said "levels can move")
+            if (t.hour, t.minute) < (15, 30) and tc.is_trading_day(t.date(), tc.load_config()):
                 reasons.append("written at %s IST, before the 3:30 PM close: levels can move" % t.strftime("%H:%M"))
         except ValueError:
             reasons.append("the time stamp %r could not be read" % asof)

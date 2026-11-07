@@ -3,7 +3,22 @@
 ## v0.2.7 (2026-11-07)
 
 Install and run from the docs alone: with or without Claude Code, on Windows, Mac or Linux. Docs, launchers and
-tests only: no decision changes (still default@4, which equals default@2).
+tests only, plus three fixes found by a real fresh install: no decision changes (still default@4, which equals
+default@2).
+
+### Fixed (found by installing from scratch with the user guide, on 2026-11-07)
+
+- **The first halal build failed for every new user.** niftyindices.com resets or stalls any request whose user
+  agent contains a link, and ours did (`tayyib-trader/0.1 (+https://github.com/...)`). The Nifty 500 download now
+  sends `tayyib-trader/<version>`: the same honest name, without the link (`tc.INDEX_HEADERS`). Existing users
+  were not affected while their saved copy of the list lasted.
+- **The dashboard hid why the first run failed.** It said only "no halal universe yet: run halal.py build first".
+  It now shows the build's own message (for example "Could not get the Nifty 500 list ... save it as
+  ...\ind_nifty500list.csv"), and the error text is no longer cut at 300 characters.
+- **The Welcome screen came back after "Saved ✓".** Saving the suggested values wrote no `config.json` ("Nothing
+  changed"), so the dashboard still thought it was the first run. On the first run the save now writes the file.
+- A list made at the weekend (or on a holiday in your settings) before 3:30 PM no longer says "before the 3:30 PM
+  close: levels can move": that day has no close.
 
 ### Added
 

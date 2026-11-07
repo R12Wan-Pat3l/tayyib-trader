@@ -98,13 +98,24 @@ open it in Notepad first and read what it does.
 
 **B4. The Welcome screen.** The very first time (no `config.json` yet) the dashboard opens a **Welcome**
 screen: your capital, your broker (Zerodha or Groww), your risk per trade (0.5%, 1%, 1.5% or 2%) and, if you
-want, your email address. Press **Save**. It saves them the same safe way as the Settings tab. There is no
-password field on purpose (see Part 3). **Not now** closes it; it comes back next time until you save.
+want, your email address. Press **Save settings** (even if you kept the suggested numbers): it says **Saved ✓**
+and your settings code (`default@4` if you kept the defaults). It saves them the same safe way as the Settings
+tab. There is no password field on purpose (see Part 3). **Not now** closes it; it comes back next time until
+you save.
 
-**B5. Your first list.** After 3:30 PM IST on a trading day, on the Today tab press **Run today's list**.
-The first run also **builds your halal list** (it checks about 500 companies): that takes about 5 minutes
-more than a normal run, and the progress panel shows it. After that the list refreshes itself every 30 days.
-When it finishes, the Today tab shows your list.
+**B5. Your first list.** After 3:30 PM IST on a trading day (or any time at the weekend: it then uses
+the last closing prices available), on the Today tab press **Run today's list**. A panel opens with a **Skip news** box:
+leave it unticked and press **Run today's list** in the panel. The first run also **builds your halal list**
+(it checks about 500 companies): the panel's first line is "Rebuilding the halal list (first run): about 5
+minutes...", and the whole first run takes about 6 to 10 minutes. You can close the panel; the run goes on.
+After that the halal list refreshes itself every 30 days. When it finishes, the panel says "Today's list
+(DATE) is ready": press **Show today's list**.
+
+If the panel says **FAILED** with "could not build the halal list ... Could not get the Nifty 500 list", the
+download of the list of companies was refused: see the first rows of
+[Something not working?](#something-not-working). Nothing was changed: fix it and press **Run today's list**
+again. A yellow "Exchange filings unavailable today (NSE did not answer)" banner on the list is normal: NSE
+usually refuses automated access, and the list says which checks that affects.
 
 **B6.** Every trading day after 3:30 PM: double-click `start.bat`, press **Run today's list**, read it, and
 place any order yourself in Kite or Groww (the Tickets tab has the steps). Part 2 below shows the rest.

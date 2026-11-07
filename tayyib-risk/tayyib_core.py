@@ -1039,6 +1039,10 @@ def fetch_json(url, fixture=None, **kw):
 # no bot-check circumvention anywhere in the project).
 HONEST_UA = "tayyib-trader/%s (+https://github.com/R12Wan-Pat3l/tayyib-trader)" % VERSION
 EXCHANGE_HEADERS = {"User-Agent": HONEST_UA, "Accept": "application/json"}
+# niftyindices.com (the Nifty 500 list) resets or stalls any request whose user agent contains a URL (found in
+# the v0.2.7 fresh-install check: every new user's first halal build failed). The same honest name, without the
+# link, is answered at once. Still what we are: no browser user agent, nothing hidden.
+INDEX_HEADERS = {"User-Agent": "tayyib-trader/%s" % VERSION, "Accept": "*/*"}
 
 
 def fetch_reason(err, who="the source"):

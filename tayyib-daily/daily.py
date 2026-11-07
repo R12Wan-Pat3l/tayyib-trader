@@ -46,7 +46,7 @@ def run(skill, name, *args, want_json=True):
     p = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
                        env=dict(os.environ, PYTHONIOENCODING="utf-8"))   # child scripts print UTF-8
     if p.returncode != 0:
-        raise RuntimeError("%s %s failed: %s" % (skill, " ".join(map(str, args)), (p.stderr or p.stdout).strip()[:300]))
+        raise RuntimeError("%s %s failed: %s" % (skill, " ".join(map(str, args)), (p.stderr or p.stdout).strip()[:900]))
     return json.loads(p.stdout) if want_json else p.stdout
 
 
@@ -114,6 +114,7 @@ def main(argv=None):
     K = cfg["daily"]["min_past_trades_for_rank"]
 
     # 1. halal universe: built on first run, rebuilt automatically once it is a month old
+    rebuild_error = None
     uni = tc.load_universe()
     age = tc.universe_age_days(uni) if uni.get("stocks") else None
     every = cfg["halal"].get("auto_rebuild_days") or 0
@@ -128,10 +129,13 @@ def main(argv=None):
                          % (why, c["compliant"], c["review"], c["excluded"], c["unknown"]))
             notes += b.get("notes") or []                # where the Nifty 500 list came from (and its age)
         except RuntimeError as e:
-            notes.append("halal list rebuild failed, using the existing list: %s" % str(e)[:600])
+            rebuild_error = str(e)[:900]
+            notes.append("halal list rebuild failed, using the existing list: %s" % rebuild_error)
         uni = tc.load_universe()
         age = tc.universe_age_days(uni)
     if not uni.get("stocks"):
+        if rebuild_error:                                   # v0.2.7: say why, not only "no universe"
+            tc.die("could not build the halal list (first run): %s" % rebuild_error)
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first (about 5 minutes, monthly)")
     if age is not None and age > cfg["halal"]["list_max_age_days"]:
         notes.append("halal list is %s old: rebuild it (halal.py build)" % tc.plural(age, "day"))

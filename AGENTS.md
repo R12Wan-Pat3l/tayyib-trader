@@ -79,7 +79,8 @@ python3 tayyib-broker/ticket.py show                # the ticket the user places
 Dashboard (127.0.0.1 only): `python3 tayyib-dashboard/dashboard.py [--port 8765] [--no-browser]`.
 Everything is GET / HEAD except exactly two write endpoints: `POST /api/config` (saves `trader/config.json`
 through `tc.validate_config`, with a backup) and `POST /api/run` (starts `tayyib-daily`, analysis only, or
-`tayyib-backtest run --years 3|5 --mode M [--compare] --write`, or (v0.2.3) `tayyib-email test`, or (v0.2.5)
+`tayyib-backtest run --years 3|5 --mode M [--compare] [--symbols=A,B,... | --holdings] --write` (v0.2.8: the
+symbols checked with `tc.check_backtest_symbols` before anything starts), or (v0.2.3) `tayyib-email test`, or (v0.2.5)
 `tayyib-broker import trader/import/FILE [--yes]` for a file already in `trader/import/` (Import only after a
 Preview of the same file), nothing else).
 Both need the Host, Origin, per-start token, JSON type and 64 KB checks. Never add another write endpoint,
@@ -89,7 +90,9 @@ While holding: `tayyib-alerts/alerts.py check`, `tayyib-broker/ticket.py stop|cl
 `tayyib-halal/halal.py held` (re-check the stocks you hold), `tayyib-purify/purify.py estimate SYMBOL --since D`.
 Research: `tayyib-results/results.py SYMBOL`, `tayyib-insider/insider.py SYMBOL`.
 Backtest: `tayyib-backtest/backtest.py run [--mode all] [--years 3] [--robust [N]] [--robust-compare A B] --write`
-(writes only `trader/backtest/`),
+(writes only `trader/backtest/`); v0.2.8 "My stocks": `--symbols A,B,...` (1 to 20, each compliant on today's list,
+or the run is refused) or `--holdings`. Say the hindsight line first ("You chose these stocks today..."), and never
+present a basket result as how the daily list did: "All halal stocks" is that test,
 `backtest.py list`, `backtest.py show ID`. Read out every line of its `banners[]` first: they are the
 honest limits (today's halal list applied to the past, survivorship bias, news can't be replayed, too few
 trades, overfit, the Shariah ETF did better). The Nifty 50 is reference only, never a halal option. A benchmark it could not fetch is UNKNOWN, never 0.

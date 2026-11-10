@@ -153,11 +153,8 @@ class DocsCurrentDefault(unittest.TestCase):
 
 class Release(unittest.TestCase):
     def test_version(self):
-        self.assertEqual(tc.VERSION, "0.2.7")
+        self.assertTrue(tc.VERSION >= "0.2.7")              # pinned exactly by the newest test file (test_v028)
         self.assertEqual(tc.DEFAULTS_VERSION, 5)                       # simple settings, halal locked, no overrides
-        for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-            with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
-                self.assertIn('"0.2.7"', fh.read())
 
 
 class McpHelp(unittest.TestCase):

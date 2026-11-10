@@ -7,7 +7,7 @@ description: >-
   expectancy in R, CAGR, max drawdown, in-sample vs out-of-sample and buy-and-hold of the Shariah ETF and
   Nifty 50. Writes trader/backtest/. Use when the user says "backtest", "test my strategy", "how did this
   strategy do", "past performance".
-argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions N] [--no-take-warn] [--compare] [--robust [N]] [--robust-compare A B] [--write] | list | show ID"
+argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max-positions N] [--no-take-warn] [--compare] [--robust [N]] [--robust-compare A B] [--symbols A,B,... | --holdings] [--write] | list | show ID"
 ---
 
 # tayyib-backtest
@@ -22,6 +22,8 @@ argument-hint: "run [--mode swing|delivery|all] [--years 3] [--capital N] [--max
 python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --write                 # last 3 years, swing + delivery, your config
 python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --mode swing --setups breakout,pullback --years 5 --write
 python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --from 2023-01-01 --to 2025-12-31 --capital 200000 --max-positions 4
+python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --years 5 --symbols TCS,INFY,NESTLEIND --write   # My stocks (v0.2.8)
+python3 "${CLAUDE_SKILL_DIR}/backtest.py" run --years 5 --holdings --write                # the stocks you hold
 python3 "${CLAUDE_SKILL_DIR}/backtest.py" list                        # saved runs
 python3 "${CLAUDE_SKILL_DIR}/backtest.py" show ID                     # one saved run
 ```
@@ -64,6 +66,17 @@ How to present it:
   "regime=close_below_200dma:half_risk"), read the verdict line first and exactly as written. Only "B is better in X
   of N runs" (80%+) supports changing a default; "No clear difference: don't change the default on this evidence"
   means keep it.
+
+**My stocks (v0.2.8).** `--symbols` (1 to 20) or `--holdings` runs the same strategy on that basket only and
+adds "Buy and hold these stocks" (equal shares, one buy and one sell charge) and a per-stock table (trades, wins,
+win rate, total R, P&L, holding return, better / worse / no trades). Every symbol must be compliant on today's
+halal list: a review, excluded, unknown or unlisted symbol refuses the whole run with its status; never retry
+without it silently, tell the user which one and why. When presenting it:
+- Read the hindsight line first: "You chose these stocks today, knowing how they did since. Results are likely
+  better than reality (hindsight)." Then "Small basket..." (under 10 stocks) and "Buying and holding these same
+  stocks did better." when present.
+- Never present a basket result as how the daily list did; "All halal stocks" (no flag) is that test.
+- A stock with no prices is UNKNOWN and left out of the basket: say so.
 
 ## Rules this skill never bends
 

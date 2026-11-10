@@ -44,7 +44,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.7"
+VERSION = "0.2.8"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -73,7 +73,8 @@ DEFAULTS_HISTORY = {
 DEFAULTS_SAME_AS = {4: 2, 5: 2}
 # the differences from the current defaults that make up an earlier defaults version exactly
 DEFAULTS_HISTORIC_DIFFS = {3: (("scanner.setups.pullback.enabled", False),)}
-# the Settings note under the pullback switch (v0.2.6)
+# the note that was under the pullback switch in Settings (v0.2.6 to v0.2.7). v0.2.8: the switch has its one plain line
+# like the other strategies; this text lives in the FAQ ("Why is pullback on?")
 PULLBACK_NOTE = ("On by default. On its own it lost money in 5-year backtests (\u22120.21R over 46 trades), but "
                  "switching it off made the whole strategy worse (5-year CAGR 8.0% \u2192 4.1%), because other trades "
                  "took its place.")
@@ -447,8 +448,6 @@ _SETUP_DOCS = {
 for _s, _rows in _SETUP_DOCS.items():
     _pre = "scanner.setups.%s." % _s
     DEFAULT_CONFIG_DOCS[_pre + "enabled"] = _doc("%s setup on (true) or off (false)" % _s, type="bool")
-    if _s == "pullback":
-        DEFAULT_CONFIG_DOCS[_pre + "enabled"]["note"] = PULLBACK_NOTE
     for _r in _rows:
         _k, _desc, _mn, _mx, _u = _r[:5]
         _t = _r[5] if len(_r) > 5 else ("int" if _u == "days" else "number")
@@ -3026,6 +3025,103 @@ def trade_positions(positions):
     """The journal's trades only: holdings never count in sizing, the risk check, stop/target alerts or any
     trade statistic."""
     return [p for p in positions or [] if not is_holding(p)]
+
+
+# ---------------------------------------------------------------------------
+# v0.2.8: "My stocks" backtest. One rule for the CLI (--symbols / --holdings), the dashboard's Run button and the
+# MCP tool: a symbol is capitals, digits, & or - (1 to 20 characters) and compliant on today's halal list. Anything
+# else is refused with the symbol and its status, never dropped.
+# ---------------------------------------------------------------------------
+
+BT_SYMBOL_RE = re.compile(r"^[A-Z0-9&-]{1,20}$")
+BT_MAX_SYMBOLS = 20
+BT_RAW_LIMIT = 200                 # entries looked at before refusing outright (the basket takes 20 at most)
+
+
+def _shown(x, n=24):
+    """A refused value, quoted and cut short, for an error message (never echoed in full)."""
+    s = x if isinstance(x, str) else repr(x)
+    return repr(s[:n] + ("…" if len(s) > n else ""))
+
+
+def parse_symbol_list(value):
+    """The format part of the rule. value: a comma-separated string (CLI / MCP: spaces around a comma are allowed)
+    or a list of strings (the dashboard: each entry exactly a symbol). -> (symbols in the order given, duplicates
+    removed; errors[]). An entry that is not a symbol is an error naming it, never dropped or rewritten."""
+    if isinstance(value, str):
+        items = [x.strip() for x in value.split(",")]
+        if items and items[-1] == "" and len(items) > 1:
+            items = items[:-1]                         # "TCS,INFY," is fine
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        return [], ["symbols must be a comma-separated text or a list of symbols"]
+    if len(items) > BT_RAW_LIMIT:
+        return [], ["%d entries: choose 1 to %d stocks" % (len(items), BT_MAX_SYMBOLS)]
+    out, errors = [], []
+    for x in items:
+        if not isinstance(x, str) or not BT_SYMBOL_RE.match(x):
+            hint = " (use capitals, e.g. TCS)" if isinstance(x, str) and BT_SYMBOL_RE.match(x.upper()) else ""
+            errors.append("%s is not an NSE symbol: capitals, digits, & and - only, 1 to 20 characters%s"
+                          % ("an empty entry" if x == "" else _shown(x), hint))
+            continue
+        if x not in out:
+            out.append(x)
+    if not errors and not out:
+        errors.append("choose 1 to %d stocks" % BT_MAX_SYMBOLS)
+    if len(out) > BT_MAX_SYMBOLS:
+        errors.append("%d stocks chosen: at most %d" % (len(out), BT_MAX_SYMBOLS))
+    return out, errors
+
+
+def symbol_refusal(sym, universe):
+    """None when `sym` is compliant on the halal list, else the reason it can't be tested (its status named)."""
+    stocks = (universe or {}).get("stocks") or {}
+    st = halal_status(sym, universe)
+    if st["status"] == "compliant":
+        return None
+    rs = [r for r in st.get("reasons") or [] if "passed" not in r and "within limits" not in r]
+    why = (rs or [""])[0]
+    if len(why) > 120:
+        why = why[:120].rsplit(" ", 1)[0].rstrip(" ,:;(") + "..."
+    if sym not in stocks and st["status"] == "unknown":
+        return "%s is not on today's halal list (not in the list): only compliant stocks can be tested" % sym
+    return "%s is %s on today's halal list%s: only compliant stocks can be tested" % (
+        sym, st["status"], " (%s)" % why if why else "")
+
+
+def check_backtest_symbols(value, universe):
+    """parse_symbol_list, then every symbol must be compliant on today's list. -> (sorted symbols, errors[]); the
+    symbols are only usable when errors is empty."""
+    syms, errors = parse_symbol_list(value)
+    if not errors:
+        errors = [e for e in (symbol_refusal(s, universe) for s in syms) if e]
+    return sorted(syms), errors
+
+
+def held_symbols(positions_doc):
+    """The stocks you hold (v0.2.8 --holdings): open trades from the journal and imported holdings, in
+    positions.json order, each once. Nothing is checked here: check_backtest_symbols does that."""
+    out = []
+    for p in (positions_doc or {}).get("positions") or []:
+        if p.get("status") == "open" and p.get("symbol"):
+            s = normalize_symbol(p["symbol"])
+            if s not in out:
+                out.append(s)
+    return out
+
+
+def check_holdings(positions_doc, universe):
+    """--holdings: the held symbols under the same rule. -> (sorted symbols, errors[]). No holdings is an error, and
+    so is a held stock that is not compliant (named with its status): it is never left out quietly."""
+    held = held_symbols(positions_doc)
+    if not held:
+        return [], ["no open trades or imported holdings in positions.json: nothing to test"]
+    if len(held) > BT_MAX_SYMBOLS:
+        return [], ["you hold %d stocks: the basket takes at most %d (use --symbols with up to %d of them)"
+                    % (len(held), BT_MAX_SYMBOLS, BT_MAX_SYMBOLS)]
+    syms, errors = check_backtest_symbols(held, universe)
+    return syms, ["held stock: " + e for e in errors]
 
 
 def buy_status_known(at_buy):

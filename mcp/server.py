@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VERSION = "0.2.7"
+VERSION = "0.2.8"
 PROTOCOL = "2025-06-18"
 
 
@@ -106,7 +106,9 @@ TOOLS = {
     "backtest_run": ("Backtest the daily strategy over past years on today's halal list with your capital and "
                      "settings: trades, win rate, expectancy, CAGR, max drawdown, in-sample vs out-of-sample, and "
                      "buy-and-hold of the Shariah ETF and Nifty 50. Slow (minutes: one price download per stock). "
-                     "Saves nothing. Show every banner it returns.",
+                     "Saves nothing. Show every banner it returns. v0.2.8: symbols (1 to 20 compliant stocks) or "
+                     "holdings (the stocks in positions.json) tests only that basket and compares it with buying and "
+                     "holding the same stocks; a symbol that is not compliant on today's halal list is refused.",
                      S({"mode": {"type": "string", "enum": ["swing", "delivery", "all"]},
                         "setups": {"type": "string", "description": "comma list, e.g. 'breakout,pullback'"},
                         "years": {"type": "integer"}, "from": {"type": "string", "description": "YYYY-MM-DD"},
@@ -114,14 +116,19 @@ TOOLS = {
                         "max_positions": {"type": "integer"}, "split": {"type": "string", "description": "YYYY-MM-DD"},
                         "take_warn": {"type": "boolean", "description": "place WARN plans too (default true)"},
                         "compare": {"type": "boolean", "description": "also run (b) ranked by setup score only and (c) without late joiners"},
-                        "late": {"type": "boolean", "description": "include stocks listed during the window (default true)"}}),
+                        "late": {"type": "boolean", "description": "include stocks listed during the window (default true)"},
+                        "symbols": {"type": "string", "description": "My stocks: 1 to 20 compliant NSE symbols, comma "
+                                    "separated, e.g. 'TCS,INFY' (not with holdings)"},
+                        "holdings": {"type": "boolean", "description": "test only the stocks you hold (not with symbols)"}}),
                      "tayyib-backtest/backtest.py",
                      lambda a: ["run"] + sum([["--" + k.replace("_", "-"), str(a[k])] for k in
                                               ("mode", "setups", "years", "from", "to", "capital", "max_positions",
                                                "split") if a.get(k) not in (None, "")], [])
                      + (["--no-take-warn"] if a.get("take_warn") is False else [])
                      + (["--no-late"] if a.get("late") is False else [])
-                     + (["--compare"] if a.get("compare") else [])),
+                     + (["--compare"] if a.get("compare") else [])
+                     + (["--symbols=" + ",".join(a["_symbols"])] if a.get("_symbols") else [])
+                     + (["--holdings"] if a.get("holdings") is True else [])),
     "backtest_list": ("Saved backtests (trader/backtest/): id, window, trades, return, CAGR, drawdown. With id: "
                       "that backtest in full.", S({"id": {"type": "string"}}), "tayyib-backtest/backtest.py",
                       lambda a: (["show", a["id"]] if a.get("id") else ["list"])),
@@ -132,11 +139,45 @@ TOOLS = {
 }
 
 
+def _core():
+    sys.path.insert(0, os.path.join(ROOT, "tayyib-backtest"))
+    import tayyib_core
+    return tayyib_core
+
+
+def check_backtest(args):
+    """v0.2.8: backtest_run's symbols / holdings, checked with the backtest's own rule (tc.check_backtest_symbols /
+    tc.check_holdings) before anything starts. -> (args with the checked list in _symbols, error or None)."""
+    args = {k: v for k, v in args.items() if k != "_symbols"}          # never taken from the caller
+    has_s, has_h = args.get("symbols") not in (None, ""), args.get("holdings") not in (None, False)
+    if not has_s and not has_h:
+        return args, None
+    if has_s and has_h:
+        return args, "symbols and holdings can't be combined: choose one"
+    tc = _core()
+    if has_h:
+        if args["holdings"] is not True:
+            return args, "holdings must be true"
+        _, errs = tc.check_holdings(tc.read_json("positions.json", {}) or {}, tc.load_universe())
+        return args, ("holdings refused: " + "; ".join(errs)) if errs else None
+    if not isinstance(args["symbols"], str):
+        return args, "symbols must be a comma-separated text, e.g. 'TCS,INFY'"
+    syms, errs = tc.check_backtest_symbols(args["symbols"], tc.load_universe())
+    if errs:
+        return args, "symbols refused: " + "; ".join(errs)
+    args["_symbols"] = syms
+    return args, None
+
+
 def run_tool(name, args):
     desc, schema, script, build = TOOLS[name]
     for k in schema.get("required", []):
         if k not in args:
             return True, "missing required argument: %s" % k
+    if name == "backtest_run":
+        args, err = check_backtest(args)
+        if err:
+            return True, err
     argv = [sys.executable, os.path.join(ROOT, script)] + build(args) + ["--json"]
     p = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace", timeout=1800,
                        env=dict(os.environ, PYTHONIOENCODING="utf-8"))   # child scripts print UTF-8

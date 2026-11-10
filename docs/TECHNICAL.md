@@ -176,7 +176,7 @@ link's `copy` field; the shared Copy helper says "Copied ✓") (`target="_blank"
 
 `backtest.py run [--mode] [--setups] [--years 3 | --from --to] [--capital] [--max-positions N] [--split]
 [--no-take-warn] [--no-late] [--compare] [--regime R] [--regime-compare] [--robust [N]] [--robust-compare A B]
-[--write] [--json]`, `list`, `show ID`. `--max-positions` defaults to config `max_open_positions` (6) since
+[--symbols SYM1,SYM2,... | --holdings] [--write] [--json]`, `list`, `show ID`. `--max-positions` defaults to config `max_open_positions` (6) since
 v0.2.7 (it was 5); `params.max_positions` and `params.max_positions_from` ("config max_open_positions" or
 "--max-positions") record it. `--robust` still runs 3 / 5 / 8.
 
@@ -248,7 +248,57 @@ Shariah ETF did better." when the strategy's CAGR is lower, a line saying the ET
 impossible when the ETF is UNKNOWN, and "The Nifty 50 (not halal-screened, price only) did better..." when
 its CAGR is higher (reference only, not a halal option).
 
-MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`) and `backtest_list` (list, or show with `id`).
+MCP: `backtest_run` (never passes `--write`; `take_warn`, `compare`; v0.2.8 `symbols` / `holdings`, below) and
+`backtest_list` (list, or show with `id`).
+
+## My stocks (`--symbols`, `--holdings`, v0.2.8)
+
+The backtest has two options: **all halal stocks** (no flag: exactly as before, same ids) and **a basket**:
+`--symbols SYM1,SYM2,...` (1 to 20) or `--holdings` (the open positions in `positions.json`: journal trades and
+imported holdings, `tc.held_symbols`). They can't be combined (exit 1). Decisions of the daily list are not touched
+(still default@5).
+
+- **Validation (one rule, in core):** `tc.parse_symbol_list(value)` (a comma string, spaces around commas allowed;
+  or a list whose entries must already be exact) checks each entry against `tc.BT_SYMBOL_RE` =
+  `^[A-Z0-9&-]{1,20}$`, removes duplicates and refuses more than `tc.BT_MAX_SYMBOLS` (20), and more than 200 raw
+  entries outright. `tc.check_backtest_symbols(value, universe)` then requires each to be `compliant` on today's
+  list (`tc.symbol_refusal`: "SYM is review / excluded / unknown on today's halal list (reason)" or "SYM is not on
+  today's halal list (not in the list)"). It returns the symbols sorted; any error refuses the whole request
+  (nothing is dropped or rewritten; lower case gets a "use capitals" hint, not a silent upper-casing).
+  `tc.check_holdings(positions, universe)` applies the same rule to the held symbols ("held stock: ..."), and
+  refuses an empty journal and more than 20 held stocks. The CLI checks right after loading the halal list, before
+  any price is loaded (exit 1, "--symbols refused: ..."); `run()` checks again and raises `ValueError`. The
+  dashboard action and the MCP tool call the same functions.
+- **Simulation:** `params.universe_mode` = `all` | `symbols` | `holdings`, `params.symbols` the sorted list. The
+  universe passed to `load_bars` is the basket instead of the compliant list; everything else (signals, plans,
+  ranking, risk check, sizing, charges, `max_open_positions`, late joiners, causality) is unchanged, so with every
+  compliant stock chosen the trades, metrics, curve and counts equal the "all" run (`test_v028`). `--compare`,
+  `--robust`, `--robust-compare` and `--no-late` work on the same bars (one load, no extra download).
+- **Basket benchmark (`basket_benchmark`):** the capital split equally across the chosen stocks in the test (a
+  stock with no usable prices, or a late joiner under `--no-late`, is UNKNOWN, out of the basket and listed in
+  `left_out[]`). Each is bought at the close of its first day in the window on or after its join day (250 bars,
+  as for the strategy), so a late joiner's share waits as cash; fractional units (`_units`: the buy charge is
+  paid from the share), one buy and one sell charge, valued at the last close. It uses the strategy's own days
+  and bars: nothing is downloaded. `basket {status, in_basket, share_rs, start, end, total_return_pct, cagr_pct,
+  max_drawdown_pct, drawdown_peak, drawdown_trough, charges_rs, curve [[date, value]], stocks {SYM: {status,
+  buy_date, buy_price, end_price, units, joined_late, share_rs, end_value_rs, charges_rs, return_pct} | {status
+  UNKNOWN, reason}}, left_out[], note}`; the first curve point is the capital. UNKNOWN (with `reason`, never 0)
+  when no stock had prices.
+- **Per stock (`stock_table`):** `stocks {rows[{symbol, name, trades, wins, win_rate_pct, total_r, pnl_rs,
+  strategy_return_pct (P&L / the stock's equal share), hold_return_pct, hold_status, hold_note, buy_date, vs
+  ("better" | "worse" | "same" | "no trades" | "UNKNOWN"), too_few (under 30)}], totals {trades, wins, total_r,
+  pnl_rs} (= the overall figures), note, outside[] (always empty)}`.
+- **Banners (`basket_banners`), first:** "You chose these stocks today, knowing how they did since. Results are
+  likely better than reality (hindsight)." always; "Small basket: fewer stocks means fewer trades and more luck."
+  under `SMALL_BASKET` (10) stocks tested; "Buying and holding these same stocks did better." when the basket's
+  CAGR is above the strategy's; the left-out stocks; then the usual banners (the four always-on ones included).
+- **Ids and lists:** `<to>_<mode>_<from>_sym<N>_<hash6>` / `_hold<N>_`; an "all" run keeps its v0.2.7 id
+  (`universe_mode` "all" is not hashed). `universe {mode, symbols, chosen}`; `universe_label()`: "all 183",
+  "5 stocks: TCS, INFY, ..." (5 names, then "+N more"), "3 held stocks: ...", used by `list` and the dashboard.
+  The .md adds the basket row to the benchmarks and "## Your stocks: strategy vs holding".
+- **MCP:** `backtest_run` takes `symbols` (text) or `holdings` (true). `mcp/server.py check_backtest()` runs the same
+  core checks before starting anything (an error result, no process) and passes the checked list as one argument
+  `--symbols=A,B`; a caller's `_symbols` is ignored. Still never `--write`.
 
 ## Simple settings (v0.2.7, default@5)
 
@@ -269,7 +319,8 @@ version 4 equals version 2 on every v2 key (plus the four `regime.*` keys added 
 default@4 snapshot is written (it would be default@2). `test_v025` keeps the history: `PULLBACK_ON` == default@2,
 `PULLBACK_OFF` == default@3. `tc.DEFAULTS_HISTORY` names every version; `settings_snapshot()` has `same_as`:
 "default@2" for default@4 (or account facts only), "default@3" when the only decision difference is pullback off,
-else None. The label stays `default@4` or the hash. The Settings note is `tc.PULLBACK_NOTE`.
+else None. The label stays `default@4` or the hash. `tc.PULLBACK_NOTE` was the Settings note until v0.2.7; since v0.2.8 the switch has its one line like the
+other strategies and the text is in the FAQ ("Why is pullback on?").
 
 `tc.pullback_migration()` (v0.2.6, run by `daily.py` before it loads the config, once per folder, recorded in
 `trader/notices.json` as `pullback_on_v026`) never writes `config.json`. Following the default (no
@@ -724,8 +775,9 @@ issues same-origin GETs to `/api/...`.
 | `/api/risk-preview?change=` | `tc.risk_preview` for the config with the pending change (`{"set": {key: value}, "reset": [key]}`) applied, plus that change's `diff`, `errors` by key and the new settings label. Writes nothing |
 | `/api/config/backups`, `/api/config/backup-diff?name=` | the backups (newest first), and what restoring one would change |
 | `/api/run/status` | `state` (idle / running / ok / failed), start time, elapsed, the last ~200 output lines, the exit code or error, and the before-15:30 `advice` |
-| `/api/backtests` | the saved runs in `trader/backtest/` whose file names a backtest writes (`DATE_MODE_DATE_hex6`), newest first by `run_at` (file time for older runs): id, run time, window, mode, settings label, trades, CAGR, max DD and a `label` for the picker. No folder: `{"missing": "backtest", "hint": "run a backtest"}` |
-| `/api/backtest?id=` | one run shaped for display, `order` = header, banners, cards, equity, breakdown, compare, trades, universe, footer (the page draws in this order, so the banners always come before any number): `header.items`, `banners[]` (verbatim), `cards` (strategy; Shariah BeES; Nifty 50 with `reference_only` and the label "not halal-screened, reference only"; UNKNOWN with the reason when a benchmark failed), `equity` (SVG coordinates of the three lines on one date axis from the capital, end labels, a drawdown strip with the worst drawdown's peak and trough marks), `breakdown` (overall, by mode, by setup, in- / out-of-sample; `too_few` rows carry "(too few to judge)"), `compare` (columns a, b, c), `trades` (display strings, R signed, `exit_kind`) with `filters`, `universe` (joined late, skipped, the late-joiner line), `footer`. An id must match the pattern and be one of the saved files |
+| `/api/backtests` | the saved runs in `trader/backtest/` whose file names a backtest writes (`DATE_MODE_DATE_hex6`, v0.2.8 also `DATE_MODE_DATE_symN_hex6` / `_holdN_`; the `universe` label in each row and in `label`), newest first by `run_at` (file time for older runs): id, run time, window, mode, settings label, trades, CAGR, max DD and a `label` for the picker. No folder: `{"missing": "backtest", "hint": "run a backtest"}` |
+| `/api/backtest?id=` | one run shaped for display, `order` = header, banners, cards, equity, breakdown, compare, trades, universe, footer (the page draws in this order, so the banners always come before any number): `header.items`, `banners[]` (verbatim), `cards` (strategy; Shariah BeES; Nifty 50 with `reference_only` and the label "not halal-screened, reference only"; UNKNOWN with the reason when a benchmark failed), `equity` (SVG coordinates of the three lines on one date axis from the capital, end labels, a drawdown strip with the worst drawdown's peak and trough marks), `breakdown` (overall, by mode, by setup, in- / out-of-sample; `too_few` rows carry "(too few to judge)"), `compare` (columns a, b, c), v0.2.8 for a basket run: `stocks` (the per-stock table, before `trades`), cards Strategy | Buy & hold these stocks | Shariah BeES (no Nifty card; the Nifty stays dotted in `equity`), the basket line (`kind` "basket") in `equity`, a "Stocks" header item, `universe_mode`; `trades` (display strings, R signed, `exit_kind`) with `filters`, `universe` (joined late, skipped, the late-joiner line), `footer`. An id must match the pattern and be one of the saved files |
+| `/api/backtest/choices` | (v0.2.8, read only) the Run panel's choices: `stocks[{symbol, name}]` (compliant only), `max` (20), `fair_note` ("Pick at least 10 stocks for a fairer test."), `holdings {available, symbols, reason}` (not available, with the reason, when nothing is held or a held stock is not compliant) |
 | `/api/chart?bt=ID&n=K` | trade K of a saved backtest on the same chart view as a tracker row (signal, plan levels, fill, exit), from the cached bars the backtest used (else a read-only fetch; else "price data unavailable") |
 | `/api/chart?symbol=&from=` | for one tracker row: daily bars around it, as SVG coordinates for the close line, the entry / stop / target lines and the fill / exit markers. Live fetch, else the last cached bars (labelled); else `{"status": "unknown", "message": "price data unavailable"}`. Never a guessed line |
 
@@ -783,7 +835,12 @@ them, and a label that would pass the right edge is anchored at its end.
 **Run (`POST /api/run`, `actions.Runner`):** the body is `{"skip_news": bool}` (→ tayyib-daily `--no-news`)
 or (v0.2.2) `{"backtest": {"years": 3 | 5, "mode": "all" | "swing" | "delivery", "compare": bool}}` (→
 `tayyib-backtest/backtest.py run --years N --mode M [--compare] --write`, built by `actions.backtest_argv`,
-nothing else; `--write` writes only `trader/backtest/` and the price cache). Anything else is 400
+nothing else; `--write` writes only `trader/backtest/` and the price cache). v0.2.8: the backtest object may also
+have `"symbols": [...]` (a JSON list of strings; `actions.backtest_universe` runs `tc.check_backtest_symbols` on
+today's list before anything starts: any refusal is 400 with the reasons, no process) or `"holdings": true`
+(`tc.check_holdings` on `positions.json`, same), not both. The argv gains exactly one `--symbols=A,B,...` (one
+argument, the checked symbols, so none can be read as an option) or `--holdings`. `subprocess.Popen` gets a list,
+never `shell=True`. Anything else is 400
 (`actions.run_request`). Daily and backtest share the one run slot: a POST while either runs is 409 with
 the reason. A backtest is `ok` only for exit code 0 and a new `backtest/*.json` (`backtest_id`); its
 `status` adds `kind`, `command`, and `progress` (its last stderr progress line). It starts `tayyib-daily/daily.py` with `sys.executable`, the same `TAYYIB_DIR`, UTF-8 and

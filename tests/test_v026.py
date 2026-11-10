@@ -62,12 +62,13 @@ class DefaultsV4(unittest.TestCase):
         self.assertEqual([tracker.settings_group(store, h) for h in ("a1", "b2")], ["default@3", "default@4"])
 
     def test_settings_note_and_ticked_checkbox(self):
-        self.assertEqual(tc.DEFAULT_CONFIG_DOCS["scanner.setups.pullback.enabled"]["note"], NOTE)
+        # v0.2.8: the switch has one short line like the other strategies; this note moved to the FAQ (test_v028)
+        self.assertNotIn("note", tc.DEFAULT_CONFIG_DOCS["scanner.setups.pullback.enabled"])
         self.assertEqual(tc.PULLBACK_NOTE, NOTE)
         os.environ["TAYYIB_DIR"] = os.path.join(FIX, "no-such-folder")
         f = DASH.setting_field("scanner.setups.pullback.enabled", A._flat(CFG), {}, False)
         self.assertEqual((f["value"], f["default"]), (True, True))
-        self.assertEqual(f["note"], NOTE)
+        self.assertNotIn("note", f)
 
 
 class BaselineV4(unittest.TestCase):

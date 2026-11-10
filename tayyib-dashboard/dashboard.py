@@ -13,7 +13,8 @@ risk preview and backups).
 It listens on 127.0.0.1 only, refuses requests whose Host header is not 127.0.0.1 or localhost on its own
 port and sends no CORS headers. Everything is GET / HEAD and reads only, except exactly two POST endpoints,
 both in actions.py: /api/config (save or restore config.json) and /api/run (start tayyib-daily, or
-tayyib-backtest with --write: years 3 or 5, a mode, compare on or off, nothing else). A POST
+tayyib-backtest with --write: years 3 or 5, a mode, compare on or off and (v0.2.8) either --symbols of 1 to 20
+compliant stocks, checked before anything starts, or --holdings; nothing else). A POST
 also needs an Origin of this server, the per-start token embedded in the page (X-Tayyib-Token),
 Content-Type application/json and a body of at most 64 KB. Any other method or path gets 405. This module
 itself writes nothing. Nothing here can place, change or cancel an order, and neither can anything else in
@@ -70,6 +71,14 @@ def _sibling(skill, name):
 
 
 _TRACKER = []
+_BACKTEST = []
+
+
+def backtest_mod():
+    """tayyib-backtest/backtest.py: its universe_label() names a run's stocks the way its own list does (v0.2.8)."""
+    if not _BACKTEST:
+        _BACKTEST.append(_sibling("tayyib-backtest", "backtest.py"))
+    return _BACKTEST[0]
 
 
 def tracker_mod():
@@ -885,16 +894,18 @@ def api_chart(q):
 # --- Backtest (v0.2.2): saved runs in trader/backtest/, read only. Runs start through POST /api/run ------------
 
 BT_DIR = "backtest"
-BT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(swing|delivery|all)_\d{4}-\d{2}-\d{2}_[0-9a-f]{6}$")
+BT_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(swing|delivery|all)_\d{4}-\d{2}-\d{2}(_(sym|hold)\d{1,2})?_[0-9a-f]{6}$")
 BT_MISSING = {"missing": "backtest", "hint": "run a backtest"}
 BT_FOOTER = "Past results do not predict future results. Not financial advice, not a fatwa."
-BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "robust", "regime", "trades", "universe",
-            "footer"]
+BT_ORDER = ["header", "banners", "cards", "equity", "breakdown", "compare", "robust", "regime", "stocks", "trades",
+            "universe", "footer"]
 TOO_FEW_TEXT = "(too few to judge)"
 NIFTY_LABEL = "not halal-screened, reference only"
 EXIT_KIND = {"TARGET": "pass", "STOP": "block", "BREAKEVEN": "warn", "TIME EXIT": "info", "OPEN AT END": "info"}
 BENCH_TITLES = {"SHARIABEES.NS": ("Shariah BeES", "halal benchmark: buy and hold Nippon India ETF Shariah BeES"),
                 "^NSEI": ("Nifty 50", NIFTY_LABEL)}
+BASKET_TITLE = ("Buy & hold these stocks", "the same stocks, equal shares, bought once and held")
+VS_KIND = {"better": "pass", "worse": "block", "no trades": "unknown", "same": "info", "UNKNOWN": "unknown"}
 
 
 def pct(x, dec=2):
@@ -947,7 +958,9 @@ def api_backtests(q):
             runs.append({"id": rid, "run_at": at, "run_at_text": at[:16].replace("T", " "),
                          "from": w.get("first_day"), "to": w.get("last_day"),
                          "window_text": "%s to %s" % (text(w.get("first_day")), text(w.get("last_day"))),
-                         "mode": r["params"]["mode"], "settings": r["settings"]["label"], "trades": m["trades"],
+                         "mode": r["params"]["mode"], "universe": bt_universe(r),
+                         "universe_mode": (r.get("universe") or {}).get("mode") or "all",
+                         "settings": r["settings"]["label"], "trades": m["trades"],
                          "cagr": pct(m.get("cagr_pct")), "max_dd": pct(m.get("max_drawdown_pct")),
                          "compare": bool(r.get("compare")), "version": r.get("version")})
         except (ValueError, KeyError, TypeError):
@@ -955,11 +968,41 @@ def api_backtests(q):
     runs.sort(key=lambda x: (x["run_at"], x["id"]), reverse=True)
     for x in runs:
         if "error" not in x:
-            x["label"] = "%s · %s · %s · %d trades · CAGR %s · max DD %s" % (
-                x["run_at_text"], x["window_text"], x["mode"], x["trades"], x["cagr"], x["max_dd"])
+            x["label"] = "%s · %s · %s · %s · %d trades · CAGR %s · max DD %s" % (
+                x["run_at_text"], x["window_text"], x["universe"], x["mode"], x["trades"], x["cagr"], x["max_dd"])
         else:
             x["label"] = "%s (could not be read)" % x["id"]
     return {"runs": runs, "count": len(runs)}
+
+
+def bt_universe(r):
+    """A8 (v0.2.8): "all 183" / "5 stocks: TCS, INFY, ..." (tayyib-backtest's own words)."""
+    mod = backtest_mod()
+    if mod is None:
+        return "all %s" % (r.get("universe") or {}).get("compliant", "?")
+    return mod.universe_label(r)
+
+
+def api_backtest_choices(q):
+    """GET /api/backtest/choices (v0.2.8, read only): what the Run backtest panel may offer: the compliant stocks only
+    (symbol, name) for the "My stocks" search, and whether "Stocks I hold" can run (and why not)."""
+    uni = tc.load_universe()
+    stocks = [{"symbol": s, "name": tc.halal_status(s, uni).get("name") or ""}
+              for s in sorted(uni.get("stocks") or {}) if tc.halal_status(s, uni)["status"] == "compliant"]
+    pos = tc.read_json("positions.json", {}) or {}
+    held = tc.held_symbols(pos)
+    syms, errs = tc.check_holdings(pos, uni) if held else ([], [])
+    if not uni.get("stocks"):
+        reason = "No halal list yet: run today's list first."
+    elif not held:
+        reason = "You have no open trades or imported holdings (Tickets tab: Import holdings)."
+    elif errs:
+        reason = "Can't test the stocks you hold: " + "; ".join(errs) + ". Use My stocks with the compliant ones."
+    else:
+        reason = None
+    return {"stocks": stocks, "max": tc.BT_MAX_SYMBOLS, "fair_min": 10,
+            "fair_note": "Pick at least 10 stocks for a fairer test.",
+            "holdings": {"available": reason is None, "symbols": syms if reason is None else held, "reason": reason}}
 
 
 def _metric_cells(m):
@@ -1022,14 +1065,28 @@ def bt_cards(r):
                         {"label": "Expectancy", "value": signed_r(o.get("expectancy_r"))},
                         {"label": "Trades", "value": str(o["trades"])},
                         {"label": "Win rate", "value": num(o.get("win_rate_pct"), 1, "%")}]}]
-    for sym in ("SHARIABEES.NS", "^NSEI"):
+    bk = r.get("basket")
+    if bk is not None:                          # v0.2.8: Strategy | Buy & hold these stocks | Shariah BeES
+        ok = bk.get("status") == "OK"
+        cards.append({"key": "basket", "kind": "basket", "title": BASKET_TITLE[0],
+                      "label": "%s (%s)" % (BASKET_TITLE[1], tc.plural(bk.get("in_basket") or 0, "stock")),
+                      "reference_only": False, "status": "OK" if ok else UNKNOWN,
+                      "note": None if ok else bk.get("reason"),
+                      "items": [{"label": "Total return", "value": pct(bk.get("total_return_pct")) if ok else UNKNOWN},
+                                {"label": "CAGR", "value": pct(bk.get("cagr_pct")) if ok else UNKNOWN},
+                                {"label": "Max drawdown", "value": pct(bk.get("max_drawdown_pct")) if ok else UNKNOWN}]})
+        cards[0]["items"].insert(0, {"label": "Total return", "value": pct(o.get("total_return_pct"))})
+        cards[0]["label"] = "the daily list's rules, on these stocks only"
+    for sym in ("SHARIABEES.NS",) if bk is not None else ("SHARIABEES.NS", "^NSEI"):
         b = (r.get("benchmarks") or {}).get(sym) or {"status": "UNKNOWN", "reason": "not in this run"}
         title, label = BENCH_TITLES[sym]
         ok = b.get("status") == "OK"
         cards.append({"key": sym, "kind": "nifty" if sym == "^NSEI" else "etf", "title": title, "label": label,
                       "reference_only": sym == "^NSEI", "status": "OK" if ok else UNKNOWN,
                       "note": None if ok else b.get("reason"),
-                      "items": [{"label": "CAGR", "value": pct(b.get("cagr_pct")) if ok else UNKNOWN},
+                      "items": ([{"label": "Total return", "value": pct(b.get("total_return_pct")) if ok else UNKNOWN}]
+                                if bk is not None else []) +
+                               [{"label": "CAGR", "value": pct(b.get("cagr_pct")) if ok else UNKNOWN},
                                 {"label": "Max drawdown", "value": pct(b.get("max_drawdown_pct")) if ok else UNKNOWN}]})
     return cards
 
@@ -1068,6 +1125,13 @@ def bt_equity(r, width=760, height=300, dd_height=124, pad=48, right=132):
     series = [{"key": "strategy", "kind": "strategy", "label": "Strategy",
                "pts": [(c["date"], c["equity"]) for c in curve]}]
     missing_lines = []
+    bk = r.get("basket")
+    if bk is not None:                          # v0.2.8: the basket, bought and held
+        if bk.get("status") == "OK" and bk.get("curve"):
+            series.append({"key": "basket", "kind": "basket", "label": BASKET_TITLE[0],
+                           "pts": [(d, v) for d, v in bk["curve"]]})
+        else:
+            missing_lines.append("%s: UNKNOWN (%s)" % (BASKET_TITLE[0], bk.get("reason")))
     for sym in ("SHARIABEES.NS", "^NSEI"):
         b = (r.get("benchmarks") or {}).get(sym) or {}
         title, label = BENCH_TITLES[sym]
@@ -1150,6 +1214,37 @@ def bt_trades(r):
                                  "pnl_rs": inr(t["pnl_rs"]), "qty": str(t["qty"]),
                                  "up": "▲" if t["r"] > 0 else "▼" if t["r"] < 0 else ""}})
     return rows
+
+
+def bt_stocks(r):
+    """A5 / B4 (v0.2.8): the per-stock table of a symbols / holdings run (None for an all-stocks run)."""
+    st = r.get("stocks")
+    if not st:
+        return None
+    rows = []
+    dash = "\u2013"
+    for x in st["rows"]:
+        n = x["trades"]
+        ok = x.get("hold_status") == "OK"
+        rows.append({"symbol": x["symbol"], "name": x.get("name") or "", "trades": n, "wins": x["wins"],
+                     "win_rate_pct": x["win_rate_pct"], "total_r": x["total_r"] if n else None, "pnl_rs": x["pnl_rs"],
+                     "strategy_return_pct": x["strategy_return_pct"] if n else None,
+                     "hold_return_pct": x["hold_return_pct"], "vs": x["vs"], "vs_kind": VS_KIND.get(x["vs"], "unknown"),
+                     "too_few": bool(x.get("too_few")) and n > 0,
+                     "display": {"trades": str(n), "few": TOO_FEW_TEXT if x.get("too_few") and n else None,
+                                 "wins": str(x["wins"]) if n else dash,
+                                 "win_rate": num(x["win_rate_pct"], 1, "%") if n else dash,
+                                 "total_r": signed_r(x["total_r"]) if n else dash, "pnl_rs": inr(x["pnl_rs"], 0),
+                                 "strategy": pct(x["strategy_return_pct"]) if n else dash,
+                                 "hold": pct(x["hold_return_pct"]) if ok else UNKNOWN,
+                                 "hold_note": None if ok else x.get("hold_note")}})
+    t = st["totals"]
+    return {"rows": rows, "note": st["note"],
+            "totals": {"trades": str(t["trades"]), "wins": str(t["wins"]), "total_r": signed_r(t["total_r"]),
+                       "pnl_rs": inr(t["pnl_rs"], 0)},
+            "summary": "%s: the strategy did better than holding on %d, worse on %d, no trades on %d." % (
+                tc.plural(len(rows), "stock"), sum(1 for x in rows if x["vs"] == "better"),
+                sum(1 for x in rows if x["vs"] == "worse"), sum(1 for x in rows if x["vs"] == "no trades"))}
 
 
 def bt_regime(r):
@@ -1298,6 +1393,7 @@ def api_backtest(q):
                    "items": [{"label": "Window", "value": "%s to %s (%s trading days)" % (
                                  text(w.get("first_day")), text(w.get("last_day")), w.get("trading_days"))},
                              {"label": "Split", "value": text(w.get("split"))},
+                             {"label": "Stocks", "value": bt_universe(r)},
                              {"label": "Mode", "value": p["mode"] + (" (" + ", ".join(p["setups"]) + ")" if p.get("setups") else "")},
                              {"label": "Capital", "value": inr(s["capital"], 0)},
                              {"label": "Risk per trade", "value": num(s.get("risk_per_trade_pct"), 2, "%").replace(".00%", "%")},
@@ -1314,10 +1410,13 @@ def api_backtest(q):
         "compare": bt_compare(r),
         "regime": bt_regime(r),
         "robust": bt_robust(r),
+        "stocks": bt_stocks(r),
+        "universe_mode": u.get("mode") or "all",
         "trades": trades,
         "filters": {"setup": sorted({t["setup"] for t in trades}), "mode": sorted({t["mode"] for t in trades}),
                     "exit_reason": sorted({t["exit_reason"] for t in trades})},
         "universe": {"compliant": u.get("compliant"), "tested": u.get("tested"), "skipped_n": u.get("skipped"),
+                     "mode": u.get("mode") or "all", "chosen": u.get("chosen"), "label": bt_universe(r),
                      "list_updated": text(u.get("list_updated")),
                      "joined_late": [{"symbol": x["symbol"], "join_date": x["join_date"], "data_starts": x.get("data_starts")}
                                      for x in r.get("joined_late") or []],
@@ -1717,7 +1816,8 @@ def run_status(runner):
 ROUTES = {"/api/meta": api_meta, "/api/dates": api_dates, "/api/today": api_today, "/api/tracker": api_tracker,
           "/api/halal": api_halal, "/api/tickets": api_tickets, "/api/chart": api_chart, "/api/settings": api_settings,
           "/api/risk-preview": api_risk_preview, "/api/config/backups": api_backups,
-          "/api/config/backup-diff": api_backup_diff, "/api/backtests": api_backtests, "/api/backtest": api_backtest}
+          "/api/config/backup-diff": api_backup_diff, "/api/backtests": api_backtests, "/api/backtest": api_backtest,
+          "/api/backtest/choices": api_backtest_choices}
 PAGES = {"/": INDEX, "/index.html": INDEX}             # the only files served
 POST_ROUTES = ("/api/config", "/api/run")             # the only two requests that change anything (actions.py);
                                                       # /api/run starts tayyib-daily or (v0.2.2) a backtest

@@ -301,7 +301,10 @@ class HoldingsAreNotTrades(ImportCase):
             self.assertIn("tc.trade_positions(", open(os.path.join(ROOT, f), encoding="utf-8").read())
         bsrc = open(os.path.join(ROOT, "tayyib-backtest", "backtest.py"), encoding="utf-8").read()
         trsrc = open(os.path.join(ROOT, "tayyib-tracker", "tracker.py"), encoding="utf-8").read()
-        self.assertNotIn('read_json("positions.json"', bsrc + trsrc)    # neither reads your positions at all
+        self.assertNotIn('read_json("positions.json"', trsrc)          # the tracker never reads your positions
+        # v0.2.8: the backtest reads them in one place only, for --holdings: the symbols to test, never as trades
+        self.assertEqual(bsrc.count('read_json("positions.json"'), 1)
+        self.assertIn('tc.check_holdings(tc.read_json("positions.json", {}) or {}, uni)', bsrc)
 
     def test_included_in_held_alerts_already_held_and_purify(self):
         out = self.run_script("tayyib-halal/halal.py", "held", "--write")

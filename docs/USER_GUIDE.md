@@ -433,6 +433,52 @@ appears in the picker when it's done. Only one run at a time (a backtest or toda
 says so. It writes only your saved backtests and price cache, never your settings, tracker, tickets,
 positions or daily lists. Not financial advice, not a fatwa.
 
+### Test on your own stocks
+The normal backtest ("All halal stocks") is the honest test of the daily list: it lets the strategy choose
+from every compliant stock, as it does each day. Since v0.2.8 there is a second option, **My stocks**: the
+same strategy with the same rules (signals, plans, risk check, sizing, charges, your max open trades), but
+it may only trade the stocks you pick. It also shows what you would have got by simply **buying and holding
+those same stocks**.
+
+**How to pick.** In the dashboard: **Backtest**, **Run backtest**, choose **My stocks**, type part of a
+symbol or company name and click the stock. Only compliant stocks on today's halal list can be found and
+added (a review or excluded stock is refused, never quietly dropped). Up to 20; each one is a chip you can
+remove with ×. **Stocks I hold** does the same with your open trades and imported holdings (it is greyed out,
+with the reason, when you hold nothing, or when one of them is not compliant now). Without the dashboard:
+
+```
+py tayyib-backtest\backtest.py run --years 5 --symbols TCS,INFY,HCLTECH,RELIANCE,HINDUNILVR,NESTLEIND,BRITANNIA,ASIANPAINT,MARUTI,ULTRACEMCO --write
+py tayyib-backtest\backtest.py run --years 5 --holdings --write
+```
+
+`--compare`, `--robust 20`, `--robust-compare A B` and `--no-late` work here too, on the same prices.
+
+**The hindsight warning, in plain words.** You are choosing these stocks today, knowing how they have done
+since. You will naturally pick names you know, and you know them partly because they did well. Any test on
+them will look better than it would have looked to someone choosing five years ago. The result always
+carries the line "You chose these stocks today, knowing how they did since. Results are likely better than
+reality (hindsight)." Read it as an upper bound, not a forecast.
+
+**Why at least 10 stocks.** The strategy only buys when a stock gives a signal. With 3 stocks it may wait
+weeks for one, so there are few trades and one lucky (or unlucky) trade decides the result. Under 10 stocks
+the result says "Small basket: fewer stocks means fewer trades and more luck." Under 30 trades on one stock,
+its row is greyed and marked "(too few to judge)".
+
+**How to read "strategy vs holding".**
+- **The cards** at the top: Strategy, **Buy & hold these stocks** (your capital split equally across the
+  stocks, each bought once, with one buy and one sell charge) and the Shariah BeES. If holding did better,
+  a line at the top says so: "Buying and holding these same stocks did better."
+- **The equity chart** adds the basket's line (the Nifty 50 stays dotted, for reference only).
+- **Your stocks** table, above the trades: for each stock, its trades, wins, win rate, total R, P&L, the
+  strategy's return on that stock's equal slice of your capital, the return of holding that slice, and
+  **better / worse / no trades**. "No trades" means the strategy never bought it. The rows add up to the
+  overall result.
+- The comparison per stock is rough: the strategy did not keep that slice in that stock all the time. A
+  stock in a strong steady uptrend is often better held than traded; the strategy's case is the stocks
+  that fell, where it can step aside. See the FAQ: "Why did buying and holding beat the strategy on my stocks?"
+
+The daily list is never changed by this test: it still looks at every compliant stock.
+
 ### Market regime filter (optional)
 The Today header shows the market's state every day: **Risk-on** when the Nifty 50 closes above its 200-day
 average, **Risk-off** when it closes below, with both numbers. With the filter off (the default) this is

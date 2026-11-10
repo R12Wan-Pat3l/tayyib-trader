@@ -20,6 +20,11 @@ A replay of the past with today's halal list: read the banners. Places no order.
   backtest.py run [--mode swing|delivery|all] [--setups breakout,pullback] [--years 3]
                   [--from YYYY-MM-DD --to YYYY-MM-DD] [--capital N] [--max-positions N]
                   [--split YYYY-MM-DD] [--no-take-warn] [--no-late] [--compare] [--write] [--json]
+                  [--symbols SYM1,SYM2,... | --holdings]
+
+"My stocks" (v0.2.8): --symbols (1 to 20 compliant stocks) or --holdings (the stocks in positions.json) runs the
+same strategy on that basket only, and compares it with buying and holding the same stocks (equal shares, one
+buy and one sell charge). Every symbol must be compliant on today's halal list: anything else is refused.
 
 Without --to the window ends on the last completed session: today after 15:30 IST on a trading day,
 otherwise the previous trading day (so a run in market hours never uses a half-made bar).
@@ -63,6 +68,22 @@ BANNER_NIFTY = ("The Nifty 50 (not halal-screened, price only) did better over t
 EXIT_AT_END = "OPEN AT END"
 TOO_FEW = "(too few to judge)"
 NOT_REPLAYED = ("news / HALAL-WATCH", "halal list age")
+
+# v0.2.8: "My stocks"
+UNIVERSE_MODES = ("all", "symbols", "holdings")
+SMALL_BASKET = 10
+BANNER_HINDSIGHT = ("You chose these stocks today, knowing how they did since. Results are likely better than "
+                    "reality (hindsight).")
+BANNER_SMALL = "Small basket: fewer stocks means fewer trades and more luck."
+BANNER_HOLD = "Buying and holding these same stocks did better."
+BASKET_NAME = "Buy and hold these stocks"
+BASKET_NOTE = ("The capital split equally across the chosen stocks that had prices; each bought at the close of its "
+               "first day in the window (a stock listed during the window on the day it joins the test, its share "
+               "waiting as cash until then), fractional units, one buy charge, held to the end and valued after one "
+               "sell charge.")
+STOCKS_NOTE = ("Strategy return on a stock = the P&L of its trades as a share of that stock's equal slice of the "
+               "capital; holding = that slice bought on its first day and held to the end, after charges. A rough "
+               "comparison: the strategy did not keep the slice in that stock the whole time.")
 
 # A risk check's BLOCK / WARN text -> a stable reason name for counts.risk_blocked / risk_warned
 REASONS = ((r"^hard rule", "hard rules"), (r"^halal: ", "halal status"), (r"^loss at stop", "loss at stop"),
@@ -1103,6 +1124,148 @@ def benchmark(sym, name, range_, start, end, capital, cfg, fetch=None):
 
 
 # ---------------------------------------------------------------------------
+# v0.2.8 "My stocks": buying and holding the same basket, and the strategy stock by stock
+# ---------------------------------------------------------------------------
+
+def _units(money, price, cfg):
+    """Fractional units that `money` buys at `price` with the buy charge paid out of it (as benchmark())."""
+    units = money / price
+    for _ in range(3):
+        units = (money - _charges("BUY", price, units, cfg)) / price
+    return units
+
+
+def basket_benchmark(chosen, data, skipped, late, days, capital, cfg, no_late=False):
+    """Buy and hold the chosen stocks on the strategy's own days and bars (nothing downloaded). The capital is split
+    equally across the stocks that are in the test; each is bought at the close of its first day in the window on or
+    after the day it joins the test (WARMUP_BARS of history, as for the strategy), so a late joiner's share waits as
+    cash until then. One buy charge each; on the last day every stock is valued at its last close after one sell
+    charge. A stock with no usable prices (or left out with --no-late) is UNKNOWN, out of the basket, and listed."""
+    reasons = {x["symbol"]: x["reason"] for x in skipped or []}
+    late_syms = {x["symbol"] for x in late or []}
+    stocks, left_out, eligible = {}, [], []
+    for s in chosen:
+        if s in data and not (no_late and s in late_syms):
+            eligible.append(s)
+            continue
+        why = ("left out with --no-late (listed during the window)" if s in data else
+               reasons.get(s) or "no price data")
+        stocks[s] = {"status": "UNKNOWN", "reason": why}
+        left_out.append({"symbol": s, "reason": why})
+    res = {"symbol": "BASKET", "name": BASKET_NAME, "status": "UNKNOWN", "stocks": stocks, "left_out": left_out,
+           "in_basket": len(eligible), "note": BASKET_NOTE}
+    if not eligible or len(days) < 2:
+        res["reason"] = ("no chosen stock had usable prices in the window" if not eligible else
+                         "fewer than 2 trading days in the window")
+        return res
+    first, last = days[0], days[-1]
+    share = capital / len(eligible)
+    plan = {}
+    for s in eligible:
+        bars = [b for b in data[s] if b["date"] <= last]
+        buy_from = max(first, join_date(bars) or first)
+        k = next((i for i, b in enumerate(bars) if b["date"] >= buy_from), None)
+        if k is None:                                   # cannot happen for a stock in the test; never invented
+            stocks[s] = {"status": "UNKNOWN", "reason": "no price on or after %s" % buy_from}
+            continue
+        p0 = bars[k]["close"]
+        u = _units(share, p0, cfg)
+        plan[s] = {"buy_date": bars[k]["date"], "buy_price": p0, "units": u, "buy_charges": _charges("BUY", p0, u, cfg),
+                   "closes": {b["date"]: b["close"] for b in bars[k:]}, "late": s in late_syms}
+    pts, last_close, bought = [], {}, set()
+    for d in days:
+        for s in plan:
+            c = plan[s]["closes"].get(d)
+            if c is not None:
+                last_close[s] = c
+            if s not in bought and d >= plan[s]["buy_date"] and s in last_close:
+                bought.add(s)
+        cash = capital - share * len(bought)
+        value = cash + sum(plan[s]["units"] * last_close[s] for s in bought)
+        if d == last:
+            value -= sum(_charges("SELL", last_close[s], plan[s]["units"], cfg) for s in bought)
+        pts.append((d, value, bool(bought)))
+    pts[0] = (pts[0][0], capital, pts[0][2])            # as benchmark(): the first point is the capital itself
+    total_ch = 0.0
+    for s, pl in plan.items():
+        lc = last_close[s]
+        sell = _charges("SELL", lc, pl["units"], cfg)
+        end_value = pl["units"] * lc - sell
+        total_ch += pl["buy_charges"] + sell
+        stocks[s] = {"status": "OK", "buy_date": pl["buy_date"], "buy_price": round(pl["buy_price"], 2),
+                     "end_price": round(lc, 2), "units": round(pl["units"], 4), "joined_late": pl["late"],
+                     "share_rs": round(share, 2), "end_value_rs": round(end_value, 2),
+                     "charges_rs": round(pl["buy_charges"] + sell, 2),
+                     "return_pct": round((end_value / share - 1) * 100, 2)}
+    st = curve_stats(pts)
+    st.pop("exposure_pct", None)
+    res.update(status="OK", start=first, end=last, share_rs=round(share, 2), charges_rs=round(total_ch, 2), **st)
+    res["curve"] = [[d, round(v, 2)] for d, v, _ in pts]
+    res["stocks"] = {s: stocks[s] for s in chosen if s in stocks}
+    return res
+
+
+def stock_table(chosen, trades, basket, uni):
+    """A5: one row per chosen stock: its trades, wins, win rate, total R and P&L, its buy-and-hold return over the
+    same window, and "better" / "worse" / "no trades" (strategy return on its slice vs holding it). The rows add up
+    to the run's totals (every trade is on a chosen stock). Under MIN_TRADES trades: too_few."""
+    share = basket.get("share_rs")
+    rows = []
+    for s in chosen:
+        ts = [t for t in trades if t["symbol"] == s]
+        n = len(ts)
+        wins = sum(1 for t in ts if t["r"] > 0)
+        pnl = round(sum(t["pnl_rs"] for t in ts), 2)
+        b = (basket.get("stocks") or {}).get(s) or {"status": "UNKNOWN", "reason": "not in the basket"}
+        hold = b.get("return_pct") if b.get("status") == "OK" else None
+        strat = round(pnl / share * 100, 2) if share and b.get("status") == "OK" else None
+        if not n:
+            vs = "no trades"
+        elif hold is None or strat is None:
+            vs = "UNKNOWN"
+        else:
+            vs = "better" if strat > hold else "worse" if strat < hold else "same"
+        rows.append({"symbol": s, "name": tc.halal_status(s, uni).get("name"), "trades": n, "wins": wins,
+                     "win_rate_pct": round(wins / n * 100, 1) if n else None,
+                     "total_r": round(sum(t["r"] for t in ts), 3), "pnl_rs": pnl,
+                     "strategy_return_pct": strat, "hold_return_pct": hold, "hold_status": b.get("status"),
+                     "hold_note": b.get("reason"), "buy_date": b.get("buy_date"), "vs": vs,
+                     "too_few": n < MIN_TRADES})
+    tot = {"trades": sum(r["trades"] for r in rows), "wins": sum(r["wins"] for r in rows),
+           "total_r": round(sum(r["total_r"] for r in rows), 3), "pnl_rs": round(sum(r["pnl_rs"] for r in rows), 2)}
+    return {"rows": rows, "totals": tot, "note": STOCKS_NOTE,
+            "outside": sorted({t["symbol"] for t in trades} - set(chosen))}    # always empty: a test checks it
+
+
+def basket_banners(n_tested, overall, basket):
+    """A6: always at the top in symbols / holdings mode: hindsight; small basket under SMALL_BASKET stocks; holding
+    the basket did better (when its CAGR beats the strategy's); the stocks left out of the basket."""
+    b = [BANNER_HINDSIGHT]
+    if n_tested < SMALL_BASKET:
+        b.append(BANNER_SMALL)
+    if basket.get("status") == "OK" and basket.get("cagr_pct") is not None and overall.get("cagr_pct") is not None \
+            and basket["cagr_pct"] > overall["cagr_pct"]:
+        b.append(BANNER_HOLD)
+    if basket.get("left_out"):
+        b.append("Left out of the test and the basket (UNKNOWN): %s." % "; ".join(
+            "%s (%s)" % (x["symbol"], x["reason"]) for x in basket["left_out"]))
+    if basket.get("status") != "OK":
+        b.append("Buying and holding these stocks is UNKNOWN: %s." % basket.get("reason"))
+    return b
+
+
+def universe_label(res):
+    """A8: "all 183", "5 stocks: TCS, INFY, ..." or "3 held stocks: ..." (older runs: all)."""
+    u = res.get("universe") or {}
+    mode = u.get("mode") or (res.get("params") or {}).get("universe_mode") or "all"
+    if mode == "all":
+        return "all %s" % u.get("compliant", "?")
+    syms = u.get("symbols") or (res.get("params") or {}).get("symbols") or []
+    head = ", ".join(syms[:5]) + (", +%d more" % (len(syms) - 5) if len(syms) > 5 else "")
+    return "%s: %s" % (tc.plural(len(syms), "held stock" if mode == "holdings" else "stock"), head)
+
+
+# ---------------------------------------------------------------------------
 # Banners
 # ---------------------------------------------------------------------------
 
@@ -1217,8 +1380,13 @@ def robust_results(params, cfg, uni, used, sim, main_regime, regimes, robust_sid
 
 
 def run_id(params, label, syms):
-    h = hashlib.sha1(json.dumps([params, label, syms], sort_keys=True).encode("utf-8")).hexdigest()[:6]
-    return "%s_%s_%s_%s" % (params["to"], params["mode"], params["from"], h)
+    """<to>_<mode>_<from>_<hash>; v0.2.8: a basket adds _sym<N> or _hold<N> before the hash. An "all" run's id is the
+    one it always had (universe_mode "all" is left out of the hash)."""
+    p = {k: v for k, v in params.items() if not (k == "universe_mode" and v == "all")}
+    h = hashlib.sha1(json.dumps([p, label, syms], sort_keys=True).encode("utf-8")).hexdigest()[:6]
+    um = params.get("universe_mode") or "all"
+    tag = "" if um == "all" else "_%s%d" % ("hold" if um == "holdings" else "sym", len(syms))
+    return "%s_%s_%s%s_%s" % (params["to"], params["mode"], params["from"], tag, h)
 
 
 COMPARE_KEYS = ("trades", "win_rate_pct", "expectancy_r", "profit_factor", "pnl_rs", "total_return_pct", "cagr_pct",
@@ -1313,7 +1481,17 @@ def _memo_fetch(fetch):
 def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index_fn=None, robust_sides=None):
     """The whole backtest -> result dict (no file is written here). robust_sides (v0.2.6, --robust-compare): the
     two settings [(name, label, cfg, regime text)] from parse_settings."""
-    syms, status_counts = halal_universe(uni)
+    all_syms, status_counts = halal_universe(uni)
+    um = params.get("universe_mode") or "all"
+    if um not in UNIVERSE_MODES:
+        raise ValueError("universe_mode must be one of %s" % ", ".join(UNIVERSE_MODES))
+    if um == "all":
+        syms = all_syms
+    else:                                  # v0.2.8: only the chosen stocks; checked again here (never a non-compliant one)
+        syms = list(params.get("symbols") or [])
+        bad = [e for e in (tc.symbol_refusal(s, uni) for s in syms) if e]
+        if bad or not syms or len(syms) > tc.BT_MAX_SYMBOLS:
+            raise ValueError("; ".join(bad) or "choose 1 to %d stocks" % tc.BT_MAX_SYMBOLS)
     start, end, split = params["from"], params["to"], params["split"]
     first = tc.parse_date(start) - dt.timedelta(days=365 * TM_YEARS + 10)
     range_ = yahoo_range(first, tc.today_ist())
@@ -1384,21 +1562,25 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index
     benches = {}
     for sym, name in BENCHMARKS:
         benches[sym] = benchmark(sym, name, range_, start, end, capital, cfg, fetch=bench_get)
+    basket = stocks_tbl = None
+    if um != "all":
+        basket = basket_benchmark(syms, data, skipped, late, sim["days"], capital, cfg, no_late)
+        stocks_tbl = stock_table(syms, sim["trades"], basket, uni)
     snap = tc.settings_snapshot(cfg)
     res = {
         "id": run_id(params, snap["hash"], syms),
         "version": tc.VERSION,
         "run_at": tc.now_ist().isoformat(timespec="seconds"),
-        "params": params,
+        "params": dict(params, universe_mode=um),
         "settings": {"label": snap["label"], "hash": snap["hash"], "differs_from_default": snap["differs_from_default"],
                      "capital": capital, "risk_per_trade_pct": cfg["max_risk_per_trade_pct"],
                      "max_position_pct": cfg["max_position_pct"], "broker": cfg["broker"]},
         "window": {"from": start, "to": end, "split": split, "first_day": sim["days"][0] if sim["days"] else None,
                    "last_day": sim["days"][-1] if sim["days"] else None, "trading_days": len(sim["days"]),
                    "price_range": range_, "end_rule": params.get("end_rule")},
-        "universe": {"list_updated": uni.get("updated"), "statuses": status_counts, "compliant": len(syms),
+        "universe": {"list_updated": uni.get("updated"), "statuses": status_counts, "compliant": len(all_syms),
                      "tested": len(early) if no_late else len(data), "joined_late": len(late),
-                     "late_excluded": no_late, "skipped": len(skipped)},
+                     "late_excluded": no_late, "skipped": len(skipped), "mode": um},
         "skipped": skipped,
         "joined_late": late,
         "late_joiners": late_share(sim["trades"], late, excluded=no_late),
@@ -1434,6 +1616,13 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index
         "equity_curve": sim["curve"],
         "disclaimer": tc.DISCLAIMER,
     }
+    if um != "all":
+        res["universe"].update(symbols=list(syms), chosen=len(syms))
+        res["basket"] = basket
+        res["stocks"] = stocks_tbl
+        res["rules"].insert(0, "Universe: only the %s you chose (%s), each compliant on today's halal list; every "
+                               "other rule is the same as for all halal stocks." % (
+                                   tc.plural(len(syms), "stock"), ", ".join(syms)))
     if compare:
         res["compare"] = compare
     res["regime"] = {"variant": main_regime or "off", "index": rinfo}
@@ -1443,7 +1632,7 @@ def run(params, cfg, uni, data_fn=load_bars, bench_fn=None, progress=None, index
         res["robust"] = robust
     if robust_cmp:
         res["robust_compare"] = robust_cmp
-    res["banners"] = banners(metrics["overall"], spl, benches)
+    res["banners"] = (basket_banners(len(used), metrics["overall"], basket) if um != "all" else []) +         banners(metrics["overall"], spl, benches)
     if rinfo and rinfo.get("status") != "OK":
         res["banners"].append(BANNER_REGIME_UNKNOWN)
     return res
@@ -1570,8 +1759,7 @@ def render_md(r):
              w["first_day"], w["last_day"], w["trading_days"], w["split"], tc.fmt_rs(s["capital"], 0),
              tc._fmt_val(s["risk_per_trade_pct"]), r["params"]["max_positions"], s["label"], s["broker"],
              "taken" if r["params"].get("take_warn", True) else "not taken"),
-         "Universe: %d compliant stocks on today's halal list (built %s): %d tested (%d of them joined late), %d "
-         "skipped." % (u["compliant"], u["list_updated"], u["tested"], u.get("joined_late", 0), u["skipped"]), "",
+         universe_md(r), "",
          "## Overall", ""]
     L += table([("strategy", r["metrics"]["overall"])]) + [""]
     if r["metrics"]["by_setup"]:
@@ -1587,6 +1775,15 @@ def render_md(r):
           "| strategy | %s | %s | %s | |" % (fmt(r["metrics"]["overall"]["total_return_pct"], "%"),
                                            fmt(r["metrics"]["overall"]["cagr_pct"], "%"),
                                            fmt(r["metrics"]["overall"]["max_drawdown_pct"], "%"))]
+    bk = r.get("basket")
+    if bk:
+        if bk["status"] != "OK":
+            L.append("| %s | UNKNOWN | UNKNOWN | UNKNOWN | %s |" % (bk["name"], bk.get("reason")))
+        else:
+            L.append("| %s (%d stocks) | %s | %s | %s | %s to %s; %s each; charges %s |" % (
+                bk["name"], bk["in_basket"], fmt(bk["total_return_pct"], "%"), fmt(bk["cagr_pct"], "%"),
+                fmt(bk["max_drawdown_pct"], "%"), bk["start"], bk["end"], tc.fmt_rs(bk["share_rs"], 0),
+                tc.fmt_rs(bk["charges_rs"], 0)))
     for b in r["benchmarks"].values():
         if b["status"] != "OK":
             L.append("| %s (%s) | UNKNOWN | UNKNOWN | UNKNOWN | %s |" % (b["name"], b["symbol"], b["reason"]))
@@ -1595,6 +1792,10 @@ def render_md(r):
                 b["name"], b["symbol"], fmt(b["total_return_pct"], "%"), fmt(b["cagr_pct"], "%"),
                 fmt(b["max_drawdown_pct"], "%"), b["start"], b["end"], "; " + b["note"] if b.get("note") else ""))
     L += ["", "The Nifty 50 is not halal-screened: it is there for reference only, not as a halal option.", ""]
+    if bk:
+        L += ["%s" % bk["note"], ""]
+    if r.get("stocks"):
+        L += stocks_md(r["stocks"])
     if r.get("compare"):
         L += compare_md(r["compare"])
     if r.get("regime_compare"):
@@ -1629,6 +1830,32 @@ def render_md(r):
     return "\n".join(L) + "\n"
 
 
+def universe_md(r):
+    u = r["universe"]
+    if (u.get("mode") or "all") == "all":
+        return ("Universe: %d compliant stocks on today's halal list (built %s): %d tested (%d of them joined late), %d "
+                "skipped." % (u["compliant"], u["list_updated"], u["tested"], u.get("joined_late", 0), u["skipped"]))
+    return ("Universe: %s (%s), each compliant on today's halal list (built %s): %d tested (%d of them joined late), "
+            "%d skipped." % (universe_label(r), "the stocks you hold" if u["mode"] == "holdings" else "your choice",
+                             u["list_updated"], u["tested"], u.get("joined_late", 0), u["skipped"]))
+
+
+def stocks_md(st):
+    L = ["## Your stocks: strategy vs holding", "", st["note"], "",
+         "| stock | trades | wins | win rate | total R | P&L | strategy on its slice | holding it | strategy vs holding |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    for x in st["rows"]:
+        hold = fmt(x["hold_return_pct"], "%") if x["hold_status"] == "OK" else "UNKNOWN (%s)" % x.get("hold_note")
+        L.append("| %s | %d%s | %d | %s | %s | %s | %s | %s | %s |" % (
+            x["symbol"], x["trades"], " " + TOO_FEW if x["too_few"] and x["trades"] else "", x["wins"],
+            fmt(x["win_rate_pct"], "%", 1) if x["trades"] else "-", fmt(x["total_r"], "R") if x["trades"] else "-",
+            fmt(x["pnl_rs"], "Rs"), fmt(x["strategy_return_pct"], "%") if x["trades"] else "-", hold, x["vs"]))
+    t = st["totals"]
+    L += ["| total | %d | %d | | %s | %s | | | |" % (t["trades"], t["wins"], fmt(t["total_r"], "R"), fmt(t["pnl_rs"], "Rs")),
+          ""]
+    return L
+
+
 def out_dir():
     return os.path.join(tc.data_dir(), "backtest")
 
@@ -1647,7 +1874,8 @@ def save(res):
 def summary(res):
     m = res["metrics"]["overall"]
     return {"id": res["id"], "from": res["window"]["first_day"], "to": res["window"]["last_day"],
-            "mode": res["params"]["mode"], "settings": res["settings"]["label"], "trades": m["trades"],
+            "mode": res["params"]["mode"], "universe": universe_label(res), "settings": res["settings"]["label"],
+            "trades": m["trades"],
             "total_return_pct": m["total_return_pct"], "cagr_pct": m["cagr_pct"],
             "max_drawdown_pct": m["max_drawdown_pct"], "banners": len(res["banners"]),
             "version": res.get("version")}
@@ -1686,6 +1914,11 @@ def main(argv=None):
                    help="the --robust runs for settings A and settings B on the same prices and seeds, paired seed by "
                         "seed, with a verdict. Each is 'default' or KEY=VALUE pairs over your config, e.g. "
                         "\"pullback=on\" \"pullback=off\", or \"regime=off\" \"regime=close_below_200dma:half_risk\"")
+    r.add_argument("--symbols", default=None, metavar="SYM1,SYM2,...",
+                   help="My stocks (v0.2.8): test only these 1 to %d stocks, each compliant on today's halal list, "
+                        "against buying and holding them" % tc.BT_MAX_SYMBOLS)
+    r.add_argument("--holdings", action="store_true",
+                   help="test only the stocks you hold (positions.json: open trades and imported holdings)")
     r.add_argument("--write", action="store_true", help="save trader/backtest/<id>.json and .md")
     r.add_argument("--json", action="store_true")
     ls = sub.add_parser("list", help="saved backtests")
@@ -1712,8 +1945,8 @@ def main(argv=None):
             if "error" in x:
                 print("%s  (%s)" % (x["id"], x["error"]))
                 continue
-            print("%s  %s to %s  %s  %s  %d trades  return %s  CAGR %s  max drawdown %s  (v%s)"
-                  % (x["id"], x["from"], x["to"], x["mode"], x["settings"], x["trades"],
+            print("%s  %s to %s  %s  %s  %s  %d trades  return %s  CAGR %s  max drawdown %s  (v%s)"
+                  % (x["id"], x["from"], x["to"], x["mode"], x["universe"], x["settings"], x["trades"],
                      fmt(x["total_return_pct"], "%"), fmt(x["cagr_pct"], "%"), fmt(x["max_drawdown_pct"], "%"),
                      x.get("version") or "?"))
         return
@@ -1727,6 +1960,8 @@ def main(argv=None):
             return tc.print_json(res)
         return print(render_md(res))
 
+    if a.symbols is not None and a.holdings:
+        tc.die("--symbols and --holdings can't be combined: choose one")
     cfg = tc.load_config()
     tc.report_config(cfg)
     if a.capital is not None:
@@ -1767,10 +2002,23 @@ def main(argv=None):
     uni = tc.load_universe()
     if not uni.get("stocks"):
         tc.die("no halal universe yet: run tayyib-halal/halal.py build first")
+    um, chosen = "all", None                       # v0.2.8: checked before anything is downloaded
+    if a.symbols is not None:
+        chosen, errs = tc.check_backtest_symbols(a.symbols, uni)
+        if errs:
+            tc.die("--symbols refused: " + "; ".join(errs))
+        um = "symbols"
+    elif a.holdings:
+        chosen, errs = tc.check_holdings(tc.read_json("positions.json", {}) or {}, uni)
+        if errs:
+            tc.die("--holdings refused: " + "; ".join(errs))
+        um = "holdings"
     params = {"mode": a.mode, "setups": setups, "from": start, "to": end, "split": split,
               "max_positions": a.max_positions, "max_positions_from": mp_from, "top": cfg["daily"]["top"], "warmup_bars": WARMUP_BARS,
               "tm_runs": TM_RUNS, "tm_seed": TM_SEED, "take_warn": a.take_warn, "compare": a.compare,
-              "late": a.late, "end_rule": end_rule}
+              "late": a.late, "end_rule": end_rule, "universe_mode": um}
+    if chosen is not None:
+        params["symbols"] = chosen
     if a.regime != "off" or a.regime_compare:              # v0.2.4 (left out when off, so earlier ids stay the same)
         params.update(regime=a.regime, regime_compare=a.regime_compare)
     if robust_n is not None:                                # v0.2.6 (left out when not used: earlier ids unchanged)

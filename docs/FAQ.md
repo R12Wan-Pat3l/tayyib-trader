@@ -71,14 +71,14 @@ such stocks against their FY26 annual reports, all 9 were under 3%.
 
 Other methods use different limits. AAOIFI, for example, allows up to 5% non-compliant income and
 measures debt against market value. The tool does not offer an AAOIFI option: the free data it reads
-has no share count, so it cannot compute market value, and it will not guess. You can make the
-thresholds stricter in your config, or looser with a note (see below).
+has no share count, so it cannot compute market value, and it will not guess. The limits are fixed in
+the code (since v0.2.7): they can't be changed in Settings or in config.json.
 
 ### What do compliant, review, excluded and unknown mean?
 | status | meaning | can it be traded? |
 |---|---|---|
-| compliant | passed every test (or you approved it) | yes |
-| review | a near miss or a business that needs a human look | no, unless you allow review stocks or approve that one |
+| compliant | passed every test | yes |
+| review | a near miss or a business that needs a human look | no |
 | excluded | failed the business screen, or a ratio by a clear margin | no |
 | unknown | the data needed is missing | no |
 
@@ -308,6 +308,28 @@ choice you have, with much less work. The Nifty 50 is shown for reference only: 
 (it holds banks, for example) and counts the price only, without dividends. Not financial advice, not a
 fatwa.
 
+### Why did buying and holding beat the strategy on my stocks?
+The "My stocks" backtest (v0.2.8, `--symbols` or `--holdings`) often shows "Buying and holding these same
+stocks did better." That is common, and it is not a fault in the test. Three reasons:
+
+1. **Hindsight.** You picked stocks you know today, and you know them partly because they rose. Holding a
+   basket of past winners is hard to beat: the strategy steps in and out, and every exit can miss the next
+   leg up. The test says so at the top ("Results are likely better than reality (hindsight)"), and the
+   holding line gets the most help from it.
+2. **The strategy is not always invested.** It buys only on a signal, risks about 1% of your capital per
+   trade, holds at most your max open trades, and keeps the rest in cash. A basket that is always fully
+   invested in rising stocks grows faster in a rising market. The strategy's case is the bad years, where
+   it can stay out: look at the max drawdown next to the return.
+3. **A small basket means few trades.** With under 10 stocks there are few signals, and a few trades decide
+   the result ("Small basket" line). Under 30 trades a stock's row is marked "(too few to judge)".
+
+How to read the "Your stocks" table: "better / worse" compares the strategy's P&L on a stock, as a share of
+that stock's equal slice of your capital, with holding that slice for the whole window. "No trades" means
+the strategy never bought it. It is a rough comparison, and the daily list is not built for it: it chooses
+from all compliant stocks each day. For the honest test of the daily list, use "All halal stocks". If
+simply holding a few halal stocks suits you better, that is a real choice with much less work; ask your
+scholar about the stocks and your adviser about the money. Not financial advice, not a fatwa.
+
 ### How do I know if the daily list actually works?
 Open `trader/tracker.xlsx`. Every stock each list showed is followed on the real prices afterwards,
 using the same rules as the plan (buy only if the price reaches "buy above", stop first if both are
@@ -315,7 +337,10 @@ touched on one day, charges included). The Summary sheet gives the win rate and 
 PASS / WARN / BLOCK, so you can also see whether the risk check helped. It is a paper record: nothing
 is bought. A few weeks are noise, so judge it after 30 or more closed trades.
 
-### Is pullback on or off?
+### Why is pullback on?
+On its own it lost money in 5-year backtests (-0.21R over 46 trades), but switching it off made the whole
+strategy worse (5-year CAGR 8.0% to 4.1%), because other trades took its place. The longer story:
+
 On, by default. In v0.2.5 it was switched off because its own trades lost money in the 5-year backtest (46
 trades, -0.21R each on average, after charges). But the whole strategy did worse without it (5-year CAGR 8.0% to
 4.1%, 3 years 7.9% to 7.0%): other trades took the freed slots. So v0.2.6 put it back on. With it on, every

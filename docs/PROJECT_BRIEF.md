@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-07 (v0.2.7).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-10 (v0.2.8).
 
 ## What it is
 
@@ -12,7 +12,7 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.7** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.7; v0.1.3 is folded into v0.1.4)
+- Latest release: **v0.2.8** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.8; v0.1.3 is folded into v0.1.4)
 - Tests: 464 offline tests plus a fresh-install smoke test (`tools/smoke_fresh.py`); CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
@@ -45,7 +45,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
 | tayyib-entry / tayyib-exit | trigger status; stop (swing max 10%, delivery max 15%), target (2R / 3R), time stop |
 | tayyib-timemachine | 10,000 simulated futures plus historical replay, in R after charges |
-| tayyib-backtest | (v0.2.6) `--robust N` (20, max 50: seeded tie order + start ±1 day, max positions 3/5/8, ranges) and `--robust-compare A B` (paired seeds, 80% verdict); the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars (`--no-late`, their P&L share always shown); ends on the last completed session; metrics, in/out-of-sample, `--compare` (b: score-only ranking, c: no late joiners), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/`; dashboard tab (v0.2.0 to v0.2.2) |
+| tayyib-backtest | two options (v0.2.8): **all halal stocks** (what the daily list does) or **my stocks** (`--symbols`, 1 to 20 compliant, or `--holdings`: the same strategy on that basket only, against buying and holding the same stocks, per-stock table, hindsight banner); (v0.2.6) `--robust N` (20, max 50: seeded tie order + start ±1 day, max positions 3/5/8, ranges) and `--robust-compare A B` (paired seeds, 80% verdict); the daily strategy replayed every day of the last N years on one cash account, no look-ahead, with the live risk check (no news); late listings join at 250 bars (`--no-late`, their P&L share always shown); ends on the last completed session; metrics, in/out-of-sample, `--compare` (b: score-only ranking, c: no late joiners), Shariah ETF and Nifty 50 benchmarks, honest banners; `trader/backtest/`; dashboard tab (v0.2.0 to v0.2.2) |
 | tayyib-budget / tayyib-risk | sizing (1% risk, 20% max position) and PASS / WARN / BLOCK |
 | tayyib-broker | order ticket (manual placement) and journal (placed, stop, close, positions) |
 | tayyib-alerts, tayyib-results, tayyib-insider, tayyib-purify | alerts, quarterly results, NSE insider and bulk deals, dividend purification |
@@ -62,7 +62,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | `halal_overrides.json` | no longer used (v0.2.7): never read or written; an old file gives one daily note |
 | `orders.json`, `positions.json` | tickets (status SIZED/PASS/WARN/BLOCK/PLACED) and the trade journal |
 | `scan.json`, `plan.json`, `sim.json`, `news.json`, `alerts.json`, `config.json` | intermediate results and settings |
-| `backtest/<id>.json` (+ `.md`) | v0.2.0: `params, settings{label, hash}, window{from, to, split}, universe{compliant, tested, skipped}, skipped[{symbol, reason}], banners[]` (3 always + conditional), `metrics{overall, by_setup, by_mode}` (trades, win rate, avg / expectancy R, profit factor, return, CAGR, max drawdown with peak/trough dates, losing streak, exposure, charges), `split{in_sample, out_of_sample}`, `benchmarks{SHARIABEES.NS, ^NSEI}` (UNKNOWN + reason when not fetched), `trades[]`, `equity_curve[]`. See TECHNICAL.md |
+| `backtest/<id>.json` (+ `.md`) | v0.2.0: `params, settings{label, hash}, window{from, to, split}, universe{compliant, tested, skipped}, skipped[{symbol, reason}], banners[]` (3 always + conditional), `metrics{overall, by_setup, by_mode}` (trades, win rate, avg / expectancy R, profit factor, return, CAGR, max drawdown with peak/trough dates, losing streak, exposure, charges), `split{in_sample, out_of_sample}`, `benchmarks{SHARIABEES.NS, ^NSEI}` (UNKNOWN + reason when not fetched), `trades[]`, `equity_curve[]`; v0.2.8 `universe{mode, symbols}`, and for a basket `basket{}` (buy and hold) and `stocks{rows[], totals}`; ids `..._symN_hex6` / `_holdN_`. See TECHNICAL.md |
 
 Every script also prints machine-readable output with `--json`. `mcp/server.py` exposes 20 tools
 over MCP (stdio), none of which place orders.
@@ -175,6 +175,13 @@ over MCP (stdio), none of which place orders.
   unchanged pipeline; `tools/schedule_windows.py` creates only the task `tayyib-daily` (weekdays 16:20 IST,
   `--yes` required); `start.bat` (and `start.sh` on Mac / Linux, v0.2.7) sets `TAYYIB_DIR` to `%USERPROFILE%\tayyib-live\trader` (the code's
   `TAYYIB_DIR` is the trader folder).
+- **My stocks backtest (v0.2.8):** the backtest has two options. "All halal stocks" is the honest test of the
+  daily list (unchanged, same ids). "My stocks" (`--symbols`, up to 20, or `--holdings`) runs the same rules on a
+  basket and compares it with buying and holding it (equal shares, late joiners' share as cash until they join,
+  one buy and one sell charge). Every symbol must match `^[A-Z0-9&-]{1,20}$` and be compliant on today's list
+  (`tc.check_backtest_symbols`, one rule for the CLI, the dashboard action and MCP); anything else is refused,
+  never dropped. Always-on hindsight banner; "small basket" under 10; "holding did better" when it did. The daily
+  list never changes because of it (still default@5).
 - **Releases:** bump `plugin.json`, `marketplace.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
@@ -228,13 +235,17 @@ over MCP (stdio), none of which place orders.
   "Pullback is back on by default (v0.2.6)" banner (configs with their own pullback setting untouched), and the
   robustness test: `backtest.py run --robust [N]` and `--robust-compare "A" "B"`, with range bars and the verdict in
   the Backtest tab.
-- **v0.2.7** (this release): install from the docs alone. `start.sh` (Mac / Linux), `tools/smoke_fresh.py`
+- **v0.2.7**: install from the docs alone. `start.sh` (Mac / Linux), `tools/smoke_fresh.py`
   (fresh-install smoke test, in CI), README three quick starts, the no-Claude command for every journal step in
   the user guide, troubleshooting rows, a developer quick start. Then the owner decision **simple settings**:
   only money/risk, broker, strategies and holidays on the page; halal rules, charges and user agent fixed in
   code; halal overrides removed; backtest `--max-positions` follows `max_open_positions` (6). default@5:
   with the same halal list every decision equals default@4 (= default@2), proved by
   `tests/fixtures/baseline_default5.json.gz`.
+- **v0.2.8** (this release): the backtest's second option, **My stocks** (`--symbols`, `--holdings`), with the
+  buy-and-hold basket, per-stock table and hindsight banners; the Run panel's choice (all / my stocks with search
+  and chips / stocks I hold); MCP `backtest_run` symbols / holdings; the v0.2.7 review's doc leftovers (FAQ,
+  README, pullback switch line). No daily-list changes (default@5).
 - **Next:** switch the regime filter on only with a robust-compare verdict of 80%+ on 3 and 5 years.
 
 Later:

@@ -526,6 +526,8 @@ tr.sup > td b { font-weight:600; }
 .bt-banners { margin:0 0 6px; }
 .bt-banners .banner { font-weight:600; }
 .bt-cards { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap:16px; }
+.bt-cards.basket { grid-template-columns:minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.bt-card.k-basket { border-color:color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .bt-card h3 { margin:0 0 4px; }
 .bt-card .lab { display:inline-flex; gap:6px; align-items:center; font-size:12.5px; color:var(--muted); margin-bottom:12px; }
 .bt-card.ref { border-style:dashed; }
@@ -536,6 +538,27 @@ tr.sup > td b { font-weight:600; }
 svg.chart .s-strategy { fill:none; stroke:var(--primary); stroke-width:2.4; stroke-linejoin:round; }
 svg.chart .s-etf { fill:none; stroke:var(--info); stroke-width:1.8; stroke-dasharray:7 4; stroke-linejoin:round; }
 svg.chart .s-nifty { fill:none; stroke:var(--unknown); stroke-width:1.6; stroke-dasharray:2 3; stroke-linejoin:round; }
+svg.chart .s-basket { fill:none; stroke:var(--accent); stroke-width:2; stroke-dasharray:12 3 2 3; stroke-linejoin:round; }
+/* v0.2.8 "My stocks": the universe choice, the stock search and the chosen chips */
+.bt-uni { display:grid; gap:8px; margin:12px 0; }
+.bt-uni label.check { margin:0; }
+.bt-uni label.check.off { cursor:not-allowed; opacity:.75; }
+.bt-uni .why { display:block; margin-top:4px; color:var(--warn); font-weight:600; }
+.pick-box { border:1px solid var(--line); border-radius:var(--r-md); padding:12px 14px; margin:4px 0 12px; background:var(--surface); }
+.pick-box input[type=search] { width:100%; font:500 15px var(--sans); color:var(--fg); background:var(--surface); border:1px solid var(--line-strong);
+  border-radius:var(--r-sm); min-height:44px; padding:0 12px; }
+.pick-res { list-style:none; margin:6px 0 0; padding:0; display:grid; gap:2px; max-height:220px; overflow:auto; }
+.pick-res button { width:100%; text-align:left; display:flex; gap:10px; align-items:baseline; min-height:40px; padding:6px 10px; border:0;
+  border-radius:var(--r-sm); background:transparent; color:var(--fg); font:500 14px var(--sans); cursor:pointer; }
+.pick-res button:hover, .pick-res button:focus-visible { background:var(--primary-soft); }
+.pick-res button b { min-width:96px; }
+.pick-res .muted { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.picked { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 4px; min-height:30px; }
+.picked .chip { background:var(--primary-soft); color:var(--fg); border:1px solid color-mix(in srgb, var(--primary) 35%, transparent); padding:3px 4px 3px 10px; }
+.picked .chip button { border:0; background:transparent; color:var(--muted); font:700 15px/1 var(--sans); width:28px; height:28px; border-radius:999px; cursor:pointer; }
+.picked .chip button:hover { background:var(--surface-3); color:var(--fg); }
+.pick-count { font:600 12px var(--sans); color:var(--muted); }
+.vs { display:inline-flex; align-items:center; gap:5px; font-weight:600; }
 svg.chart .cap { stroke:var(--line-strong); stroke-dasharray:3 3; }
 svg.chart .dd { fill:var(--block-bg); stroke:var(--block); stroke-width:1.2; }
 svg.chart .ddm { stroke:var(--fg); stroke-width:1.2; stroke-dasharray:4 3; }
@@ -584,7 +607,7 @@ tr.few .few-note { display:inline-flex; align-items:center; gap:4px; font-size:1
 .rb-side h3 { margin:0 0 10px; }
 .rb-verdict { margin:0 0 10px; }
 .rb-verdict .banner { font-weight:700; }
-@media (max-width: 900px) { .bt-cards, .bt-cols { grid-template-columns:minmax(0, 1fr); } .bt-head h1 { font-size:22px; } }
+@media (max-width: 900px) { .bt-cards, .bt-cards.basket, .bt-cols { grid-template-columns:minmax(0, 1fr); } .bt-head h1 { font-size:22px; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition:none !important; animation:none !important; }
   .card.lift:hover { transform:none; }
@@ -1885,11 +1908,78 @@ function btRunButton(cls) {
   b.addEventListener("click", openBtRun);
   return b;
 }
+// v0.2.8: which stocks. The search lists only the compliant stocks the server sent (GET /api/backtest/choices); the
+// server checks every symbol again before it starts anything, so this list is a convenience, never the guard.
+function btUniverse(ch, state) {
+  var box = el("div", { cls:"bt-uni", role:"radiogroup", "aria-label":"Which stocks" });
+  var pick = el("div", { cls:"pick-box", hidden:"hidden" });
+  var hold = ch.holdings || { available:false, reason:"UNKNOWN" };
+  function radio(val, title, sub, off, why) {
+    var r = el("input", { type:"radio", name:"btUni", value:val, id:"btUni-" + val, disabled:off ? "disabled" : null });
+    if (state.uni === val) r.checked = true;
+    r.addEventListener("change", function () { state.uni = val; pick.hidden = val !== "symbols"; if (val === "symbols") search.focus(); });
+    return el("label", { cls:"check" + (off ? " off" : ""), "for":"btUni-" + val }, r,
+      el("span", null, el("b", { text:title }), el("span", { cls:"small muted", style:"display:block", text:sub }),
+        why ? el("span", { cls:"small why", text:why }) : null));
+  }
+  add(box, radio("all", "All halal stocks (what the daily list does)", "Every compliant stock on today's list: the honest test of the daily list."),
+    radio("symbols", "My stocks", "Up to " + ch.max + " compliant stocks you pick, compared with buying and holding the same stocks."),
+    radio("holdings", "Stocks I hold", hold.available ? "Your open trades and imported holdings: " + hold.symbols.join(", ") : "Your open trades and imported holdings.",
+      !hold.available, hold.available ? null : hold.reason));
+  var search = el("input", { type:"search", id:"btSearch", autocomplete:"off", placeholder:"Search symbol or name, e.g. NESTLE", "aria-describedby":"btPickNote" });
+  var res = el("ul", { cls:"pick-res", "aria-label":"Matching compliant stocks" });
+  var chips = el("div", { cls:"picked", "aria-live":"polite", "aria-label":"Chosen stocks" });
+  var count = el("span", { cls:"pick-count" });
+  function drawChips() {
+    chips.textContent = "";
+    state.symbols.forEach(function (sym) {
+      var x = el("button", { type:"button", "aria-label":"Remove " + sym, text:"×" });
+      x.addEventListener("click", function () { state.symbols = state.symbols.filter(function (y) { return y !== sym; }); drawChips(); find(); });
+      chips.appendChild(el("span", { cls:"chip" }, el("b", { text:sym }), x));
+    });
+    if (!state.symbols.length) chips.appendChild(el("span", { cls:"small muted", text:"No stocks chosen yet." }));
+    count.textContent = state.symbols.length + " of " + ch.max + " chosen";
+  }
+  function find() {
+    var q = search.value.trim().toUpperCase(); res.textContent = "";
+    if (!q) return;
+    var n = 0;
+    ch.stocks.forEach(function (st) {
+      if (n >= 8 || state.symbols.indexOf(st.symbol) >= 0) return;
+      if (st.symbol.indexOf(q) < 0 && (st.name || "").toUpperCase().indexOf(q) < 0) return;
+      n += 1;
+      var b = el("button", { type:"button", disabled:state.symbols.length >= ch.max ? "disabled" : null }, el("b", { text:st.symbol }), el("span", { cls:"muted", text:st.name }));
+      b.addEventListener("click", function () {
+        if (state.symbols.length >= ch.max) return;
+        state.symbols.push(st.symbol); drawChips(); search.value = ""; res.textContent = ""; search.focus();
+      });
+      res.appendChild(el("li", null, b));
+    });
+    if (!n) res.appendChild(el("li", { cls:"small muted", style:"padding:6px 10px", text:state.symbols.length >= ch.max ? "That's " + ch.max + ": remove one to add another." : "No compliant stock matches. Only compliant stocks can be tested." }));
+  }
+  search.addEventListener("input", find);
+  search.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    var q = search.value.trim().toUpperCase(), bs = res.querySelectorAll("button:not([disabled])"), pickB = null;
+    Array.prototype.forEach.call(bs, function (b) { if (!pickB && b.firstChild && b.firstChild.textContent === q) pickB = b; });
+    pickB = pickB || bs[0];
+    if (pickB) pickB.click();
+  });
+  add(pick, el("label", { cls:"lbl small", "for":"btSearch", style:"display:block;font-weight:600;margin-bottom:6px", text:"Compliant stocks on today's list (" + ch.stocks.length + ")" }),
+    search, res, chips, el("div", { style:"display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap" },
+      el("p", { cls:"small", id:"btPickNote", text:ch.fair_note }), count));
+  drawChips();
+  pick.hidden = state.uni !== "symbols";
+  return el("div", null, box, pick);
+}
 function openBtRun() {
-  getJSON("/api/run/status").then(function (s) {
+  Promise.all([getJSON("/api/run/status"), getJSON("/api/backtest/choices")]).then(function (both) {
+    var s = both[0], ch = both[1];
     if (s.state === "running") return openRunProgress(s, "A run is already going (" + (s.kind === "daily" ? "" : "a ") + runWhat(s) + "): only one at a time. Wait for it to finish.");
+    if (ch.failed || !ch.stocks) ch = { stocks:[], max:20, fair_note:"Pick at least 10 stocks for a fairer test.", holdings:{ available:false, reason:"The list of stocks could not be loaded." } };
     openDrawer("Run backtest", "tayyib-backtest on this computer · writes only trader/backtest/ and the price cache", function (b) {
-      var opt = { years:3, mode:"all" };
+      var opt = { years:3, mode:"all" }, uni = { uni:"all", symbols:[] };
       function seg(name, values, label) {
         var box = el("div", { cls:"seg", role:"group", "aria-label":label });
         values.forEach(function (v) {
@@ -1901,13 +1991,19 @@ function openBtRun() {
       }
       var cb = el("input", { type:"checkbox", id:"btCompare" }), msg = el("div");
       add(b, el("p", { text:"It replays the daily list on every trading day of the last 3 or 5 years with your capital and settings, and saves the result here. About 4 minutes (compare runs it three times). It never places an order and changes nothing else." }),
+        btUniverse(ch, uni),
         el("div", { cls:"seg-row" }, el("span", { cls:"lbl", text:"Years" }), seg("years", [3, 5], "Years")),
         el("div", { cls:"seg-row" }, el("span", { cls:"lbl", text:"Mode" }), seg("mode", ["all", "swing", "delivery"], "Mode")),
         el("label", { cls:"check", "for":"btCompare" }, cb, el("span", null, el("b", { text:"Compare" }), el("span", { cls:"small muted", style:"display:block", text:"Also (b) ranked by setup score only and (c) without stocks listed during the window. Same prices, about 3 times longer." }))));
       var go = el("button", { cls:"act", type:"button", text:"Run backtest" });
       go.addEventListener("click", function () {
+        var req = { years:opt.years, mode:opt.mode, compare:cb.checked };
+        if (uni.uni === "symbols") {
+          if (!uni.symbols.length) { msg.textContent = ""; add(msg, banner("Choose at least one stock (at least 10 for a fairer test).", "warn")); return; }
+          req.symbols = uni.symbols.slice();
+        } else if (uni.uni === "holdings") req.holdings = true;
         go.disabled = true;
-        postJSON("/api/run", { backtest:{ years:opt.years, mode:opt.mode, compare:cb.checked } }).then(function (r) {
+        postJSON("/api/run", { backtest:req }).then(function (r) {
           if (r.failed) { go.disabled = false; msg.textContent = ""; add(msg, banner(errText(r), "block")); return; }
           openRunProgress(r);
         }, function (e) { go.disabled = false; add(msg, banner("Could not start: " + e, "block")); });
@@ -2045,8 +2141,8 @@ function renderBacktest(panel, d, runs) {
       return el("div", { cls:"bt-banners", role:"region", "aria-label":"Read these first" }, d.banners.map(function (b) { return banner(b, "warn"); }));
     },
     cards:function () {
-      return el("div", { cls:"bt-cards" }, d.cards.map(function (c) {
-        return el("div", { cls:"panel bt-card" + (c.reference_only ? " ref" : ""), "data-card":c.key },
+      return el("div", { cls:"bt-cards" + (d.universe_mode !== "all" ? " basket" : "") }, d.cards.map(function (c) {
+        return el("div", { cls:"panel bt-card" + (c.reference_only ? " ref" : "") + (c.kind === "basket" ? " k-basket" : ""), "data-card":c.key },
           el("h3", { text:c.title }),
           el("div", { cls:"lab" }, c.reference_only ? icon("na", 14) : c.kind === "etf" ? icon("pass", 14) : null, c.label),
           el("div", { cls:"kv" }, c.items.map(function (i) { return el("div", null, el("div", { cls:"l", text:i.label }), el("div", { cls:"v", text:i.value })); })),
@@ -2054,7 +2150,7 @@ function renderBacktest(panel, d, runs) {
       }));
     },
     equity:function () {
-      return el("div", null, el("h2", { cls:"section" }, "Equity", el("small", { text:"strategy and both benchmarks, each starting at your capital" })),
+      return el("div", null, el("h2", { cls:"section" }, "Equity", el("small", { text:d.universe_mode !== "all" ? "strategy, buying and holding your stocks, and the benchmarks, each starting at your capital" : "strategy and both benchmarks, each starting at your capital" })),
         el("div", { cls:"panel" }, btEquity(d.equity)));
     },
     breakdown:function () {
@@ -2112,14 +2208,39 @@ function renderBacktest(panel, d, runs) {
         rg.columns.length ? el("div", { cls:"panel" }, table([{ title:"", cell:function (r) { return el("b", { text:r.label }); } }].concat(rg.columns.map(function (c, i) {
           return { title:c, num:true, cell:function (r) { return r.cells[i]; } }; })), rg.rows, {})) : null, ranges);
     },
+    stocks:function () {
+      if (!d.stocks) return null;
+      var st = d.stocks, t = st.totals;
+      var tb = table([
+        { key:"symbol", title:"Stock", w:"20%", sort:function (x) { return x.symbol; }, cell:function (x) { return [el("b", { text:x.symbol }), el("span", { cls:"sub", text:x.name })]; } },
+        { key:"trades", title:"Trades", num:true, sort:function (x) { return x.trades; }, cell:function (x) {
+          return [x.display.trades, x.display.few ? el("span", { cls:"few-note", style:"display:block" }, icon("unknown", 12), x.display.few) : null]; } },
+        { key:"wins", title:"Wins", num:true, sort:function (x) { return x.trades ? x.wins : null; }, cell:function (x) { return x.display.wins; } },
+        { key:"wr", title:"Win rate", num:true, sort:function (x) { return x.win_rate_pct; }, cell:function (x) { return x.display.win_rate; } },
+        { key:"r", title:"Total R", num:true, sort:function (x) { return x.total_r; }, cell:function (x) {
+          return el("span", { cls:x.total_r > 0 ? "r-up" : x.total_r < 0 ? "r-down" : null, text:x.display.total_r }); } },
+        { key:"pnl", title:"P&L", num:true, sort:function (x) { return x.pnl_rs; }, cell:function (x) { return x.display.pnl_rs; } },
+        { key:"strat", title:"Strategy on its slice", num:true, sort:function (x) { return x.strategy_return_pct; }, cell:function (x) { return x.display.strategy; } },
+        { key:"hold", title:"Holding it", num:true, sort:function (x) { return x.hold_return_pct; }, cell:function (x) {
+          return [x.display.hold, x.display.hold_note ? el("span", { cls:"sub", text:x.display.hold_note }) : null]; } },
+        { key:"vs", title:"Strategy vs holding", w:"15%", sort:function (x) { return x.vs; }, cell:function (x) { return badge(x.vs, x.vs_kind); } }
+      ], st.rows, { sortKey:"symbol", rowClass:function (x) { return x.too_few ? "few" : null; } });
+      return el("div", { id:"btStocks" }, el("h2", { cls:"section" }, "Your stocks", el("small", { text:st.summary })),
+        el("p", { cls:"small muted", style:"margin:-6px 0 10px", text:st.note }),
+        el("div", { cls:"panel" }, tb,
+          el("p", { cls:"small", style:"margin-top:10px" }, el("b", { text:"Total: " }), t.trades + " trades, " + t.wins + " wins, " + t.total_r + ", P&L " + t.pnl_rs + " (the same as the Overall row)."),
+          el("p", { cls:"small muted", style:"margin-top:4px", text:"A stock under 30 trades is greyed and marked (too few to judge): its numbers are noise." })));
+    },
     trades:function () {
       return el("div", null, el("h2", { cls:"section" }, "Trades", el("small", { text:"R after charges, signed; the chart shows each one on its prices" })), btTrades(d));
     },
     universe:function () {
       var u = d.universe;
-      return el("div", null, el("h2", { cls:"section" }, "Universe", el("small", { text:"today's halal list (built " + u.list_updated + ") applied to the past" })),
+      var mine = u.mode && u.mode !== "all";
+      return el("div", null, el("h2", { cls:"section" }, "Universe", el("small", { text:(mine ? u.label + ", " : "") + "today's halal list (built " + u.list_updated + ") applied to the past" })),
         el("div", { cls:"tiles", style:"grid-template-columns:repeat(auto-fit, minmax(150px, 1fr))" },
-          tile("Compliant", String(u.compliant), "on today's list"), tile("Tested", String(u.tested), "had enough prices"),
+          mine ? tile("Chosen", String(u.chosen), u.mode === "holdings" ? "the stocks you hold" : "your stocks, all compliant") : tile("Compliant", String(u.compliant), "on today's list"),
+          tile("Tested", String(u.tested), "had enough prices"),
           tile("Joined late", String(u.joined_late.length), "listed during the window"), tile("Skipped", String(u.skipped.length), "never had 250 days of prices")),
         el("div", { style:"margin-top:12px" }, banner(u.late_line, "info")),
         el("div", { cls:"bt-cols" },

@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.2.8 (2026-11-10)
+
+The backtest gets a second option, **My stocks**: the same fixed strategy, run only on stocks you pick, compared
+honestly with buying and holding those same stocks. No daily-list changes: settings label still **default@5**.
+
+### Added: My stocks backtest
+
+- **`backtest.py run --symbols SYM1,SYM2,...`** (1 to 20) or **`--holdings`** (the open trades and imported
+  holdings in `positions.json`); not both. Without either, the run is exactly as before (same id).
+- **One rule, checked before anything starts:** each symbol must match `^[A-Z0-9&-]{1,20}$` and be `compliant`
+  on today's halal list (`tc.check_backtest_symbols` / `tc.check_holdings`). A review, excluded, unknown or
+  unlisted symbol refuses the run with its name and status ("SUNPHARMA is review on today's halal list (...): only
+  compliant stocks can be tested"); duplicates are removed; more than 20 is refused; nothing is dropped quietly.
+- **Same simulation:** signals, plans, ranking, risk check, sizing, charges, max open trades, late joiners and
+  no look-ahead are unchanged; only the universe is the basket. With every compliant stock chosen the result is the
+  "all" run, trade for trade (test). `params.universe_mode` ("all" | "symbols" | "holdings") and `params.symbols`
+  are recorded.
+- **Buy & hold these stocks:** the capital split equally, each stock bought at the close of its first day in the
+  test (a late joiner on its join day, its share waiting as cash), one buy and one sell charge, held to the end;
+  total return, CAGR and max drawdown next to the strategy and the Shariah BeES. A stock with no prices is UNKNOWN,
+  left out of the basket and named.
+- **Your stocks table:** per stock: trades, wins, win rate, total R, P&L, the strategy's return on the stock's
+  slice, the holding return, and better / worse / no trades. It adds up to the overall totals; under 30 trades a
+  row is "(too few to judge)".
+- **Banners first:** "You chose these stocks today, knowing how they did since. Results are likely better than
+  reality (hindsight)." always; "Small basket: fewer stocks means fewer trades and more luck." under 10 stocks;
+  "Buying and holding these same stocks did better." when it did. The four always-on banners stay.
+- `--compare`, `--robust`, `--robust-compare` and `--no-late` work with a basket on the same bars (no new
+  downloads). Ids gain `_sym<N>` / `_hold<N>`, and `list` shows "all 183" or "5 stocks: TCS, INFY, ...".
+
+### Dashboard
+
+- **Run backtest** offers: "All halal stocks (what the daily list does)" (the default), "My stocks" (a search
+  over the compliant stocks only, chips, at most 20, "Pick at least 10 stocks for a fairer test.") and "Stocks I
+  hold" (greyed with the reason when there is nothing held, or a held stock is not compliant).
+- The action can add only `--symbols=...` (checked on the server with the same rule before the process starts; a
+  bad symbol is HTTP 400 with the reason and starts nothing) or `--holdings`. Arguments are a list, never a shell.
+  Still one run at a time, with the token, Origin and Host checks. New read-only `GET /api/backtest/choices`.
+- A basket run shows the cards Strategy | Buy & hold these stocks | Shariah BeES, the basket's line on the equity
+  chart (the Nifty 50 still dotted, reference only) and the sortable **Your stocks** table above the trades. The
+  run picker shows the stocks of each run.
+
+### MCP
+
+- `backtest_run` takes `symbols` or `holdings`, checked the same way before anything starts; it still never
+  passes `--write`.
+
+### Docs (and the v0.2.7 review's leftovers)
+
+- User guide: "Test on your own stocks" (how to pick, the hindsight warning in plain words, why at least 10, how to
+  read strategy vs holding). FAQ: "Why did buying and holding beat the strategy on my stocks?" Technical guide,
+  project brief, AGENTS.md and the skill page.
+- FAQ: no more "looser with a note"; compliant = "passed every test"; review = not tradable. README: no mention of
+  overrides. Settings: the Pullback switch has one short line like the other strategies; the long note is in the
+  FAQ, "Why is pullback on?".
+- Tests: `tests/test_v028.py`.
+
 ## v0.2.7 (2026-11-07)
 
 Install and run from the docs alone: with or without Claude Code, on Windows, Mac or Linux. Then an owner

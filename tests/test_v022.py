@@ -162,7 +162,7 @@ class BacktestApi(ServerCase):
         self.assertEqual((row["id"], row["mode"], row["settings"], row["trades"]),
                          (res["id"], "all", ("default@%d" % tc.DEFAULTS_VERSION), res["metrics"]["overall"]["trades"]))
         d = self.get("/api/backtest?id=" + res["id"])
-        self.assertEqual(d["order"], ["header", "banners", "cards", "equity", "breakdown", "compare", "robust", "regime", "trades",  # regime: v0.2.4, robust: v0.2.6
+        self.assertEqual(d["order"], ["header", "banners", "cards", "equity", "breakdown", "compare", "robust", "regime", "stocks", "trades",  # regime: v0.2.4, robust: v0.2.6, stocks: v0.2.8
                                       "universe", "footer"])
         self.assertEqual(d["banners"], res["banners"])
         self.assertIn(bt.BANNER_NEWS, d["banners"])
@@ -248,7 +248,8 @@ class Page(unittest.TestCase):
         self.assertEqual(body.count("add(panel, parts[k]())"), 1)       # and nothing is drawn outside it
         self.assertLess(body.index("banners:function"), body.index("cards:function"))
         self.assertIn('"Run backtest"', PAGE)
-        self.assertIn("{ backtest:{ years:opt.years, mode:opt.mode, compare:cb.checked } }", PAGE)
+        self.assertIn("var req = { years:opt.years, mode:opt.mode, compare:cb.checked };", PAGE)   # v0.2.8: + symbols / holdings
+        self.assertIn('postJSON("/api/run", { backtest:req })', PAGE)
         self.assertNotRegex(PAGE, r"(src|href)=\"https?://")
 
 

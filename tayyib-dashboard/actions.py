@@ -6,7 +6,9 @@
 2. A run of tayyib-daily (analysis only: it makes the daily list) or (v0.2.2) of tayyib-backtest with --write
    (it writes only trader/backtest/ and the price cache), one at a time, as a subprocess with the same Python
    and the same TAYYIB_DIR. The page can set only "skip news" for the daily list, and only years (3 or 5),
-   mode (all, swing, delivery) and compare (on / off) for a backtest.
+   mode (all, swing, delivery) and compare (on / off) for a backtest, and (v0.2.8) either a list of 1 to 20 stocks
+   (--symbols, each checked here with tc.check_backtest_symbols, the backtest's own rule, before anything starts)
+   or "the stocks I hold" (--holdings, checked the same way). Arguments are a list, never a shell command line.
 3. (v0.2.3) "Send test email": tayyib-email/email_report.py test and nothing else, refused before it starts when
    TAYYIB_SMTP_PASSWORD is not set. The password stays in the environment: never read, stored or shown here.
 4. (v0.2.5) "Preview" / "Import" of a holdings export: tayyib-broker/ticket.py import FILE [--yes], only for a
@@ -368,8 +370,9 @@ def run_request(body):
         return "email_test", {}
     if isinstance(body, dict) and "backtest" in body:
         b = body["backtest"]
-        if set(body) != {"backtest"} or not isinstance(b, dict) or set(b) - {"years", "mode", "compare"}:
-            raise Refused(400, "a backtest takes only years (3 or 5), mode (all, swing, delivery) and compare")
+        if set(body) != {"backtest"} or not isinstance(b, dict) or set(b) - BT_KEYS:
+            raise Refused(400, "a backtest takes only years (3 or 5), mode (all, swing, delivery), compare, and "
+                               "either symbols (a list of 1 to %d stocks) or holdings (true)" % tc.BT_MAX_SYMBOLS)
         years, mode, compare = b.get("years", 3), b.get("mode", "all"), b.get("compare", False)
         if isinstance(years, bool) or years not in BT_YEARS:
             raise Refused(400, "years must be 3 or 5")
@@ -377,10 +380,39 @@ def run_request(body):
             raise Refused(400, "mode must be all, swing or delivery")
         if not isinstance(compare, bool):
             raise Refused(400, "compare must be true or false")
-        return "backtest", {"years": years, "mode": mode, "compare": compare}
+        opts = {"years": years, "mode": mode, "compare": compare}
+        opts.update(backtest_universe(b))
+        return "backtest", opts
     if not isinstance(body, dict) or set(body) - {"skip_news"} or not isinstance(body.get("skip_news", False), bool):
         raise Refused(400, "the only option is skip_news (true or false)")
     return "daily", {"skip_news": bool(body.get("skip_news"))}
+
+
+BT_KEYS = {"years", "mode", "compare", "symbols", "holdings"}
+
+
+def backtest_universe(b):
+    """v0.2.8: which stocks a backtest from the page may test. {} (all halal stocks), {"symbols": [...]} (each one
+    checked with tc.check_backtest_symbols against today's halal list: the backtest's own rule) or {"holdings": True}
+    (tc.check_holdings on positions.json). Anything else is a 400 with the reason, and nothing is started."""
+    if "symbols" in b and "holdings" in b:
+        raise Refused(400, "choose either symbols or holdings, not both")
+    if "symbols" in b:
+        v = b["symbols"]
+        if not isinstance(v, list):
+            raise Refused(400, "symbols must be a list of NSE symbols, e.g. [\"TCS\", \"INFY\"]")
+        syms, errs = tc.check_backtest_symbols(v, tc.load_universe())
+        if errs:
+            raise Refused(400, errs)
+        return {"symbols": syms}
+    if "holdings" in b:
+        if b["holdings"] is not True:
+            raise Refused(400, "holdings must be true (or left out)")
+        syms, errs = tc.check_holdings(tc.read_json("positions.json", {}) or {}, tc.load_universe())
+        if errs:
+            raise Refused(400, errs)
+        return {"holdings": True, "held": syms}
+    return {}
 
 
 def password_set():
@@ -394,9 +426,16 @@ def email_argv():
 
 
 def backtest_argv(opts):
-    """The whole command line a backtest from the page can have: run, --years, --mode, --compare, --write."""
+    """The whole command line a backtest from the page can have: run, --years, --mode, --compare, (v0.2.8) one
+    --symbols=A,B,... (already checked: capitals, digits, & and - only, compliant) or --holdings, and --write. A list:
+    no shell ever sees it. --symbols=... is one argument, so no symbol can be read as an option."""
+    uni = []
+    if opts.get("symbols"):
+        uni = ["--symbols=" + ",".join(opts["symbols"])]
+    elif opts.get("holdings"):
+        uni = ["--holdings"]
     return (["run", "--years", str(opts["years"]), "--mode", opts["mode"]] + (["--compare"] if opts["compare"] else [])
-            + ["--write"])
+            + uni + ["--write"])
 
 
 def newest_backtest(since):

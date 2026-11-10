@@ -1130,9 +1130,32 @@ function statsTable(list, k) {
   ];
   return table(cols, list, { cls:"stats" });
 }
+// v0.2.9: the paper account (PASS picks only) first: the number to judge before real money
+function paperCard(p) {
+  var box = el("div", { cls:"panel", style:"margin-bottom:16px" });
+  add(box, el("h3", { text:"Paper account (PASS only)" }));
+  add(box, banner(p.banner, "info"));
+  if (p.missing) {
+    add(box, el("p", { cls:"small muted", text:"No paper account yet. " + p.hint }));
+  } else {
+    if (p.too_early) add(box, banner(p.too_early, "warn"));
+    var t = p.tiles;
+    add(box, el("div", { cls:"bento" },
+      [["Equity", t.equity, "since " + p.start], ["Return", t.return, "after charges"], ["Closed trades", t.closed, t.open],
+       ["Win rate", t.win_rate, "of closed paper trades"], ["Average R", t.avg_r, "per closed trade"],
+       ["vs Shariah BeES", t.bench, "bought and held from " + p.start]].map(function (x) {
+        return el("div", { cls:"tile span-4" }, el("div", { cls:"l", text:x[0] }), el("div", { cls:"v small-v", text:x[1] }), el("div", { cls:"s", text:x[2] })); })));
+  }
+  add(box, el("h3", { style:"margin:16px 0 8px", text:"Saved reports" }));
+  if (!p.reports.length) add(box, el("p", { cls:"small muted", text:"None yet. The daily run writes one every 15 days (trader/reports/), or run: tayyib-tracker/tracker.py report" }));
+  else add(box, el("ul", { cls:"small" }, p.reports.map(function (r) {
+    return el("li", null, el("a", { href:r.url, target:"_blank", rel:"noopener", text:r.date + ".md" }), " · " + r.label); })));
+  return box;
+}
 function renderResults(panel, d) {
   panel.textContent = "";
-  if (d.missing) return missing(panel, d);
+  if (d.missing) { missing(panel, d); if (d.paper) panel.insertBefore(paperCard(d.paper), panel.firstChild); return; }
+  if (d.paper) add(panel, paperCard(d.paper));
   var k = d.kpis, rc = d.result_counts;
   add(panel, el("div", { cls:"bento" },
     el("div", { cls:"tile span-3" }, el("div", { cls:"l", text:"Win rate" }), el("div", { cls:"v" + (d.closed ? "" : " small-v"), text:k.win_rate_pct }), el("div", { cls:"s", text:"of closed paper trades" })),

@@ -311,12 +311,21 @@ def main(argv=None):
             run("tayyib-tracker", "tracker.py", "add", "--from-daily", today)
             run("tayyib-tracker", "tracker.py", "update")
             ex = run("tayyib-tracker", "tracker.py", "export")
-            rep = run("tayyib-tracker", "tracker.py", "report")
+            rep = run("tayyib-tracker", "tracker.py", "summary")
             earlier = [r for r in rep["recent"] if r["date"] < today][:10]
             out["tracker"] = {"xlsx": ex["xlsx"], "all": rep["summary"]["all"], "earlier": earlier}
             tc.write_json(os.path.join("daily", today + ".json"), out)
         except RuntimeError as e:
             notes.append("tracker update failed: %s" % str(e)[:120])
+        # v0.2.9: the paper account (PASS picks only) every run; the shareable report when report.every_days have
+        # passed. Measurement only: the list above is already decided and saved.
+        try:
+            pr = run("tayyib-tracker", "tracker.py", "report", "--if-due")
+            out["paper"] = {"totals": pr.get("totals"), "report": pr.get("md") if pr.get("written") else None,
+                            "next_report": pr.get("next_due")}
+            tc.write_json(os.path.join("daily", today + ".json"), out)
+        except RuntimeError as e:
+            notes.append("paper account update failed: %s" % str(e)[:120])
     md = render_md(out, uni)
     with open(tc.path("daily", today + ".md"), "w", encoding="utf-8") as f:
         f.write(md)

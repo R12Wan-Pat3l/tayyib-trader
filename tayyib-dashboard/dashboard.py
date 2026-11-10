@@ -579,10 +579,63 @@ def result_counts(rows):
     return out
 
 
+REPORT_RE = re.compile(r"^/reports/(\d{4}-\d{2}-\d{2})\.md$")      # v0.2.9: the only report path served
+PAPER_BANNER = "Paper only: nothing was bought."
+
+
+def report_list():
+    """The saved paper-account reports (trader/reports/DATE.md), newest first, with the URL that opens each."""
+    d = os.path.join(tc.data_dir(), "reports")
+    if not os.path.isdir(d):
+        return []
+    dates = sorted({f[:-3] for f in os.listdir(d) if REPORT_RE.match("/reports/" + f)}, reverse=True)
+    return [{"date": x, "url": "/reports/%s.md" % x, "label": long_date(x)} for x in dates]
+
+
+def report_file(path):
+    """GET /reports/DATE.md -> the file's bytes, or None. The name is rebuilt from the date the pattern matched."""
+    m = REPORT_RE.match(path)
+    if not m:
+        return None
+    p = os.path.join(tc.data_dir(), "reports", m.group(1) + ".md")
+    if not os.path.isfile(p):
+        return None
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def paper_view():
+    """v0.2.9: the paper account card (PASS picks only), from trader/paper_account.json as tayyib-tracker wrote it."""
+    acct, miss = read("paper_account.json")
+    reports = report_list()
+    if miss or not isinstance(acct, dict) or not acct.get("totals"):
+        return {"missing": True, "reports": reports, "banner": PAPER_BANNER,
+                "hint": "Made by the daily run (or: tayyib-tracker/tracker.py paper)."}
+    t, b = acct["totals"], acct.get("benchmark") or {}
+    n = t.get("closed_trades") or 0
+    bench = (signed_pct(b.get("total_return_pct")) if b.get("status") == "OK"
+             else "UNKNOWN (%s)" % (b.get("reason") or "not fetched"))
+    return {"missing": False, "banner": PAPER_BANNER, "start": acct.get("start"), "asof": acct.get("asof"),
+            "closed": n, "too_early": ("Too early to judge: %s (need %d+)." % (tc.plural(n, "closed trade"), tc.MIN_TRADES))
+            if n < tc.MIN_TRADES else None,
+            "tiles": {"equity": inr(t.get("equity"), 0), "return": signed_pct(t.get("total_return_pct")),
+                      "closed": str(n), "win_rate": num(t.get("win_rate_pct"), 1, "%") if n else "none closed",
+                      "avg_r": signed_r(t.get("avg_r")) if n else "none closed", "bench": bench,
+                      "open": "%d open, %d waiting to buy, %d skipped" % (t.get("open_positions") or 0,
+                                                                         t.get("waiting_to_buy") or 0,
+                                                                         t.get("skipped") or 0)},
+            "reports": reports}
+
+
+def signed_pct(x):
+    return UNKNOWN if x is None else "%+.2f%%" % x
+
+
 def api_tracker(q):
     store, miss = read("tracker.json")
     if miss:
-        return miss
+        pv = paper_view()                                # only when there is a paper account or a report to show
+        return miss if pv["missing"] and not pv["reports"] else dict(miss, paper=pv)
     tr = tracker_mod()
     if tr is None:
         return {"missing": "tayyib-tracker/tracker.py", "hint": "install every tayyib skill side by side"}
@@ -625,7 +678,7 @@ def api_tracker(q):
     ring = min(closed, NOISE_UNTIL) / float(NOISE_UNTIL)
     kpis = dict(stats_display(a), closed="%d / %d" % (closed, NOISE_UNTIL), tracked=str(a.get("listed", len(rows))),
                 open=str(sum(1 for r in rows if r.get("status") in ("OPEN", "WAITING"))))
-    return {"rows": rows, "summary": summ, "groups": groups, "settings_split": tr.settings_split(store),
+    return {"paper": paper_view(), "rows": rows, "summary": summ, "groups": groups, "settings_split": tr.settings_split(store),
             "kpis": kpis, "ring": {"fraction": round(ring, 3), "closed": closed, "of": NOISE_UNTIL,
                                    "label": "%d of %d closed trades" % (closed, NOISE_UNTIL)},
             "result_counts": result_counts(rows),
@@ -1574,7 +1627,7 @@ def _range_text(doc):
             return "%s to %s" % (inr_short(doc["min"]), inr_short(doc["max"]))
         return "%s–%s%s" % (tc._fmt_val(doc["min"]), tc._fmt_val(doc["max"]), (" " + unit) if unit and unit != "%" else unit)
     return {"bool": "on or off", "enum": "one of " + ", ".join(tc._fmt_val(c) for c in doc.get("choices") or []),
-            "string": "text", "dates": "dates, YYYY-MM-DD, one a line", "map": "name: URL, one a line",
+            "string": "text", "date": "a date, YYYY-MM-DD", "dates": "dates, YYYY-MM-DD, one a line", "map": "name: URL, one a line",
             "email": "an email address", "emails": "up to %d addresses, one a line" % tc.MAX_EMAIL_TO}.get(doc["type"], "")
 
 
@@ -1864,6 +1917,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, page, "text/html; charset=utf-8", head)
         if p in POST_ROUTES:
             return self._refuse()
+        if p.startswith("/reports/"):                  # v0.2.9: a saved paper-account report, as plain text
+            body = report_file(p)
+            if body is None:
+                return self._json(404, {"error": "not found"}, head)
+            return self._send(200, body, "text/plain; charset=utf-8", head)
         if p == "/api/run/status":
             return self._json(200, run_status(self.server.runner), head)
         if p == "/api/import":

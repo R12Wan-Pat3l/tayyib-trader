@@ -8,8 +8,13 @@ target or the stop first? Result in R and rupees after charges.
 
   add --from-daily [DATE]   record a day's list (tayyib-daily does this itself)
   update                    follow every unfinished row on the latest prices
-  report                    win rate, average R and P&L, by check, mode and setup
+  summary                   win rate, average R and P&L, by check, mode and setup
   export                    trader/tracker.xlsx (Excel) and trader/tracker.csv
+  paper                     v0.2.9: the paper account (PASS picks only, one cash account)
+                            -> trader/paper_account.json
+  report [--days 15]        v0.2.9: the paper account plus a short report to share
+         [--if-due]         -> trader/reports/DATE.md and .json (--if-due: only when
+                            report.every_days have passed; the daily run does this)
 
 Paper only: nothing is bought. Statuses: WAITING (buy price not reached yet),
 NOT TRIGGERED (never reached in its valid days), OPEN, TARGET, STOP,
@@ -163,6 +168,27 @@ def supersede(store, date, h, label):
     return gone, back
 
 
+def list_row(d, r, h=PRE):
+    """One daily-list row as a tracker row (WAITING), or None when it has no entry, stop or target. The paper
+    account (v0.2.9) builds its positions with this too."""
+    if r.get("entry") is None or r.get("stop") is None or r.get("target") is None:
+        return None
+    return {"date": d["date"], "symbol": r["symbol"], "name": r.get("name", ""), "mode": r["mode"],
+            "setup": r["setup"], "check": r.get("risk"), "entry": r["entry"], "stop": r["stop"],
+            "target": r["target"], "qty": r.get("qty"), "risk_rs": r.get("loss_at_stop_rs"),
+            "valid_until": r.get("valid_until"), "max_hold_days": r.get("max_hold_days"),
+            "expectancy_r": r.get("expectancy_r"), "status": "WAITING", "settings_hash": h}
+
+
+def follow(row, bars, cfg, today=None):
+    """Follow one row on the real bars with the plan's own rules (tc.trade_outcome) -> the outcome fields. The
+    tracker and the paper account (v0.2.9) both call this, so a row's fill and exit are the same in both."""
+    plan = dict(row)
+    if not plan.get("max_hold_days"):
+        plan["max_hold_days"] = cfg["modes"][row["mode"]]["max_hold_days"]
+    return tc.trade_outcome(bars, plan, cfg, today)
+
+
 def add_from_daily(store, date):
     d = tc.read_json(os.path.join("daily", date + ".json"))
     if not d:
@@ -179,13 +205,9 @@ def add_from_daily(store, date):
     live_fills = {pick(r) for r in store["rows"] if r["date"] == d["date"] and filled(r)}
     n = 0
     for r in d.get("rows", []):
-        if r.get("entry") is None or r.get("stop") is None or r.get("target") is None:
+        row = list_row(d, r, h)
+        if row is None:
             continue
-        row = {"date": d["date"], "symbol": r["symbol"], "name": r.get("name", ""), "mode": r["mode"],
-               "setup": r["setup"], "check": r.get("risk"), "entry": r["entry"], "stop": r["stop"],
-               "target": r["target"], "qty": r.get("qty"), "risk_rs": r.get("loss_at_stop_rs"),
-               "valid_until": r.get("valid_until"), "max_hold_days": r.get("max_hold_days"),
-               "expectancy_r": r.get("expectancy_r"), "status": "WAITING", "settings_hash": h}
         if key(row) not in have and pick(row) not in live_fills:   # a filled pick stays the one that counts
             store["rows"].append(row)
             have.add(key(row))
@@ -206,10 +228,7 @@ def update(store, cfg):
                 errors.append("%s: %s" % (s, e))
         if bars_by[s] is None:
             continue
-        plan = dict(r, date=r["date"])
-        if not plan.get("max_hold_days"):
-            plan["max_hold_days"] = cfg["modes"][r["mode"]]["max_hold_days"]
-        r.update(tc.trade_outcome(bars_by[s], plan, cfg))
+        r.update(follow(r, bars_by[s], cfg))
     store["_overlap"] = overlap(store, {s for s, b in bars_by.items() if b is None})   # after following: today's
                                                         # fills decide held vs waiting
     return len(todo), errors
@@ -417,6 +436,45 @@ def export(store):
     return xlsx
 
 
+def paper_cmd(a, cfg, store):
+    """paper: build trader/paper_account.json. report: that, plus trader/reports/DATE.md and .json (with --if-due
+    only when report.every_days have passed). Reads tracker.json, never writes it."""
+    import paper as P                                   # tayyib-tracker/paper.py (it imports this module)
+    today = tc.today_ist().isoformat()
+    acct = P.build(cfg, today)
+    path = P.write(acct)
+    t = acct["totals"]
+    if a.cmd == "paper":
+        if a.json:
+            return tc.print_json({"paper_account": path, "totals": t, "banners": acct["banners"],
+                                  "benchmark": acct["benchmark"]})
+        for b in acct["banners"]:
+            print(b)
+        print("Paper account (PASS only, since %s): equity %s (%s), %d closed, %d open, %d waiting to buy, "
+              "%d skipped" % (acct["start"], tc.fmt_rs(t["equity"]), P._pct(t["total_return_pct"]),
+                              t["closed_trades"], t["open_positions"], t["waiting_to_buy"], t["skipped"]))
+        print("wrote %s" % path)
+        return
+    due, nxt = P.report_due(cfg, today)
+    if a.if_due and not due:
+        if a.json:
+            return tc.print_json({"written": False, "paper_account": path, "totals": t, "next_due": nxt})
+        print("report not due yet (next on %s); wrote %s" % (nxt, path))
+        return
+    days = max(1, min(int(a.days), 366))
+    rep = P.make_report(cfg, acct, days, store, today)
+    md, js = P.write_report(rep)
+    if a.json:
+        return tc.print_json({"written": True, "md": md, "json": js, "lines": rep["lines"], "paper_account": path,
+                              "totals": t, "banners": rep["banners"],
+                              # the tracker summary as `summary` gives it (kept for older callers)
+                              "summary": summary(store["rows"], store), "settings_split": settings_split(store),
+                              "recent": sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]),
+                                               reverse=True)[:15]})
+    print(rep["md"])
+    print("wrote %s and %s" % (md, js))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--json", action="store_true")
@@ -424,7 +482,12 @@ def main(argv=None):
     ad = sub.add_parser("add")
     ad.add_argument("--from-daily", nargs="?", const="", default=None, metavar="DATE")
     sub.add_parser("update")
-    sub.add_parser("report")
+    sub.add_parser("summary")
+    rp = sub.add_parser("report")
+    rp.add_argument("--days", type=int, default=15, help="the period the report looks back on (default 15)")
+    rp.add_argument("--if-due", action="store_true",
+                    help="write the report only when the last one is report.every_days old (the daily run)")
+    sub.add_parser("paper")
     sub.add_parser("export")
     sub.add_parser("migrate")
     for sp in sub.choices.values():
@@ -474,6 +537,8 @@ def main(argv=None):
             return tc.print_json({"xlsx": path, "csv": tc.path("tracker.csv"), "rows": len(store["rows"])})
         print("wrote %s and trader/tracker.csv (%d rows)" % (path, len(store["rows"])))
         return
+    if a.cmd in ("paper", "report"):
+        return paper_cmd(a, cfg, store)
     summ = summary(store["rows"], store)
     recent = sorted(store["rows"], key=lambda r: (r["date"], r["symbol"]), reverse=True)[:15]
     split = settings_split(store)

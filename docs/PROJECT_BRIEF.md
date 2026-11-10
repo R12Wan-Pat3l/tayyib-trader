@@ -1,7 +1,7 @@
 # tayyib-trader: project brief
 
 Context for any new chat or AI session working on this project (for example a UI). Read this first,
-then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-10 (v0.2.8).
+then [TECHNICAL.md](TECHNICAL.md) for details. Last updated: 2026-11-10 (v0.2.9).
 
 ## What it is
 
@@ -12,7 +12,7 @@ tracker in Excel. It **never places orders**: the user places them in Zerodha or
 explicit yes.
 
 - Repo: https://github.com/R12Wan-Pat3l/tayyib-trader (owner and maintainer: Rizwan Patel)
-- Latest release: **v0.2.8** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.8; v0.1.3 is folded into v0.1.4)
+- Latest release: **v0.2.9** (tags v0.1.0 to v0.1.11, v0.2.0 to v0.2.9; v0.1.3 is folded into v0.1.4)
 - Tests: 464 offline tests plus a fresh-install smoke test (`tools/smoke_fresh.py`); CI on Python 3.8 and 3.12; releases published automatically when a `v*` tag is pushed
 
 ## Non-negotiable rules (apply to every change, including any UI)
@@ -39,7 +39,7 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | tayyib-daily | one command: today's list, top 3 PASS picks, `trader/daily/DATE.md` + `.json` |
 | tayyib-dashboard | local web page over the `trader/` files (127.0.0.1): Today, Results, Halal, Tickets, Backtest, Settings; GET only except `POST /api/config` and `POST /api/run` (today's list, a backtest, or (v0.2.3) a test email); first-run setup when `config.json` is missing |
 | tayyib-email | today's list to the user's own inbox (personal use only; at most 3 addresses): banners first, PASS cards, other rows, tracker, held-but-not-compliant in red; FAILED / stale email instead of old picks; nothing on market-closed days; password only from `TAYYIB_SMTP_PASSWORD`; `trader/email/` (v0.2.3) |
-| tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json` |
+| tayyib-tracker | paper record of every pick, followed on real prices; `tracker.xlsx`, `.csv`, `.json`; (v0.2.9) the **paper account** (PASS picks only, one cash account, vs Shariah BeES) and the 15-day report `reports/DATE.md` |
 | tayyib-halal | business screen plus TASIS ratios (debt < 25% of assets, non-compliant income < 3%, cash + receivables < 90%), automatic, no overrides (v0.2.7); `compare` (read-only) against a trusted fund list; `held`: re-checks the stocks you hold (v0.2.4) |
 | tayyib-scanner | swing setups (breakout, pullback, oversold, squeeze) and delivery (trend) |
 | tayyib-news | Google News India, NSE announcements, Moneycontrol, ET, Mint; HALAL-WATCH flags |
@@ -57,6 +57,8 @@ halal list (auto-rebuild every 30 days) -> scan -> news -> plan -> time machine
 | `daily/YYYY-MM-DD.json` | `banner` (first key; always null since v0.2.7, when the halal rules became fixed), `date, capital, broker, scanned, top_picks[], notes[]` (including `CONFIG: ...` notes), `banners[]` (list-level warnings; v0.1.9 wording: "Exchange filings unavailable today (NSE refused automated access). HALAL-WATCH and results checks are incomplete for N of M stocks: check the announcements yourself for any stock you plan to buy."), `settings{hash, label ("default@4" when nothing differs, = default@2 in decisions; "default@2" / "default@3" on older lists; "default@1" for lists before v0.1.7), defaults_version, values, differs_from_default[]}`, `rows[]`. Each row: `symbol, name, mode, setup, score, entry, stop, stop_pct, target, valid_until, max_hold_days, qty, position_rs, loss_at_stop_rs, gain_at_target_rs, rr_net, expectancy_r, past_trades, verdict, ranked_by ("expectancy" / "score"), expectancy_use ("ranked (n trades)" / "information only (n trades)"), stop_capped, risk (PASS/WARN/BLOCK/FILTERED/NOT SIZED), reasons[] ("BLOCK: ..." / "WARN: ..."), order_id, why[]`. Also `tracker{all, earlier[]}` |
 | `why[]` (each daily row) | items `{group, check, value, limit, op, ok, unit, note}`, groups in order `HALAL, LIQUIDITY, SETUP, NEWS, PLAN, HISTORY, RISK`; `ok` true/false, or null when the input was missing (value null = show UNKNOWN). Recorded by each step when it decided; the last RISK item is `result`. v0.1.7 flags: HALAL ratio items `near_limit` (at or above `halal.near_limit_pct` = 90% of the limit), PLAN `stop capped` item with `stop_capped: true`, SETUP context items with `op: "info"` (% above the 200-day average, 126-day return) |
 | `tracker.json` | `rows[]`: list date, symbol, mode, setup, check, entry, stop, target, qty, risk_rs, valid_until, expectancy_r, `settings_hash` ("pre-0.1.5" for older rows), plus the outcome: `status` (WAITING, NOT TRIGGERED, OPEN, TARGET, STOP, BREAKEVEN, TIME EXIT), `filled, fill, exited, exit, days, r, pnl_rs, last, checked`. Also `settings{hash: {label, first_seen, differs_from_default[]}}`, `summary{}` (incl. `settings: <label>` groups) and `settings_split{label: {differs, hashes[], first_seen, stats}}` |
+| `paper_account.json` | v0.2.9: `totals{capital, equity, cash, total_return_pct, closed_trades, win_rate_pct, avg_r, total_pnl_rs, max_drawdown_pct, drawdown_peak, drawdown_trough, longest_losing_streak, open_risk_rs, too_few, ...}`, `positions[]` (state open / closed / waiting / not_triggered), `skipped[{list_date, symbol, reason}]`, `equity_curve[]`, `groups{by_mode, by_setup}`, `benchmark` (Shariah BeES; UNKNOWN + reason). See TECHNICAL.md |
+| `reports/DATE.md` (+ `.json`) | v0.2.9: the shareable paper-account report (banners first, under 150 lines) |
 | `halal_universe.json` | `updated, source, method` ("TASIS-style"), `thresholds{4 limits}`, `stocks{SYM: {name, industry, status, reasons[], ratios{debt_to_assets_pct, interest_income_pct, noncompliant_income_pct, assumed_return_pct, cash_receivables_to_assets_pct}, as_of, why[], near_limit[] (ratio keys from 90% of their limit up to it), over_limit[] (at or over it); v0.1.7}}` |
 | settings for a UI | `tc.DEFAULT_CONFIG_DOCS`: `key -> {description, min, max, unit, type, ...}` for every setting; `tc.validate_config(user) -> (cfg, notes)`; `tc.risk_preview(cfg)` (also `daily.py --risk-preview --json`) |
 | `halal_overrides.json` | no longer used (v0.2.7): never read or written; an old file gives one daily note |
@@ -182,6 +184,13 @@ over MCP (stdio), none of which place orders.
   (`tc.check_backtest_symbols`, one rule for the CLI, the dashboard action and MCP); anything else is refused,
   never dropped. Always-on hindsight banner; "small basket" under 10; "holding did better" when it did. The daily
   list never changes because of it (still default@5).
+- **Paper account (v0.2.9):** the number to judge before real money. Only PASS picks from lists dated on or after
+  `paper.start` (2026-11-10, the first default@5 list), list order, one position per stock, `max_open_positions`
+  open + waiting, cash never negative (proceeds from the next day), the list's qty; fills and exits are the
+  tracker's own (`tracker.follow`). Skipped PASS picks are kept with the reason. Every 15 days
+  (`report.every_days`) the daily run writes `trader/reports/DATE.md` (attached to the email); `tracker.py report`
+  any time. Under 30 closed trades: "Too early to judge". Measurement only: both keys are outside the settings
+  hash; the daily list is unchanged (default@5). `tracker.py summary` is the old `report` output.
 - **Releases:** bump `plugin.json`, `marketplace.json`, the core `VERSION`, the MCP server version and the top CHANGELOG entry
   together. A test enforces this, and `claude plugin update` depends on it.
 
@@ -242,10 +251,13 @@ over MCP (stdio), none of which place orders.
   code; halal overrides removed; backtest `--max-positions` follows `max_open_positions` (6). default@5:
   with the same halal list every decision equals default@4 (= default@2), proved by
   `tests/fixtures/baseline_default5.json.gz`.
-- **v0.2.8** (this release): the backtest's second option, **My stocks** (`--symbols`, `--holdings`), with the
+- **v0.2.8**: the backtest's second option, **My stocks** (`--symbols`, `--holdings`), with the
   buy-and-hold basket, per-stock table and hindsight banners; the Run panel's choice (all / my stocks with search
   and chips / stocks I hold); MCP `backtest_run` symbols / holdings; the v0.2.7 review's doc leftovers (FAQ,
   README, pullback switch line). No daily-list changes (default@5).
+- **v0.2.9** (this release): the paper account (PASS only, one cash account, skipped picks with reasons, vs the
+  Shariah BeES), `tracker.py paper` / `report` / `summary`, the 15-day report (auto in the daily run, attached to
+  the email), the Results tab card and saved reports. No daily-list changes (default@5).
 - **Next:** switch the regime filter on only with a robust-compare verdict of 80%+ on 3 and 5 years.
 
 Later:

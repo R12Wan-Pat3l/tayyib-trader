@@ -117,7 +117,7 @@ All state lives in `./trader/` (override with `TAYYIB_DIR`):
 | results | `tayyib-results/results.py SYM` | Yahoo quarterly + annual | `results/SYM.json` |
 | insider | `tayyib-insider/insider.py SYM` | NSE PIT, bulk/block deals | `insider.json` |
 | purify | `tayyib-purify/purify.py add-dividend \| report` | universe ratios, positions | `purification.json` |
-| tracker | `tayyib-tracker/tracker.py add --from-daily DATE \| update \| report \| export` | daily lists, bars | `tracker.json`, `tracker.xlsx`, `tracker.csv` |
+| tracker | `tayyib-tracker/tracker.py add --from-daily DATE \| update \| summary \| export \| paper \| report [--days N] [--if-due]` | daily lists, bars | `tracker.json`, `tracker.xlsx`, `tracker.csv`; v0.2.9 `paper_account.json`, `reports/DATE.md` + `.json` |
 | **daily** | `tayyib-daily/daily.py [--mode] [--top N] [--picks N] [--no-news] [--no-rebuild] [--risk-preview]` | all of the above | `daily/DATE.md`, `daily/DATE.json` |
 
 What `daily` does:
@@ -889,6 +889,59 @@ are left for the next one. `filled()` treats both statuses as not bought, so a s
 other settings can still supersede them. Excel: the Settings column shows the label (default@2,
 default@1, pre-0.1.5 or the hash), and Win rate / Avg R / Total R / P&L are blank (`pnl_rs` None, not
 0) while a group has no closed trades.
+
+## Paper account and the 15-day report (v0.2.9)
+
+Measurement only: no pick, plan, ranking or sizing changes (still **default@5**); `paper.start` and
+`report.every_days` are in `tc.SETTINGS_EXCLUDE`, so they never change the settings hash.
+
+**Paper account** (`tayyib-tracker/paper.py`, `tracker.py paper`) -> `trader/paper_account.json`. Rules:
+- only rows with `risk == "PASS"` from `daily/DATE.json` with `paper.start <= DATE <= today` (default
+  `"2026-11-10"`, the first default@5 list; config type `date`), in the list's own row order;
+- one position per symbol (open or waiting to buy); at most `max_open_positions` open + waiting;
+- cash starts at `capital`; a pick is taken only if `qty x entry + buy charges` fits the cash settled by that list
+  date minus what waiting orders reserve; at the fill the real cost (fill price) must fit the cash settled before
+  that day, else it is skipped ("not enough cash at the fill price"). Sale proceeds count from the next day, so cash
+  never goes below zero;
+- quantity as sized in the list; rows come from `tracker.list_row` and are followed with `tracker.follow` (=
+  `tc.trade_outcome`, the tracker's own fill / stop / target / breakeven / time rules and charges; a bar touching
+  both stop and target is the stop);
+- day by day over list, fill and exit dates: fills first, then exits, then that day's list (after the close). A
+  buy-stop that never filled frees its slot after `valid_until`.
+
+A PASS row not taken goes to `skipped[]` with `reason`: `slots full: N of N open or waiting to buy`,
+`not enough cash: needs Rs X, free Rs Y`, `not enough cash at the fill price: ...`, `already held (list D)`,
+`already waiting to buy (list D)`, `no quantity in the list`, or `UNKNOWN: no prices (...)` (plus a banner: the
+account is incomplete).
+
+`paper_account.json`: `start, today, capital, max_open_positions, broker, lists[], rules[], banners[]`,
+`totals{capital, equity, cash, total_return_pct, closed_trades, open_positions, waiting_to_buy, skipped,
+win_rate_pct, avg_r, total_pnl_rs, total_charges_rs, unrealised_pnl_rs, max_drawdown_pct, drawdown_peak,
+drawdown_trough, longest_losing_streak, open_risk_rs (at the planned stops, after charges), too_few}`,
+`groups{by_mode, by_setup}` (each `tc.trade_stats` + `too_few` under 30), `benchmark` (`tc.buy_hold_benchmark`
+of SHARIABEES.NS from `paper.start`: same capital, one buy and one sell charge; `status: "UNKNOWN"` + `reason` when
+it can't be fetched), `positions[]` (the list row + outcome, `state` open / closed / waiting / not_triggered,
+`result`, `cost_rs`, `proceeds_rs`), `skipped[]`, `equity_curve[{date, cash, positions_value, equity,
+open_positions}]` (cash includes proceeds not yet settled; open positions at that day's close after the sell
+charges), `errors{}`. `curve_stats`, `trade_stats` and `buy_hold_benchmark` moved from tayyib-backtest into core
+(the backtest keeps its names as aliases; its results are unchanged).
+
+**Report** (`tracker.py report [--days 15] [--if-due]`) -> `trader/reports/DATE.md` + `.json`. Banners first
+("Paper only: nothing was bought.", "Too early to judge: N closed trades (need 30+)." under 30, the disclaimer),
+then the paper account for the last N days and since `paper.start` side by side (equity, return, closed trades,
+win rate, average R, P&L, max drawdown with dates, losing streak, Shariah BeES over the same dates), trades closed
+in the period, positions still open (R now) and waiting orders, skipped PASS picks, and the full tracker summary
+labelled "includes WARN/BLOCK picks you would not buy". Tables stop at 20 rows (the rest are in the .json); about
+50 to 100 lines, under 150. `--if-due`: written only when the newest report is `report.every_days` (15, range
+1-90) days old, or, with none yet, `paper.start + every_days`; `tayyib-daily` runs `report --if-due` after the
+tracker (also building `paper_account.json` every run) and stores `paper{totals, report, next_report}` in the
+daily JSON. `tayyib-email` attaches `reports/DATE.md` as `paper-report-DATE.md` when that day's report exists.
+`report` reads `tracker.json` and never writes it. The old `report` output (summary, recent, settings split) is
+`tracker.py summary`; `report --json` still carries `summary`, `settings_split` and `recent`.
+
+**Dashboard:** `/api/tracker` gains `paper` (the card: equity, return, closed trades, win rate, average R, vs
+Shariah BeES, `too_early`, `reports[]`). Saved reports open at `GET /reports/DATE.md` (`text/plain`; the name is
+rebuilt from the matched date, `^/reports/\d{4}-\d{2}-\d{2}\.md$`, nothing else under `/reports/`). Still GET only.
 
 ## Data endpoints (free, unofficial)
 

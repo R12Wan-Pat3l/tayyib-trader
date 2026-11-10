@@ -567,10 +567,10 @@ class Docs(unittest.TestCase):
         self.assertIn("--symbols", _doc("tayyib-backtest", "SKILL.md"))
 
     def test_release(self):
-        self.assertEqual(tc.VERSION, "0.2.8")
+        self.assertTrue(tc.VERSION >= "0.2.8")              # pinned exactly by the newest test file (test_v029)
         self.assertEqual(tc.DEFAULTS_VERSION, 5)                               # no decision changes: still default@5
         for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-            self.assertIn('"0.2.8"', _doc(f))
+            self.assertIn('"%s"' % tc.VERSION, _doc(f))
         top = _doc("CHANGELOG.md").split("## v0.2.7")[0]
         self.assertIn("## v0.2.8", top)
         self.assertIn("--symbols", top)

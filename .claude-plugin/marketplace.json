@@ -10,7 +10,7 @@
     {
       "name": "tayyib-trader",
       "description": "18 skills for halal (Shariah-screened) swing and delivery trading on Indian markets. Delivery only, no F&O, no shorts, never places an order without you.",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/R12Wan-Pat3l/tayyib-trader"

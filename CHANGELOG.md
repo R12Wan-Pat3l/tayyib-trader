@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.2.9 (2026-11-10)
+
+A **paper account** that copies what you would do with real money, and a **15-day report** you can share by hand.
+Measurement only: no daily-list changes, settings label still **default@5**.
+
+### Added: the paper account (`tracker.py paper` -> `trader/paper_account.json`)
+
+- Only **PASS** picks, from lists dated on or after `paper.start` (new setting, default `2026-11-10`, the first
+  default@5 list), in each list's own order; one position per stock; at most `max_open_positions` open or waiting
+  to buy; cash starts at the capital and never goes below zero (sale proceeds usable from the next day); the
+  quantity the list sized.
+- A PASS pick that can't be taken is **SKIPPED** with the reason: slots full, not enough cash (when listed or at
+  the fill price), already held / already waiting to buy, or UNKNOWN (no prices).
+- Fills, stops, targets, breakeven, time exits and charges are the tracker's own (`tracker.follow`, which the
+  tracker now uses too): a pick's result is the same in both. Open positions are valued at the last close after
+  the sell charges.
+- `positions[]`, `skipped[]`, a daily `equity_curve[]` and `totals` (equity, return, closed trades, win rate,
+  average R, P&L, max drawdown with dates, longest losing streak, open risk at the planned stops); groups under 30
+  closed trades are `too_few`.
+- Benchmark: the Shariah BeES bought with the same capital on `paper.start` and held (one buy and one sell charge);
+  UNKNOWN with the reason when it can't be fetched.
+
+### Added: the 15-day report (`tracker.py report [--days 15]` -> `trader/reports/DATE.md` + `.json`)
+
+- Banners first: "Paper only: nothing was bought." and, under 30 closed trades, "Too early to judge: N closed
+  trades (need 30+)."; not financial advice, not a fatwa.
+- The paper account for the last N days and since the start, vs the Shariah BeES over the same dates; trades closed
+  in the period; positions still open (R now); skipped PASS picks and why; the full tracker summary for reference,
+  labelled "includes WARN/BLOCK picks you would not buy". Under 150 lines, made to paste into a chat.
+- The daily run builds the paper account every run and writes the report when the last one is
+  `report.every_days` (new setting, default 15) days old; the email attaches it.
+- Dashboard Results tab: a "Paper account (PASS only)" card at the top (equity, return, closed trades, win rate,
+  average R, vs Shariah BeES), a "too early" note under 30 trades, and the saved reports (`GET /reports/DATE.md`,
+  read-only).
+
+### Changed
+
+- `tracker.py summary` is the old `report` output (the daily run and the MCP `tracker_report` tool use it, so they
+  write no report file). `report --json` still includes `summary`, `settings_split` and `recent`.
+- `curve_stats`, `trade_stats` and the buy-and-hold benchmark moved from tayyib-backtest into core
+  (`tc.curve_stats`, `tc.trade_stats`, `tc.buy_hold_benchmark`); the backtest keeps its names, results unchanged.
+- `paper.start` and `report.every_days` are outside the settings hash (they change no pick). New config type
+  `date`.
+
 ## v0.2.8 (2026-11-10)
 
 The backtest gets a second option, **My stocks**: the same fixed strategy, run only on stocks you pick, compared

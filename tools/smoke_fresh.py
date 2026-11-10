@@ -51,7 +51,7 @@ def scripts(root):
     for d in sorted(os.listdir(root)):
         if not d.startswith("tayyib-") or not os.path.isdir(os.path.join(root, d)):
             continue
-        helpers = {"tayyib_core.py", "actions.py"}
+        helpers = {"tayyib_core.py", "actions.py", "paper.py"}      # helper modules, not scripts
         out += [os.path.join(d, f) for f in sorted(os.listdir(os.path.join(root, d)))
                 if f.endswith(".py") and f not in helpers]
     return out + [os.path.join("mcp", "server.py")]

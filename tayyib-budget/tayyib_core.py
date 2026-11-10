@@ -44,7 +44,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-VERSION = "0.2.8"
+VERSION = "0.2.9"
 # Bump DEFAULTS_VERSION only when a default value changes behaviour (tests/fixtures/defaults_versions.json
 # records the defaults of every version, and a test fails if one changes without a bump). Adding a
 # key whose default keeps the old behaviour needs no bump.
@@ -263,6 +263,14 @@ DEFAULT_CONFIG = {
         "rule": "close_below_200dma",   # or "sma50_below_sma200"
         "action": "no_new_swing",       # or "no_new_trades", "half_risk"
     },
+    # v0.2.9: the paper account (PASS picks only, one cash account) and the shareable report. Measurement only:
+    # outside the settings hash, they change no pick.
+    "paper": {
+        "start": "2026-11-10",          # first list date the paper account takes (the first default@5 list)
+    },
+    "report": {
+        "every_days": 15,               # the daily run writes trader/reports/DATE.md when the last is this old
+    },
     "user_agent": HONEST_UA,            # fixed (v0.2.7): never a browser user agent
 }
 
@@ -382,6 +390,9 @@ DEFAULT_CONFIG_DOCS = {
                             choices=["always", "picks_only"]),
     "email.attach_md": _doc("Attach the daily list as a .md file", type="bool"),
     "user_agent": _doc("User agent for data requests", type="string"),
+    "paper.start": _doc("Paper account: the first daily list it takes PASS picks from", type="date"),
+    "report.every_days": _doc("The daily run writes the paper-account report when the last one is this many days "
+                              "old", 1, 90, "days", type="int"),
     "daily.top": _doc("tayyib-daily plans at most this many stocks (--top overrides)", 1, 50, "stocks",
                       type="int"),
     "daily.picks": _doc("tayyib-daily highlights this many PASS stocks (--picks overrides)", 0, 20, "stocks",
@@ -544,7 +555,7 @@ def _expect(doc):
         return "range %s–%s" % (_fmt_val(doc["min"]), _fmt_val(doc["max"]))
     if t in ("enum", "locked"):
         return "one of %s" % ", ".join(_fmt_val(c) for c in doc["choices"])
-    return {"bool": "true or false", "string": "text", "dates": "a list of YYYY-MM-DD dates",
+    return {"bool": "true or false", "string": "text", "dates": "a list of YYYY-MM-DD dates", "date": "a YYYY-MM-DD date",
             "map": "an object of name: URL text", "email": "an email address (or empty)",
             "emails": "a list of at most %d email addresses" % MAX_EMAIL_TO}.get(t, t)
 
@@ -578,6 +589,11 @@ def _check_value(doc, v):
             except (TypeError, ValueError):
                 return False, v
         return True, v
+    if t == "date":
+        try:
+            return len(v) == 10 and bool(dt.datetime.strptime(v, "%Y-%m-%d")), v
+        except (TypeError, ValueError):
+            return False, v
     if t == "email":
         return isinstance(v, str) and (v == "" or bool(EMAIL_RE.match(v))), v
     if t == "emails":
@@ -727,8 +743,9 @@ def halal_banner(cfg, universe=None):
 # allows are recorded as values), halal.near_limit_pct (only marks ratios near their limit)
 # v0.2.4: halal.held_recheck_days and halal.exit_grace_days only concern stocks you already hold (alerts and
 # wording), never which stocks today's list shows or how they are sized.
+# v0.2.9: paper.start and report.every_days only measure the PASS picks and say when to write the report.
 SETTINGS_EXCLUDE = ("user_agent", "halal.near_limit_pct", "email", "halal.held_recheck_days",
-                    "halal.exit_grace_days")
+                    "halal.exit_grace_days", "paper.start", "report.every_days")
 
 
 # Facts about the user, not strategy: your money and your broker. They stay in the hash (they change
@@ -751,6 +768,8 @@ def _decision_values(cfg):
             d = d.get(k) if isinstance(d, dict) else None
         if isinstance(d, dict):
             d.pop(ks[-1], None)
+            if not d and len(ks) > 1 and isinstance(vals.get(ks[0]), dict) and len(ks) == 2:
+                vals.pop(ks[0], None)       # v0.2.9: a section with only excluded keys (paper, report) leaves no trace
     return vals
 
 
@@ -1768,6 +1787,99 @@ def trade_outcome(bars, plan, cfg, today=None):
             out["pnl_rs"] = round(pnl, 2)
     return out
 
+
+# ---------------------------------------------------------------------------
+# Results metrics (v0.2.9: moved here from tayyib-backtest so the paper account uses the same functions;
+# backtest.py keeps its names as aliases)
+# ---------------------------------------------------------------------------
+
+MIN_TRADES = 30                 # under this many closed trades a group is too_few: its numbers are noise
+
+
+def _r2(x, n=2):
+    return None if x is None else round(x, n)
+
+
+def curve_stats(points):
+    """points: [(date, equity, exposed)] -> return, CAGR, max drawdown with dates, exposure."""
+    if not points:
+        return {"total_return_pct": None, "cagr_pct": None, "max_drawdown_pct": None, "drawdown_peak": None,
+                "drawdown_trough": None, "exposure_pct": None, "start_equity": None, "end_equity": None}
+    e0, e1 = points[0][1], points[-1][1]
+    years = (parse_date(points[-1][0]) - parse_date(points[0][0])).days / 365.25
+    cagr = ((e1 / e0) ** (1 / years) - 1) * 100 if years > 0 and e0 > 0 and e1 > 0 else None
+    peak, peak_d, worst, wp, wt = e0, points[0][0], 0.0, None, None
+    for d, e, _ in points:
+        if e > peak:
+            peak, peak_d = e, d
+        dd = (e / peak - 1) * 100 if peak > 0 else 0.0
+        if dd < worst:
+            worst, wp, wt = dd, peak_d, d
+    return {"total_return_pct": _r2((e1 / e0 - 1) * 100 if e0 else None), "cagr_pct": _r2(cagr),
+            "max_drawdown_pct": round(worst, 2), "drawdown_peak": wp, "drawdown_trough": wt,
+            "exposure_pct": round(sum(1 for p in points if p[2]) / len(points) * 100, 1),
+            "start_equity": round(e0, 2), "end_equity": round(e1, 2)}
+
+
+def trade_stats(trades):
+    """trades: [{r, pnl_rs, charges, exit_date, symbol}] -> win rate, average R, profit factor, P&L, streak."""
+    n = len(trades)
+    out = {"trades": n, "win_rate_pct": None, "avg_r": None, "avg_win_r": None, "avg_loss_r": None,
+           "expectancy_r": None, "profit_factor": None, "pnl_rs": None, "longest_losing_streak": 0,
+           "total_charges_rs": round(sum(t["charges"] for t in trades), 2)}
+    if not n:
+        return out
+    rs = [t["r"] for t in trades]
+    wins, losses = [r for r in rs if r > 0], [r for r in rs if r <= 0]
+    p = len(wins) / n
+    gp = sum(t["pnl_rs"] for t in trades if t["pnl_rs"] > 0)
+    gl = -sum(t["pnl_rs"] for t in trades if t["pnl_rs"] < 0)
+    streak = best = 0
+    for t in sorted(trades, key=lambda t: (t["exit_date"], t["symbol"])):
+        streak = streak + 1 if t["pnl_rs"] < 0 else 0
+        best = max(best, streak)
+    aw = sum(wins) / len(wins) if wins else None
+    al = sum(losses) / len(losses) if losses else None
+    out.update({"win_rate_pct": round(p * 100, 1), "avg_r": round(sum(rs) / n, 3), "avg_win_r": _r2(aw, 3),
+                "avg_loss_r": _r2(al, 3),
+                # p x average win - (1 - p) x average loss: the same number as the average R, by definition
+                "expectancy_r": round(p * (aw or 0) + (1 - p) * (al or 0), 3),
+                "profit_factor": round(gp / gl, 2) if gl > 0 else None,
+                "pnl_rs": round(sum(t["pnl_rs"] for t in trades), 2), "longest_losing_streak": best})
+    if gl == 0:
+        out["profit_factor_note"] = "no losing trades: profit factor undefined"
+    return out
+
+
+def buy_hold_benchmark(sym, name, range_, start, end, capital, cfg, fetch=None):
+    """Buy at the close of the first bar in the window with all the capital (fractional units, so the index
+    can be compared), sell at the last close, one buy and one sell charge. UNKNOWN with the reason when the
+    data cannot be had, never 0."""
+    out = {"symbol": sym, "name": name, "status": "UNKNOWN"}
+    try:
+        bars, _ = (fetch or get_daily_bars)(sym, range_=range_)
+    except FetchError as e:
+        out["reason"] = "could not be fetched: %s" % str(e)[:200]
+        return out
+    bars = [b for b in bars if start <= b["date"] <= end]
+    if len(bars) < 2:
+        out["reason"] = "no prices in the window %s to %s" % (start, end)
+        return out
+    p0, p1 = bars[0]["close"], bars[-1]["close"]
+    units = capital / p0
+    for _ in range(3):                                  # the buy charge comes out of the capital
+        units = (capital - order_charges("BUY", p0, units, cfg)["total"]) / p0
+    buy, sell = order_charges("BUY", p0, units, cfg)["total"], order_charges("SELL", p1, units, cfg)["total"]
+    pts = [(bars[0]["date"], capital, True)] + [(b["date"], units * b["close"], True) for b in bars[1:-1]] + \
+          [(bars[-1]["date"], units * p1 - sell, True)]
+    st = curve_stats(pts)
+    st.pop("exposure_pct", None)
+    out.update(status="OK", start=bars[0]["date"], end=bars[-1]["date"], buy_price=round(p0, 2),
+               sell_price=round(p1, 2), charges_rs=round(buy + sell, 2), **st)
+    out["curve"] = [[d, round(v, 2)] for d, v, _ in pts]          # v0.2.2: for the dashboard's equity chart
+    if bars[0]["date"] > start and (parse_date(bars[0]["date"]) - parse_date(start)).days > 7:
+        out["note"] = "its data starts %s, after the window start %s" % (bars[0]["date"], start)
+    return out
 
 # ---------------------------------------------------------------------------
 # Indian equity-delivery charges

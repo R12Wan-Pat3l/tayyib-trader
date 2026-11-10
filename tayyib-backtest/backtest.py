@@ -50,7 +50,7 @@ TM_YEARS = 2                   # the time machine sees the stock's last 2 years 
 BENCHMARKS = (("SHARIABEES.NS", "Nippon India ETF Shariah BeES"),
               ("^NSEI", "Nifty 50 (price index: dividends not included)"))
 SHARIAH_BENCH, NIFTY = "SHARIABEES.NS", "^NSEI"
-MIN_TRADES = 30
+MIN_TRADES = tc.MIN_TRADES      # 30
 
 BANNER_HALAL = ("Halal status is today's list applied to past years (point-in-time halal data is not "
                 "available).")
@@ -976,58 +976,10 @@ def robust_compare_md(rc):
 # Metrics
 # ---------------------------------------------------------------------------
 
-def _r2(x, n=2):
-    return None if x is None else round(x, n)
-
-
-def curve_stats(points):
-    """points: [(date, equity, exposed)] -> return, CAGR, max drawdown with dates, exposure."""
-    if not points:
-        return {"total_return_pct": None, "cagr_pct": None, "max_drawdown_pct": None, "drawdown_peak": None,
-                "drawdown_trough": None, "exposure_pct": None, "start_equity": None, "end_equity": None}
-    e0, e1 = points[0][1], points[-1][1]
-    years = (tc.parse_date(points[-1][0]) - tc.parse_date(points[0][0])).days / 365.25
-    cagr = ((e1 / e0) ** (1 / years) - 1) * 100 if years > 0 and e0 > 0 and e1 > 0 else None
-    peak, peak_d, worst, wp, wt = e0, points[0][0], 0.0, None, None
-    for d, e, _ in points:
-        if e > peak:
-            peak, peak_d = e, d
-        dd = (e / peak - 1) * 100 if peak > 0 else 0.0
-        if dd < worst:
-            worst, wp, wt = dd, peak_d, d
-    return {"total_return_pct": _r2((e1 / e0 - 1) * 100 if e0 else None), "cagr_pct": _r2(cagr),
-            "max_drawdown_pct": round(worst, 2), "drawdown_peak": wp, "drawdown_trough": wt,
-            "exposure_pct": round(sum(1 for p in points if p[2]) / len(points) * 100, 1),
-            "start_equity": round(e0, 2), "end_equity": round(e1, 2)}
-
-
-def trade_stats(trades):
-    n = len(trades)
-    out = {"trades": n, "win_rate_pct": None, "avg_r": None, "avg_win_r": None, "avg_loss_r": None,
-           "expectancy_r": None, "profit_factor": None, "pnl_rs": None, "longest_losing_streak": 0,
-           "total_charges_rs": round(sum(t["charges"] for t in trades), 2)}
-    if not n:
-        return out
-    rs = [t["r"] for t in trades]
-    wins, losses = [r for r in rs if r > 0], [r for r in rs if r <= 0]
-    p = len(wins) / n
-    gp = sum(t["pnl_rs"] for t in trades if t["pnl_rs"] > 0)
-    gl = -sum(t["pnl_rs"] for t in trades if t["pnl_rs"] < 0)
-    streak = best = 0
-    for t in sorted(trades, key=lambda t: (t["exit_date"], t["symbol"])):
-        streak = streak + 1 if t["pnl_rs"] < 0 else 0
-        best = max(best, streak)
-    aw = sum(wins) / len(wins) if wins else None
-    al = sum(losses) / len(losses) if losses else None
-    out.update({"win_rate_pct": round(p * 100, 1), "avg_r": round(sum(rs) / n, 3), "avg_win_r": _r2(aw, 3),
-                "avg_loss_r": _r2(al, 3),
-                # p x average win - (1 - p) x average loss: the same number as the average R, by definition
-                "expectancy_r": round(p * (aw or 0) + (1 - p) * (al or 0), 3),
-                "profit_factor": round(gp / gl, 2) if gl > 0 else None,
-                "pnl_rs": round(sum(t["pnl_rs"] for t in trades), 2), "longest_losing_streak": best})
-    if gl == 0:
-        out["profit_factor_note"] = "no losing trades: profit factor undefined"
-    return out
+# v0.2.9: the metrics live in core (the paper account uses them too); the old names stay
+_r2 = tc._r2
+curve_stats = tc.curve_stats
+trade_stats = tc.trade_stats
 
 
 def flag_few(m):
@@ -1093,34 +1045,9 @@ def all_metrics(sim, capital, split):
 # ---------------------------------------------------------------------------
 
 def benchmark(sym, name, range_, start, end, capital, cfg, fetch=None):
-    """Buy at the close of the first bar in the window with all the capital (fractional units, so the index
-    can be compared), sell at the last close, one buy and one sell charge. UNKNOWN with the reason when the
-    data cannot be had, never 0."""
-    out = {"symbol": sym, "name": name, "status": "UNKNOWN"}
-    try:
-        bars, _ = (fetch or tc.get_daily_bars)(sym, range_=range_)
-    except tc.FetchError as e:
-        out["reason"] = "could not be fetched: %s" % str(e)[:200]
-        return out
-    bars = [b for b in bars if start <= b["date"] <= end]
-    if len(bars) < 2:
-        out["reason"] = "no prices in the window %s to %s" % (start, end)
-        return out
-    p0, p1 = bars[0]["close"], bars[-1]["close"]
-    units = capital / p0
-    for _ in range(3):                                  # the buy charge comes out of the capital
-        units = (capital - _charges("BUY", p0, units, cfg)) / p0
-    buy, sell = _charges("BUY", p0, units, cfg), _charges("SELL", p1, units, cfg)
-    pts = [(bars[0]["date"], capital, True)] + [(b["date"], units * b["close"], True) for b in bars[1:-1]] + \
-          [(bars[-1]["date"], units * p1 - sell, True)]
-    st = curve_stats(pts)
-    st.pop("exposure_pct", None)
-    out.update(status="OK", start=bars[0]["date"], end=bars[-1]["date"], buy_price=round(p0, 2),
-               sell_price=round(p1, 2), charges_rs=round(buy + sell, 2), **st)
-    out["curve"] = [[d, round(v, 2)] for d, v, _ in pts]          # v0.2.2: for the dashboard's equity chart
-    if bars[0]["date"] > start and (tc.parse_date(bars[0]["date"]) - tc.parse_date(start)).days > 7:
-        out["note"] = "its data starts %s, after the window start %s" % (bars[0]["date"], start)
-    return out
+    """Buy and hold with all the capital, one buy and one sell charge; UNKNOWN with the reason when the data
+    cannot be had (tc.buy_hold_benchmark, v0.2.9)."""
+    return tc.buy_hold_benchmark(sym, name, range_, start, end, capital, cfg, fetch=fetch)
 
 
 # ---------------------------------------------------------------------------

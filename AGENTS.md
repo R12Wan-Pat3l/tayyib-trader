@@ -101,6 +101,11 @@ Email (18th skill, `tayyib-email`): `email_report.py send --dry-run` (writes `tr
 then emails it (the Windows task from `tools/schedule_windows.py show | install --yes | remove --yes`). A
 missing password is a clear message, never a crash; the daily list still runs.
 Year end: `tayyib-purify/purify.py report --year 2026`.
+Paper account (v0.2.9): `tayyib-tracker/tracker.py paper` (PASS picks only, one cash account ->
+`trader/paper_account.json`) and `tracker.py report [--days 15]` (-> `trader/reports/DATE.md`, the daily run writes
+one every 15 days). Say "Paper only: nothing was bought." first and, under 30 closed trades, "Too early to judge";
+lead with the paper account vs the Shariah BeES, never with the full tracker (it includes WARN/BLOCK picks).
+`tracker.py summary` is the full tracker summary.
 
 Every script accepts `--json` (after the subcommand, where there is one) for machine-readable output.
 

@@ -202,6 +202,45 @@ Every daily list is recorded automatically and followed on the real prices after
 Or ask Claude: **"How did yesterday's picks do?"**. This is paper only: nothing is bought. Judge it after
 30 or more closed trades, not after a few days.
 
+### Your paper account and the 15-day report
+The Excel tracker follows **every** pick, PASS, WARN and BLOCK, so you can see whether the checks were right.
+But you would only buy the PASS picks, and only as many as your money and your settings allow. The **paper
+account** copies exactly that, without money:
+- only **PASS** picks, from the lists made on or after its start date (10 November 2026, the first list with
+  today's settings), in the order the list shows them;
+- one position per stock, at most your **max open positions** (6) bought or waiting to buy at once;
+- it starts with your **capital** and never spends money it doesn't have; money from a sale can be used from the
+  next day (as with a real broker);
+- the quantity the list gave, the same buy, stop, target and time rules and the same charges as the tracker.
+
+A PASS pick it could not take is listed as **skipped**, with the reason ("slots full: 6 of 6 open or waiting to
+buy", "not enough cash", "already held"). It is compared with simply buying the **Shariah BeES** ETF with the same
+money on the start date and holding it.
+
+**Why this is the number to judge before real money:** it is what your account would have done if you had placed
+every PASS ticket. The tracker mixes in WARN and BLOCK picks you would not buy, and it doesn't run out of cash or
+slots. Wait for **30 or more closed trades** before you judge it: until then the report says "Too early to judge".
+
+**The report.** Every 15 days the daily run writes a short report: **`tayyib-live\trader\reports\DATE.md`** (and a
+`.json` copy for programs). If your email is on, it is attached to that day's email. It starts with "Paper only:
+nothing was bought.", then the paper account for the last 15 days and since the start, the trades closed, the
+positions still open, the skipped picks and why, and at the end the full tracker, for reference only.
+
+Make one any time:
+
+```
+py tayyib-tracker\tracker.py report              (the last 15 days)
+py tayyib-tracker\tracker.py report --days 30
+```
+
+or ask Claude **"make my paper report"**. The dashboard's **Results** tab shows the paper account card at the top
+and a list of saved reports; click one to open it.
+
+**How to share it:** open the `.md` file in Notepad, select all, copy and paste it into a chat or an email (it is
+short on purpose). It has no passwords, addresses or broker details: only the paper numbers and your capital and
+settings. Share it with someone who helps you judge the tool, not as stock tips: sending picks to other people
+can count as giving recommendations (see the email section).
+
 ### Your dashboard (in the browser)
 Everything above, on one page in your browser. It cannot buy or sell anything, and it runs on your own
 computer only (nobody else can open it). The only things it can change are your settings (the
@@ -700,8 +739,9 @@ settings did better or worse.
 
 ## Before real money
 
-Let the Excel tracker run for 4 to 6 weeks: it follows every pick for you, without any money. Check the
-Summary sheet, especially the PASS rows. If you also want to practise yourself, record your own trades
+Let the paper account run until it has 30 or more closed trades (see "Your paper account and the 15-day
+report"): it does what your money would have done with the PASS picks, without any money. Read its reports and
+compare it with the Shariah BeES. The Excel tracker's Summary sheet (every pick) shows whether the checks helped. If you also want to practise yourself, record your own trades
 with "I bought" / "I sold", without putting money in. Then ask **"show my positions"** and look at your real win rate and average R.
 The time machine shows past odds; your own journal shows whether *you* can follow the plan.
 

@@ -487,6 +487,12 @@ def message(rep, cfg, frm, to, attach=True):
     if attach and cfg["email"].get("attach_md") and rep["kind"] != "failed" and os.path.exists(md):
         with open(md, "rb") as f:
             msg.add_attachment(f.read(), maintype="text", subtype="markdown", filename=rep["date"] + ".md")
+    # v0.2.9: the paper-account report the daily run wrote today (every report.every_days days)
+    pr = os.path.join(tc.data_dir(), "reports", rep["date"] + ".md")
+    if attach and rep["kind"] != "failed" and os.path.exists(pr):
+        with open(pr, "rb") as f:
+            msg.add_attachment(f.read(), maintype="text", subtype="markdown",
+                               filename="paper-report-%s.md" % rep["date"])
     return msg
 
 
